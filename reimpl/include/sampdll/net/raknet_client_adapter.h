@@ -41,6 +41,8 @@ typedef struct samp_raknet_join_profile {
 
 #define SAMP_RAKNET_CLIENT_MESSAGE_RING 8u
 #define SAMP_RAKNET_CLIENT_MESSAGE_BYTES 256u
+#define SAMP_RAKNET_HOSTNAME_BYTES 256u
+#define SAMP_RAKNET_REQUIRED_VEHICLE_MODELS 212u
 
 typedef struct samp_raknet_client_message_probe {
   uint32_t seq;
@@ -51,6 +53,29 @@ typedef struct samp_raknet_client_message_probe {
 typedef struct samp_raknet_rpc_probe_snapshot {
   uint32_t flags;
   uint32_t client_message_count;
+  uint16_t init_spawns_available;
+  uint16_t init_local_player_id;
+  uint8_t init_show_player_tags;
+  uint8_t init_show_player_markers;
+  uint8_t init_tire_popping;
+  uint8_t init_world_time;
+  uint8_t init_weather;
+  float init_gravity;
+  uint8_t init_lan_mode;
+  int32_t init_death_drop_money;
+  uint8_t init_instagib;
+  uint8_t init_zone_names;
+  uint8_t init_use_cj_walk;
+  uint8_t init_allow_weapons;
+  uint8_t init_limit_global_chat_radius;
+  float init_global_chat_radius;
+  uint8_t init_stunt_bonus;
+  float init_name_tag_draw_distance;
+  uint8_t init_disable_enter_exits;
+  uint8_t init_name_tag_los;
+  int32_t init_send_rates[6];
+  char init_hostname[SAMP_RAKNET_HOSTNAME_BYTES];
+  uint8_t init_vehicle_models[SAMP_RAKNET_REQUIRED_VEHICLE_MODELS];
   uint8_t request_class_outcome;
   uint8_t request_spawn_outcome;
   uint16_t last_dialog_id;

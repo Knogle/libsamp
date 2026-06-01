@@ -80,8 +80,13 @@
 #define SAMP_ADDR_ID3D9DEVICE 0xC97C28u
 #define SAMP_ADDR_ENABLE_HUD 0xBA6769u
 #define SAMP_ADDR_RADAR_BLANK 0xBAA3FBu
+#define SAMP_ADDR_WORLD_MINUTE 0xB70152u
+#define SAMP_ADDR_WORLD_HOUR 0xB70153u
 #define SAMP_ADDR_WEATHER_A 0xC81320u
 #define SAMP_ADDR_WEATHER_B 0xC8131Cu
+#define SAMP_ADDR_GRAVITY 0x863984u
+#define SAMP_ADDR_STUNT_BONUS 0xA4A474u
+#define SAMP_ADDR_ENTER_EXITS 0x96A7C8u
 #define SAMP_ADDR_FIND_PLAYER_PED 0xB7CD98u
 #define SAMP_ADDR_CURRENT_PLAYER 0xB7CD74u
 #define SAMP_ADDR_PROCESS_ONE_COMMAND 0x469EB0u
@@ -243,6 +248,7 @@ typedef struct samp_runtime_state {
   LONG raknet_request_spawn_outcome;
   LONG raknet_last_dialog_id;
   LONG raknet_game_rpc_flags;
+  LONG raknet_init_game_applied;
   LONG online_session_drift_seen;
   LONG online_session_last_entry;
   LONG online_session_last_game_started;
@@ -287,7 +293,15 @@ typedef struct samp_runtime_state {
   uint8_t raknet_interior;
   uint8_t raknet_spawn_team;
   uint8_t raknet_camera_look_at_type;
+  uint8_t raknet_init_world_time;
+  uint8_t raknet_init_weather;
+  uint8_t raknet_init_lan_mode;
+  uint8_t raknet_init_disable_enter_exits;
+  uint8_t raknet_init_stunt_bonus;
+  uint16_t raknet_init_spawns_available;
+  uint16_t raknet_init_local_player_id;
   int32_t raknet_spawn_skin;
+  int32_t raknet_init_death_drop_money;
   DWORD script_gate_old_protect;
   DWORD net_mgr_last_connect_attempt_tick;
   void *bootstrap_manager_block;
@@ -302,10 +316,16 @@ typedef struct samp_runtime_state {
   float raknet_player_facing_angle;
   float raknet_camera_pos[3];
   float raknet_camera_look_at[3];
+  float raknet_init_gravity;
+  float raknet_init_name_tag_draw_distance;
+  float raknet_init_global_chat_radius;
   float raknet_spawn_pos[3];
   float raknet_spawn_rotation;
   int32_t raknet_spawn_weapons[3];
   int32_t raknet_spawn_weapon_ammo[3];
+  int32_t raknet_init_send_rates[6];
+  uint8_t raknet_init_vehicle_models[SAMP_RAKNET_REQUIRED_VEHICLE_MODELS];
+  char raknet_init_hostname[SAMP_RAKNET_HOSTNAME_BYTES];
   HFONT chat_overlay_font;
   DWORD chat_overlay_colors[SAMP_CHAT_COMPAT_MAX_LINES];
   char chat_overlay_lines[SAMP_CHAT_COMPAT_MAX_LINES][SAMP_CHAT_COMPAT_LINE_BYTES];
@@ -1905,6 +1925,113 @@ static void maintain_connect_wait_state(void) {
   apply_connect_wait_flags_compat();
 }
 
+static unsigned int count_required_vehicle_models_compat(const uint8_t *models, unsigned int *out_total,
+                                                         unsigned int *out_top_model, unsigned int *out_top_count) {
+  unsigned int nonzero = 0u;
+  unsigned int total = 0u;
+  unsigned int top_model = 400u;
+  unsigned int top_count = 0u;
+  unsigned int i = 0u;
+
+  if (models == NULL) {
+    return 0u;
+  }
+
+  for (i = 0u; i < SAMP_RAKNET_REQUIRED_VEHICLE_MODELS; ++i) {
+    unsigned int count = (unsigned int)models[i];
+    if (count != 0u) {
+      ++nonzero;
+      total += count;
+    }
+    if (count > top_count) {
+      top_count = count;
+      top_model = 400u + i;
+    }
+  }
+
+  if (out_total != NULL) {
+    *out_total = total;
+  }
+  if (out_top_model != NULL) {
+    *out_top_model = top_model;
+  }
+  if (out_top_count != NULL) {
+    *out_top_count = top_count;
+  }
+  return nonzero;
+}
+
+static void apply_raknet_init_game_settings_compat(const samp_raknet_rpc_probe_snapshot *snapshot) {
+  DWORD weather_value = 0u;
+  DWORD stunt_value = 0u;
+  int gravity_applied = 0;
+  int stunt_applied = 0;
+  unsigned int vehicle_total = 0u;
+  unsigned int top_vehicle_model = 400u;
+  unsigned int top_vehicle_count = 0u;
+  unsigned int vehicle_nonzero = 0u;
+
+  if (snapshot == NULL || (snapshot->flags & SAMP_RAKNET_RPC_FLAG_INIT_GAME) == 0u) {
+    return;
+  }
+  if (InterlockedCompareExchange(&g_runtime.raknet_init_game_applied, 1, 0) != 0) {
+    return;
+  }
+
+  g_runtime.raknet_init_spawns_available = snapshot->init_spawns_available;
+  g_runtime.raknet_init_local_player_id = snapshot->init_local_player_id;
+  g_runtime.raknet_init_world_time = snapshot->init_world_time;
+  g_runtime.raknet_init_weather = snapshot->init_weather;
+  g_runtime.raknet_weather = snapshot->init_weather;
+  g_runtime.raknet_init_gravity = snapshot->init_gravity;
+  g_runtime.raknet_init_lan_mode = snapshot->init_lan_mode;
+  g_runtime.raknet_init_death_drop_money = snapshot->init_death_drop_money;
+  g_runtime.raknet_init_disable_enter_exits = snapshot->init_disable_enter_exits;
+  g_runtime.raknet_init_stunt_bonus = snapshot->init_stunt_bonus;
+  g_runtime.raknet_init_name_tag_draw_distance = snapshot->init_name_tag_draw_distance;
+  g_runtime.raknet_init_global_chat_radius = snapshot->init_global_chat_radius;
+  memcpy(g_runtime.raknet_init_send_rates, snapshot->init_send_rates, sizeof(g_runtime.raknet_init_send_rates));
+  memcpy(g_runtime.raknet_init_vehicle_models, snapshot->init_vehicle_models,
+         sizeof(g_runtime.raknet_init_vehicle_models));
+  strncpy(g_runtime.raknet_init_hostname, snapshot->init_hostname, sizeof(g_runtime.raknet_init_hostname) - 1u);
+  g_runtime.raknet_init_hostname[sizeof(g_runtime.raknet_init_hostname) - 1u] = '\0';
+
+  write_game_u8(SAMP_ADDR_WORLD_HOUR, snapshot->init_world_time);
+  write_game_u8(SAMP_ADDR_WORLD_MINUTE, 0u);
+  weather_value = (DWORD)snapshot->init_weather;
+  *(volatile DWORD *)(uintptr_t)SAMP_ADDR_WEATHER_A = weather_value;
+  *(volatile DWORD *)(uintptr_t)SAMP_ADDR_WEATHER_B = weather_value;
+
+  if (snapshot->init_gravity > 0.0f && snapshot->init_gravity < 1.0f) {
+    gravity_applied = patch_copy(SAMP_ADDR_GRAVITY, &snapshot->init_gravity, sizeof(snapshot->init_gravity));
+  }
+
+  stunt_value = (DWORD)(snapshot->init_stunt_bonus ? 1u : 0u);
+  stunt_applied = patch_copy(SAMP_ADDR_STUNT_BONUS, &stunt_value, sizeof(stunt_value));
+  if (snapshot->init_disable_enter_exits != 0u) {
+    write_game_u8(SAMP_ADDR_ENTER_EXITS, 0u);
+  }
+
+  vehicle_nonzero =
+      count_required_vehicle_models_compat(snapshot->init_vehicle_models, &vehicle_total, &top_vehicle_model,
+                                           &top_vehicle_count);
+
+  runtime_tracef("init_game_apply: spawns=%u local_player=%u host='%.64s' time=%u weather=%u gravity=%.6f "
+                 "gravity_applied=%d lan=%u death_drop=%ld stunt=%u stunt_applied=%d enter_exits_disabled=%u "
+                 "nametag_dist=%.3f chat_radius=%.3f send_rates=%ld/%ld/%ld/%ld/%ld/%ld "
+                 "vehicle_models_nonzero=%u vehicle_total=%u top_vehicle=%u:%u",
+                 (unsigned)snapshot->init_spawns_available, (unsigned)snapshot->init_local_player_id,
+                 snapshot->init_hostname, (unsigned)snapshot->init_world_time, (unsigned)snapshot->init_weather,
+                 (double)snapshot->init_gravity, gravity_applied, (unsigned)snapshot->init_lan_mode,
+                 (long)snapshot->init_death_drop_money, (unsigned)snapshot->init_stunt_bonus, stunt_applied,
+                 (unsigned)snapshot->init_disable_enter_exits, (double)snapshot->init_name_tag_draw_distance,
+                 (double)snapshot->init_global_chat_radius, (long)snapshot->init_send_rates[0],
+                 (long)snapshot->init_send_rates[1], (long)snapshot->init_send_rates[2],
+                 (long)snapshot->init_send_rates[3], (long)snapshot->init_send_rates[4],
+                 (long)snapshot->init_send_rates[5], vehicle_nonzero, vehicle_total, top_vehicle_model,
+                 top_vehicle_count);
+}
+
 static uint32_t refresh_raknet_rpc_snapshot_compat(void) {
   samp_raknet_rpc_probe_snapshot snapshot;
   LONG previous_flags = 0;
@@ -1931,6 +2058,7 @@ static uint32_t refresh_raknet_rpc_snapshot_compat(void) {
   previous_dialog = InterlockedExchange(&g_runtime.raknet_last_dialog_id, (LONG)snapshot.last_dialog_id);
   game_rpc_flags = snapshot.flags & SAMP_RAKNET_RPC_FLAG_GAME_STATE_MASK;
   previous_game_rpc_flags = InterlockedExchange(&g_runtime.raknet_game_rpc_flags, (LONG)game_rpc_flags);
+  apply_raknet_init_game_settings_compat(&snapshot);
   previous_chat_seq = (uint32_t)InterlockedCompareExchange(&g_runtime.chat_client_message_seq, 0, 0);
   if ((snapshot.flags & SAMP_RAKNET_RPC_FLAG_CLIENT_MESSAGE) != 0u && snapshot.client_message_count > 0u) {
     uint32_t latest_seq = previous_chat_seq;
@@ -2932,6 +3060,7 @@ static void launch_prepare_network_compat(void) {
     InterlockedExchange(&g_runtime.raknet_request_spawn_outcome, 0);
     InterlockedExchange(&g_runtime.raknet_last_dialog_id, 0);
     InterlockedExchange(&g_runtime.raknet_game_rpc_flags, 0);
+    InterlockedExchange(&g_runtime.raknet_init_game_applied, 0);
     InterlockedExchange(&g_runtime.chat_client_message_seq, 0);
     InterlockedExchange(&g_runtime.online_session_drift_seen, 0);
     InterlockedExchange(&g_runtime.online_session_last_entry, 0);
@@ -2943,10 +3072,24 @@ static void launch_prepare_network_compat(void) {
     g_runtime.raknet_weather = 0u;
     g_runtime.raknet_interior = 0u;
     g_runtime.raknet_camera_look_at_type = 0u;
+    g_runtime.raknet_init_world_time = 0u;
+    g_runtime.raknet_init_weather = 0u;
+    g_runtime.raknet_init_lan_mode = 0u;
+    g_runtime.raknet_init_disable_enter_exits = 0u;
+    g_runtime.raknet_init_stunt_bonus = 0u;
+    g_runtime.raknet_init_spawns_available = 0u;
+    g_runtime.raknet_init_local_player_id = 0u;
+    g_runtime.raknet_init_death_drop_money = 0;
     g_runtime.raknet_player_facing_angle = 0.0f;
+    g_runtime.raknet_init_gravity = 0.0f;
+    g_runtime.raknet_init_name_tag_draw_distance = 0.0f;
+    g_runtime.raknet_init_global_chat_radius = 0.0f;
     memset(g_runtime.raknet_player_pos, 0, sizeof(g_runtime.raknet_player_pos));
     memset(g_runtime.raknet_camera_pos, 0, sizeof(g_runtime.raknet_camera_pos));
     memset(g_runtime.raknet_camera_look_at, 0, sizeof(g_runtime.raknet_camera_look_at));
+    memset(g_runtime.raknet_init_send_rates, 0, sizeof(g_runtime.raknet_init_send_rates));
+    memset(g_runtime.raknet_init_vehicle_models, 0, sizeof(g_runtime.raknet_init_vehicle_models));
+    memset(g_runtime.raknet_init_hostname, 0, sizeof(g_runtime.raknet_init_hostname));
     uses_raknet =
         InterlockedCompareExchange(&g_runtime.net_mgr_inited, 0, 0) ? samp_net_mgr_uses_raknet(&g_runtime.net_mgr) : 0;
     runtime_tracef("network_prepare: Connecting to %s:%u attempt=%ld uses_raknet=%d", g_runtime.endpoint.host,

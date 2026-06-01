@@ -85,6 +85,29 @@ struct RpcProbeState {
   char dialog_info[kDialogInfoBytes];
   char dialog_button1[kDialogButtonBytes];
   char dialog_button2[kDialogButtonBytes];
+  unsigned short init_spawns_available;
+  unsigned short init_local_player_id;
+  unsigned char init_show_player_tags;
+  unsigned char init_show_player_markers;
+  unsigned char init_tire_popping;
+  unsigned char init_world_time;
+  unsigned char init_weather;
+  float init_gravity;
+  unsigned char init_lan_mode;
+  std::int32_t init_death_drop_money;
+  unsigned char init_instagib;
+  unsigned char init_zone_names;
+  unsigned char init_use_cj_walk;
+  unsigned char init_allow_weapons;
+  unsigned char init_limit_global_chat_radius;
+  float init_global_chat_radius;
+  unsigned char init_stunt_bonus;
+  float init_name_tag_draw_distance;
+  unsigned char init_disable_enter_exits;
+  unsigned char init_name_tag_los;
+  std::int32_t init_send_rates[6];
+  char init_hostname[SAMP_RAKNET_HOSTNAME_BYTES];
+  unsigned char init_vehicle_models[SAMP_RAKNET_REQUIRED_VEHICLE_MODELS];
   unsigned char request_class_outcome;
   unsigned char request_spawn_outcome;
   float player_pos[3];
@@ -254,6 +277,29 @@ void reset_rpc_probe_runtime(RakNet::RakClientInterface *client) {
   g_rpc_probe.dialog_info[0] = '\0';
   g_rpc_probe.dialog_button1[0] = '\0';
   g_rpc_probe.dialog_button2[0] = '\0';
+  g_rpc_probe.init_spawns_available = 0;
+  g_rpc_probe.init_local_player_id = 0;
+  g_rpc_probe.init_show_player_tags = 0;
+  g_rpc_probe.init_show_player_markers = 0;
+  g_rpc_probe.init_tire_popping = 0;
+  g_rpc_probe.init_world_time = 0;
+  g_rpc_probe.init_weather = 0;
+  g_rpc_probe.init_gravity = 0.0f;
+  g_rpc_probe.init_lan_mode = 0;
+  g_rpc_probe.init_death_drop_money = 0;
+  g_rpc_probe.init_instagib = 0;
+  g_rpc_probe.init_zone_names = 0;
+  g_rpc_probe.init_use_cj_walk = 0;
+  g_rpc_probe.init_allow_weapons = 0;
+  g_rpc_probe.init_limit_global_chat_radius = 0;
+  g_rpc_probe.init_global_chat_radius = 0.0f;
+  g_rpc_probe.init_stunt_bonus = 0;
+  g_rpc_probe.init_name_tag_draw_distance = 0.0f;
+  g_rpc_probe.init_disable_enter_exits = 0;
+  g_rpc_probe.init_name_tag_los = 0;
+  std::memset(g_rpc_probe.init_send_rates, 0, sizeof(g_rpc_probe.init_send_rates));
+  std::memset(g_rpc_probe.init_hostname, 0, sizeof(g_rpc_probe.init_hostname));
+  std::memset(g_rpc_probe.init_vehicle_models, 0, sizeof(g_rpc_probe.init_vehicle_models));
   g_rpc_probe.request_class_outcome = 0;
   g_rpc_probe.request_spawn_outcome = 0;
   std::memset(g_rpc_probe.player_pos, 0, sizeof(g_rpc_probe.player_pos));
@@ -337,6 +383,123 @@ void read_spawn_info(const unsigned char *data, unsigned int bytes, const char *
              static_cast<int>(g_rpc_probe.spawn_weapons[1]), static_cast<int>(g_rpc_probe.spawn_weapons[2]),
              static_cast<int>(g_rpc_probe.spawn_weapon_ammo[0]), static_cast<int>(g_rpc_probe.spawn_weapon_ammo[1]),
              static_cast<int>(g_rpc_probe.spawn_weapon_ammo[2]));
+}
+
+bool decode_init_game_payload(const unsigned char *data, unsigned int bytes) {
+  unsigned short spawns_available = 0;
+  unsigned short local_player_id = 0;
+  bool show_player_tags = false;
+  bool show_player_markers = false;
+  bool tire_popping = false;
+  unsigned char world_time = 0;
+  unsigned char weather = 0;
+  float gravity = 0.0f;
+  bool lan_mode = false;
+  std::int32_t death_drop_money = 0;
+  bool instagib = false;
+  bool zone_names = false;
+  bool use_cj_walk = false;
+  bool allow_weapons = false;
+  bool limit_global_chat_radius = false;
+  float global_chat_radius = 0.0f;
+  bool stunt_bonus = false;
+  float name_tag_draw_distance = 0.0f;
+  bool disable_enter_exits = false;
+  bool name_tag_los = true;
+  std::int32_t send_rates[6] = {0, 0, 0, 0, 0, 0};
+  unsigned char hostname_len = 0;
+  char hostname[SAMP_RAKNET_HOSTNAME_BYTES] = {0};
+  unsigned char vehicle_models[SAMP_RAKNET_REQUIRED_VEHICLE_MODELS] = {0};
+  unsigned int vehicle_model_nonzero = 0U;
+  unsigned int vehicle_model_total = 0U;
+  unsigned int top_vehicle_model = 400U;
+  unsigned int top_vehicle_count = 0U;
+
+  if (data == nullptr || bytes == 0U) {
+    return false;
+  }
+
+  RakNet::BitStream bs(const_cast<unsigned char *>(data), bytes, false);
+
+  if (!bs.Read(spawns_available) || !bs.Read(local_player_id) || !bs.Read(show_player_tags) ||
+      !bs.Read(show_player_markers) || !bs.Read(tire_popping) || !bs.Read(world_time) || !bs.Read(weather) ||
+      !bs.Read(gravity) || !bs.Read(lan_mode) || !bs.Read(death_drop_money) || !bs.Read(instagib) ||
+      !bs.Read(zone_names) || !bs.Read(use_cj_walk) || !bs.Read(allow_weapons) ||
+      !bs.Read(limit_global_chat_radius) || !bs.Read(global_chat_radius) || !bs.Read(stunt_bonus) ||
+      !bs.Read(name_tag_draw_distance) || !bs.Read(disable_enter_exits) || !bs.Read(name_tag_los)) {
+    return false;
+  }
+
+  for (unsigned int i = 0U; i < 6U; ++i) {
+    if (!bs.Read(send_rates[i])) {
+      return false;
+    }
+  }
+
+  if (!bs.Read(hostname_len)) {
+    return false;
+  }
+  if (hostname_len > 0U && !bs.Read(hostname, static_cast<int>(hostname_len))) {
+    return false;
+  }
+  hostname[SAMP_RAKNET_HOSTNAME_BYTES - 1U] = '\0';
+
+  if (!bs.Read(reinterpret_cast<char *>(vehicle_models), SAMP_RAKNET_REQUIRED_VEHICLE_MODELS)) {
+    return false;
+  }
+
+  g_rpc_probe.init_spawns_available = spawns_available;
+  g_rpc_probe.init_local_player_id = local_player_id;
+  g_rpc_probe.init_show_player_tags = show_player_tags ? 1U : 0U;
+  g_rpc_probe.init_show_player_markers = show_player_markers ? 1U : 0U;
+  g_rpc_probe.init_tire_popping = tire_popping ? 1U : 0U;
+  g_rpc_probe.init_world_time = world_time;
+  g_rpc_probe.init_weather = weather;
+  g_rpc_probe.init_gravity = gravity;
+  g_rpc_probe.init_lan_mode = lan_mode ? 1U : 0U;
+  g_rpc_probe.init_death_drop_money = death_drop_money;
+  g_rpc_probe.init_instagib = instagib ? 1U : 0U;
+  g_rpc_probe.init_zone_names = zone_names ? 1U : 0U;
+  g_rpc_probe.init_use_cj_walk = use_cj_walk ? 1U : 0U;
+  g_rpc_probe.init_allow_weapons = allow_weapons ? 1U : 0U;
+  g_rpc_probe.init_limit_global_chat_radius = limit_global_chat_radius ? 1U : 0U;
+  g_rpc_probe.init_global_chat_radius = global_chat_radius;
+  g_rpc_probe.init_stunt_bonus = stunt_bonus ? 1U : 0U;
+  g_rpc_probe.init_name_tag_draw_distance = name_tag_draw_distance;
+  g_rpc_probe.init_disable_enter_exits = disable_enter_exits ? 1U : 0U;
+  g_rpc_probe.init_name_tag_los = name_tag_los ? 1U : 0U;
+  std::memcpy(g_rpc_probe.init_send_rates, send_rates, sizeof(g_rpc_probe.init_send_rates));
+  std::strncpy(g_rpc_probe.init_hostname, hostname, sizeof(g_rpc_probe.init_hostname) - 1U);
+  g_rpc_probe.init_hostname[sizeof(g_rpc_probe.init_hostname) - 1U] = '\0';
+  std::memcpy(g_rpc_probe.init_vehicle_models, vehicle_models, sizeof(g_rpc_probe.init_vehicle_models));
+
+  for (unsigned int i = 0U; i < SAMP_RAKNET_REQUIRED_VEHICLE_MODELS; ++i) {
+    const unsigned int count = static_cast<unsigned int>(vehicle_models[i]);
+    if (count != 0U) {
+      ++vehicle_model_nonzero;
+      vehicle_model_total += count;
+    }
+    if (count > top_vehicle_count) {
+      top_vehicle_count = count;
+      top_vehicle_model = 400U + i;
+    }
+  }
+
+  trace_netf("rpc-state id=139 init_game spawns=%u local_player=%u tags=%u markers=%u tire=%u time=%u weather=%u "
+             "gravity=%.6f lan=%u death_drop=%d instagib=%u zones=%u cj=%u weapons=%u chat_limit=%u "
+             "chat_radius=%.3f stunt=%u nametag_dist=%.3f enter_exits_disabled=%u los=%u "
+             "send_rates=%d/%d/%d/%d/%d/%d host='%s' veh_nonzero=%u veh_total=%u top_vehicle=%u:%u",
+             static_cast<unsigned int>(spawns_available), static_cast<unsigned int>(local_player_id),
+             show_player_tags ? 1U : 0U, show_player_markers ? 1U : 0U, tire_popping ? 1U : 0U,
+             static_cast<unsigned int>(world_time), static_cast<unsigned int>(weather), static_cast<double>(gravity),
+             lan_mode ? 1U : 0U, static_cast<int>(death_drop_money), instagib ? 1U : 0U, zone_names ? 1U : 0U,
+             use_cj_walk ? 1U : 0U, allow_weapons ? 1U : 0U, limit_global_chat_radius ? 1U : 0U,
+             static_cast<double>(global_chat_radius), stunt_bonus ? 1U : 0U,
+             static_cast<double>(name_tag_draw_distance), disable_enter_exits ? 1U : 0U, name_tag_los ? 1U : 0U,
+             static_cast<int>(send_rates[0]), static_cast<int>(send_rates[1]), static_cast<int>(send_rates[2]),
+             static_cast<int>(send_rates[3]), static_cast<int>(send_rates[4]), static_cast<int>(send_rates[5]),
+             hostname, vehicle_model_nonzero, vehicle_model_total, top_vehicle_model, top_vehicle_count);
+  return true;
 }
 
 void copy_text(char *out, size_t out_size, const char *input) {
@@ -785,6 +948,11 @@ void rpc_observer(RakNet::RPCParameters *rpc_params, void *extra) {
     }
   } else if (rpc_id == 139U) {
     g_rpc_probe.saw_init_game = 1;
+    if (rpc_params != nullptr) {
+      if (!decode_init_game_payload(rpc_params->input, bytes)) {
+        trace_netf("rpc-state id=139 init_game decode failed bytes=%u", bytes);
+      }
+    }
     if (!g_rpc_probe.sent_request_class) {
       g_rpc_probe.pending_request_class = 1;
     }
@@ -1325,6 +1493,30 @@ int samp_raknet_client_get_rpc_probe_snapshot(void *client, samp_raknet_rpc_prob
 
   out_snapshot->flags = flags;
   out_snapshot->client_message_count = 0U;
+  out_snapshot->init_spawns_available = g_rpc_probe.init_spawns_available;
+  out_snapshot->init_local_player_id = g_rpc_probe.init_local_player_id;
+  out_snapshot->init_show_player_tags = g_rpc_probe.init_show_player_tags;
+  out_snapshot->init_show_player_markers = g_rpc_probe.init_show_player_markers;
+  out_snapshot->init_tire_popping = g_rpc_probe.init_tire_popping;
+  out_snapshot->init_world_time = g_rpc_probe.init_world_time;
+  out_snapshot->init_weather = g_rpc_probe.init_weather;
+  out_snapshot->init_gravity = g_rpc_probe.init_gravity;
+  out_snapshot->init_lan_mode = g_rpc_probe.init_lan_mode;
+  out_snapshot->init_death_drop_money = g_rpc_probe.init_death_drop_money;
+  out_snapshot->init_instagib = g_rpc_probe.init_instagib;
+  out_snapshot->init_zone_names = g_rpc_probe.init_zone_names;
+  out_snapshot->init_use_cj_walk = g_rpc_probe.init_use_cj_walk;
+  out_snapshot->init_allow_weapons = g_rpc_probe.init_allow_weapons;
+  out_snapshot->init_limit_global_chat_radius = g_rpc_probe.init_limit_global_chat_radius;
+  out_snapshot->init_global_chat_radius = g_rpc_probe.init_global_chat_radius;
+  out_snapshot->init_stunt_bonus = g_rpc_probe.init_stunt_bonus;
+  out_snapshot->init_name_tag_draw_distance = g_rpc_probe.init_name_tag_draw_distance;
+  out_snapshot->init_disable_enter_exits = g_rpc_probe.init_disable_enter_exits;
+  out_snapshot->init_name_tag_los = g_rpc_probe.init_name_tag_los;
+  std::memcpy(out_snapshot->init_send_rates, g_rpc_probe.init_send_rates, sizeof(out_snapshot->init_send_rates));
+  std::memcpy(out_snapshot->init_hostname, g_rpc_probe.init_hostname, sizeof(out_snapshot->init_hostname));
+  std::memcpy(out_snapshot->init_vehicle_models, g_rpc_probe.init_vehicle_models,
+              sizeof(out_snapshot->init_vehicle_models));
   out_snapshot->request_class_outcome = g_rpc_probe.request_class_outcome;
   out_snapshot->request_spawn_outcome = g_rpc_probe.request_spawn_outcome;
   out_snapshot->last_dialog_id = g_rpc_probe.last_dialog_id;
