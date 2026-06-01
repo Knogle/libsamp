@@ -1,0 +1,47 @@
+            ; XREFS(22)
+┌ 106: fcn.10056130 (int32_t arg_8h, int32_t arg_18h, int32_t arg_20h, int32_t arg_24h);
+│ `- args(sp[0x4..0x10])
+│           0x10056130      8a4101         mov al, byte [ecx + 1]
+│           0x10056133      84c0           test al, al
+│       ┌─< 0x10056135      7460           je 0x10056197
+│       │   0x10056137      8b410b         mov eax, dword [ecx + 0xb]
+│       │   0x1005613a      85c0           test eax, eax
+│      ┌──< 0x1005613c      7459           je 0x10056197
+│      ││   0x1005613e      56             push esi
+│      ││   0x1005613f      8b742408       mov esi, dword [arg_8h]
+│      ││   0x10056143      85f6           test esi, esi
+│     ┌───< 0x10056145      744f           je 0x10056196
+│     │││   0x10056147      53             push ebx
+│     │││   0x10056148      55             push ebp
+│     │││   0x10056149      8d6913         lea ebp, [ecx + 0x13]
+│     │││   0x1005614c      57             push edi
+│     │││   0x1005614d      8bcd           mov ecx, ebp
+│     │││   0x1005614f      e86cf8ffff     call fcn.100559c0
+│     │││   0x10056154      8bd8           mov ebx, eax
+│     │││   0x10056156      8b442418       mov eax, dword [arg_18h]
+│     │││   0x1005615a      50             push eax
+│     │││   0x1005615b      894308         mov dword [ebx + 8], eax
+│     │││   0x1005615e      e817010700     call fcn.100c627a
+│     │││   0x10056163      8b4b08         mov ecx, dword [ebx + 8]
+│     │││   0x10056166      668b542424     mov dx, word [arg_24h]
+│     │││   0x1005616b      894310         mov dword [ebx + 0x10], eax
+│     │││   0x1005616e      8bf8           mov edi, eax
+│     │││   0x10056170      8bc1           mov eax, ecx
+│     │││   0x10056172      c1e902         shr ecx, 2
+│     │││   0x10056175      f3a5           rep movsd dword es:[edi], dword [esi]
+│     │││   0x10056177      8bc8           mov ecx, eax
+│     │││   0x10056179      83e103         and ecx, 3
+│     │││   0x1005617c      f3a4           rep movsb byte es:[edi], byte [esi]
+│     │││   0x1005617e      8b4c2420       mov ecx, dword [arg_20h]
+│     │││   0x10056182      894b02         mov dword [ebx + 2], ecx
+│     │││   0x10056185      83c404         add esp, 4
+│     │││   0x10056188      8bcd           mov ecx, ebp
+│     │││   0x1005618a      66895306       mov word [ebx + 6], dx
+│     │││   0x1005618e      e86df8ffff     call fcn.10055a00
+│     │││   0x10056193      5f             pop edi
+│     │││   0x10056194      5d             pop ebp
+│     │││   0x10056195      5b             pop ebx
+│     │││   ; CODE XREF from fcn.10056130 @ 0x10056145(x)
+│     └───> 0x10056196      5e             pop esi
+│      ││   ; CODE XREFS from fcn.10056130 @ 0x10056135(x), 0x1005613c(x)
+└      └└─> 0x10056197      c21000         ret 0x10

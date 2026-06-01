@@ -1,0 +1,3 @@
+[submodule "third_party/raknet-knogle"]
+	path = third_party/raknet-knogle
+	url = https://github.com/Knogle/RakNet

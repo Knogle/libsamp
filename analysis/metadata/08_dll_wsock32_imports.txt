@@ -1,0 +1,121 @@
+	DLL Name: WSOCK32.dll
+	vma:     Ordinal  Hint  Member-Name  Bound-To
+	000e5408      8  <none> <none>
+	000e540c     13  <none> <none>
+	000e5410     18  <none> <none>
+	000e5414    151  <none> <none>
+	000e5418      1  <none> <none>
+	000e541c      6  <none> <none>
+	000e5420     57  <none> <none>
+	000e5424     20  <none> <none>
+	000e5428    111  <none> <none>
+	000e542c     17  <none> <none>
+	000e5430     15  <none> <none>
+	000e5434     21  <none> <none>
+	000e5438     12  <none> <none>
+	000e543c      2  <none> <none>
+	000e5440     10  <none> <none>
+	000e5444     11  <none> <none>
+	000e5448     52  <none> <none>
+	000e544c      9  <none> <none>
+	000e5450     23  <none> <none>
+	000e5454      4  <none> <none>
+	000e5458     16  <none> <none>
+	000e545c     19  <none> <none>
+	000e5460      3  <none> <none>
+	000e5464    116  <none> <none>
+	000e5468    115  <none> <none>
+
+ 000fc324	000fc784 00000000 00000000 000fd918 000e53fc
+
+	DLL Name: WINMM.dll
+	vma:     Ordinal  Hint  Member-Name  Bound-To
+	000e53fc  <none>  00a3  timeGetTime
+	000e5400  <none>  009f  timeBeginPeriod
+
+ 000fc338	000fc610 00000000 00000000 000fd93a 000e5288
+
+	DLL Name: PSAPI.DLL
+	vma:     Ordinal  Hint  Member-Name  Bound-To
+	000e5288  <none>  0014  GetProcessMemoryInfo
+
+ 000fc34c	000fc39c 00000000 00000000 000fdaaa 000e5014
+
+	DLL Name: BASS.dll
+	vma:     Ordinal  Hint  Member-Name  Bound-To
+	000e5014  <none>  0054  BASS_SetEAXParameters
+	000e5018  <none>  0051  BASS_SetConfig
+	000e501c  <none>  0052  BASS_SetConfigPtr
+	000e5020  <none>  0034  BASS_Init
+	000e5024  <none>  0027  BASS_Free
+	000e5028  <none>  005c  BASS_StreamFree
+	000e502c  <none>  000c  BASS_ChannelGetTags
+	000e5030  <none>  005d  BASS_StreamGetFilePosition
+	000e5034  <none>  001f  BASS_ChannelSetSync
+	000e5038  <none>  0011  BASS_ChannelPlay
+	000e503c  <none>  005b  BASS_StreamCreateURL
+	000e5040  <none>  0021  BASS_ChannelStop
+	000e5044  <none>  0000  BASS_Apply3D
+	000e5048  <none>  0018  BASS_ChannelSet3DPosition
+	000e504c  <none>  0017  BASS_ChannelSet3DAttributes
+	000e5050  <none>  0050  BASS_Set3DPosition
+	000e5054  <none>  004f  BASS_Set3DFactors
+
+ 000fc360	000fc618 00000000 00000000 000fdac4 000e5290
+
+	DLL Name: SHELL32.dll
+	vma:     Ordinal  Hint  Member-Name  Bound-To
+	000e5290  <none>  002b  ExtractIconA
+
+ 000fc374	00000000 00000000 00000000 00000000 00000000
+
+
+PE File Base Relocations (interpreted .reloc section contents)
+
+Virtual Address: 00001000 Chunk size 84 (0x54) Number of fixups 38
+	reloc    0 offset   13 [1013] HIGHLOW
+	reloc    1 offset  35b [135b] HIGHLOW
+	reloc    2 offset  371 [1371] HIGHLOW
+	reloc    3 offset  385 [1385] HIGHLOW
+	reloc    4 offset  483 [1483] HIGHLOW
+	reloc    5 offset  593 [1593] HIGHLOW
+	reloc    6 offset  5bb [15bb] HIGHLOW
+	reloc    7 offset  909 [1909] HIGHLOW
+	reloc    8 offset  92a [192a] HIGHLOW
+	reloc    9 offset  92f [192f] HIGHLOW
+	reloc   10 offset  a61 [1a61] HIGHLOW
+	reloc   11 offset  a6f [1a6f] HIGHLOW
+	reloc   12 offset  aa9 [1aa9] HIGHLOW
+	reloc   13 offset  c14 [1c14] HIGHLOW
+	reloc   14 offset  c18 [1c18] HIGHLOW
+	reloc   15 offset  c1c [1c1c] HIGHLOW
+	reloc   16 offset  c20 [1c20] HIGHLOW
+	reloc   17 offset  c33 [1c33] HIGHLOW
+	reloc   18 offset  c39 [1c39] HIGHLOW
+	reloc   19 offset  c43 [1c43] HIGHLOW
+	reloc   20 offset  c4c [1c4c] HIGHLOW
+	reloc   21 offset  c56 [1c56] HIGHLOW
+	reloc   22 offset  c5c [1c5c] HIGHLOW
+	reloc   23 offset  c6b [1c6b] HIGHLOW
+	reloc   24 offset  c7a [1c7a] HIGHLOW
+	reloc   25 offset  c84 [1c84] HIGHLOW
+	reloc   26 offset  c8a [1c8a] HIGHLOW
+	reloc   27 offset  ce9 [1ce9] HIGHLOW
+	reloc   28 offset  cef [1cef] HIGHLOW
+	reloc   29 offset  d3c [1d3c] HIGHLOW
+	reloc   30 offset  dcb [1dcb] HIGHLOW
+	reloc   31 offset  ddf [1ddf] HIGHLOW
+	reloc   32 offset  e76 [1e76] HIGHLOW
+	reloc   33 offset  e8a [1e8a] HIGHLOW
+	reloc   34 offset  f22 [1f22] HIGHLOW
+	reloc   35 offset  f38 [1f38] HIGHLOW
+	reloc   36 offset  ffa [1ffa] HIGHLOW
+	reloc   37 offset    0 [1000] ABSOLUTE
+
+Virtual Address: 00002000 Chunk size 88 (0x58) Number of fixups 40
+	reloc    0 offset    e [200e] HIGHLOW
+	reloc    1 offset   74 [2074] HIGHLOW
+	reloc    2 offset   78 [2078] HIGHLOW
+	reloc    3 offset   7c [207c] HIGHLOW
+	reloc    4 offset   80 [2080] HIGHLOW
+	reloc    5 offset   a2 [20a2] HIGHLOW

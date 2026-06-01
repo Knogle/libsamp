@@ -1,0 +1,116 @@
+            ; CALL XREF from fcn.1002a5b0 @ +0x2b4
+┌ fcn.10055ff0(int32_t arg_4h, const char *name);
+│           ; var struct sockaddr *var_24h @ stack - 0x24
+│           ; var int32_t var_20h @ stack - 0x20
+│           ; var int32_t var_1ch @ stack - 0x1c
+│           ; var const char *cp @ stack - 0x18
+│           ; var int32_t var_14h @ stack - 0x14
+│           ; var SOCKET *hostshort @ stack - 0x4
+│           ; arg int32_t arg_4h @ stack + 0x4
+│           ; arg const char *name @ stack + 0x8
+│           0x10055ff0      mov   eax, dword [name]
+│           0x10055ff4      sub   esp, 0x10
+│           0x10055ff7      push  ebx
+│           0x10055ff8      push  esi
+│           0x10055ff9      push  eax                                  ; const char *name
+│           0x10055ffa      mov   ebx, ecx
+│           0x10055ffc      call  dword [sym.imp.WSOCK32.dll_gethostbyname] ; 0x100e5448 ; "4" ; unknown_t *gethostbyname(const char *name)
+│           0x10056002      mov   esi, eax
+│           0x10056004      test  esi, esi
+│       ┌─< 0x10056006      jne   0x10056029
+│       │   0x10056008      mov   eax, dword [hostshort]
+│       │   0x1005600c      mov   edx, dword [data.10102228]           ; [0x10102228:4]=-1
+│       │   0x10056012      mov   ecx, eax
+│       │   0x10056014      mov   dword [ecx], edx
+│       │   0x10056016      mov   dx, word [data.1010222c]             ; [0x1010222c:2]=0xffff
+│       │   0x1005601d      pop   esi
+│       │   0x1005601e      mov   word [ecx + 4], dx
+│       │   0x10056022      pop   ebx
+│       │   0x10056023      add   esp, 0x10
+│       │   0x10056026      ret   0xc
+│       └─> 0x10056029      push  ebp
+│           0x1005602a      push  edi
+│           0x1005602b      push  0                                    ; int protocol
+│           0x1005602d      push  1                                    ; 1 ; int type
+│           0x1005602f      push  2                                    ; 2 ; int af
+│           0x10056031      call  dword [sym.imp.WSOCK32.dll_socket]   ; 0x100e5450 ; SOCKET socket(int af, int type, int protocol)
+│           0x10056037      mov   ecx, dword [hostshort]
+│           0x1005603b      mov   ebp, eax
+│           0x1005603d      xor   eax, eax
+│           0x1005603f      mov   dword [var_20h], eax
+│           0x10056043      mov   dword [var_1ch], eax
+│           0x10056047      mov   dword [cp], eax
+│           0x1005604b      push  ecx                                  ; u_short hostshort
+│           0x1005604c      mov   dword [var_14h], eax
+│           0x10056050      mov   word [var_20h], 2
+│           0x10056057      call  dword [sym.imp.WSOCK32.dll_htons]    ; 0x100e544c ; "\t" ; u_short htons(u_short hostshort)
+│           0x1005605d      mov   word [var_24h + 0x2], ax
+│           0x10056062      movsx ecx, word [esi + 0xa]
+│           0x10056066      mov   edx, dword [esi + 0xc]
+│           0x10056069      mov   esi, dword [edx]
+│           0x1005606b      mov   eax, ecx
+│           0x1005606d      shr   ecx, 2
+│           0x10056070      lea   edi, [var_20h]
+│           0x10056074      rep   movsd dword es:[edi], dword ptr [esi]
+│           0x10056076      mov   ecx, eax
+│           0x10056078      and   ecx, 3
+│           0x1005607b      rep   movsb byte es:[edi], byte ptr [esi]
+│           0x1005607d      push  0x10                                 ; 16 ; int namelen
+│           0x1005607f      lea   ecx, [var_24h]
+│           0x10056083      push  ecx                                  ; struct sockaddr *name
+│           0x10056084      push  ebp                                  ; SOCKET s
+│           0x10056085      call  dword [sym.imp.WSOCK32.dll_connect]  ; 0x100e5454 ; int connect(SOCKET s, struct sockaddr *name, int namelen)
+│           0x1005608b      test  eax, eax
+│       ┌─< 0x1005608d      je    0x100560b9
+│       │   0x1005608f      push  ebp                                  ; SOCKET s
+│       │   0x10056090      call  dword [sym.imp.WSOCK32.dll_closesocket] ; 0x100e5460 ; int closesocket(SOCKET s)
+│       │   0x10056096      mov   eax, dword [var_20h]
+│       │   0x1005609a      mov   ecx, dword [data.10102228]           ; [0x10102228:4]=-1
+│       │   0x100560a0      pop   edi
+│       │   0x100560a1      mov   edx, eax
+│       │   0x100560a3      pop   ebp
+│       │   0x100560a4      mov   dword [edx], ecx
+│       │   0x100560a6      mov   cx, word [data.1010222c]             ; [0x1010222c:2]=0xffff
+│       │   0x100560ad      pop   esi
+│       │   0x100560ae      mov   word [edx + 4], cx
+│       │   0x100560b2      pop   ebx
+│       │   0x100560b3      add   esp, 0x10
+│       │   0x100560b6      ret   0xc
+│       └─> 0x100560b9      push  0xa                                  ; 10 ; int32_t arg_4h
+│           0x100560bb      mov   byte [ebx], 1
+│           0x100560be      call  fcn.100c627a
+│           0x100560c3      mov   edx, dword [cp]
+│           0x100560c7      mov   esi, eax
+│           0x100560c9      add   esp, 4
+│           0x100560cc      mov   dword [esi], ebp
+│           0x100560ce      push  edx                                  ; const char *cp
+│           0x100560cf      lea   ebp, [esi + 4]
+│           0x100560d2      call  dword [sym.imp.WSOCK32.dll_inet_addr] ; 0x100e5440 ; "\n" ; unsigned long inet_addr(const char *cp)
+│           0x100560d8      mov   dword [ebp], eax
+│           0x100560db      mov   ax, word [cp]
+│           0x100560e0      lea   edi, [ebx + 0x8b]
+│           0x100560e6      mov   ecx, edi
+│           0x100560e8      mov   word [esi + 8], ax
+│           0x100560ec      call  fcn.10055d40
+│           0x100560f1      mov   ecx, edi
+│           0x100560f3      mov   dword [eax], esi
+│           0x100560f5      call  fcn.10055d80
+│           0x100560fa      mov   bl, byte [ebx]
+│           0x100560fc      lea   esp, [esp]
+│       ┌─> 0x10056100      test  bl, bl
+│       └─< 0x10056102      jne   0x10056100
+│           0x10056104      push  0x1e                                 ; 30 ; int32_t arg_4h
+│           0x10056106      call  fcn.10043aa0
+│           0x1005610b      mov   edx, dword [ebp]
+│           0x1005610e      mov   eax, dword [var_20h]
+│           0x10056112      add   esp, 4
+│           0x10056115      mov   ecx, eax
+│           0x10056117      pop   edi
+│           0x10056118      mov   dword [ecx], edx
+│           0x1005611a      mov   dx, word [arg_4h]
+│           0x1005611e      pop   ebp
+│           0x1005611f      pop   esi
+│           0x10056120      mov   word [ecx + 4], dx
+│           0x10056124      pop   ebx
+│           0x10056125      add   esp, 0x10
+└           0x10056128      ret   0xc

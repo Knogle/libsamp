@@ -1,0 +1,32 @@
+            ; CALL XREF from fcn.10057590 @ 0x100575bb(x)
+┌ 68: fcn.10057200 ();
+│           0x10057200      56             push esi
+│           0x10057201      8bf1           mov esi, ecx
+│           0x10057203      8b4e04         mov ecx, dword [esi + 4]
+│           0x10057206      85c9           test ecx, ecx
+│       ┌─< 0x10057208      7438           je 0x10057242
+│       │   0x1005720a      57             push edi
+│       │   0x1005720b      e820edffff     call fcn.10055f30
+│       │   0x10057210      8b460c         mov eax, dword [esi + 0xc]
+│       │   0x10057213      33ff           xor edi, edi
+│       │   0x10057215      85c0           test eax, eax
+│      ┌──< 0x10057217      761e           jbe 0x10057237
+│      ││   0x10057219      8da4240000..   lea esp, [esp]
+│      ││   ; CODE XREF from fcn.10057200 @ 0x10057235(x)
+│     ┌───> 0x10057220      8b4608         mov eax, dword [esi + 8]
+│     ╎││   0x10057223      8b0cb8         mov ecx, dword [eax + edi*4]
+│     ╎││   0x10057226      51             push ecx
+│     ╎││   0x10057227      e85ef20600     call fcn.100c648a
+│     ╎││   0x1005722c      8b460c         mov eax, dword [esi + 0xc]
+│     ╎││   0x1005722f      83c404         add esp, 4
+│     ╎││   0x10057232      47             inc edi
+│     ╎││   0x10057233      3bf8           cmp edi, eax
+│     └───< 0x10057235      72e9           jb 0x10057220
+│      ││   ; CODE XREF from fcn.10057200 @ 0x10057217(x)
+│      └──> 0x10057237      6a00           push 0
+│       │   0x10057239      8d4e08         lea ecx, [esi + 8]
+│       │   0x1005723c      e83fffffff     call fcn.10057180
+│       │   0x10057241      5f             pop edi
+│       │   ; CODE XREF from fcn.10057200 @ 0x10057208(x)
+│       └─> 0x10057242      5e             pop esi
+└           0x10057243      c3             ret

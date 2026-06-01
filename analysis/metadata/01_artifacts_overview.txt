@@ -1,0 +1,7 @@
+# Artifact Hashes
+b72b5dbe725f81864ca3f78bc7063bda56cc05fc7188af822fa7a754432553a2  samp.dll
+550321da5b10c472bc719bca2c0df74b240f80eff828079eb5253598fe112ae3  sa-mp-0.3.7-R5-1-install.exe
+
+# File Signatures
+samp.dll:                     PE32 executable for MS Windows 4.00 (DLL), Intel i386, 5 sections
+sa-mp-0.3.7-R5-1-install.exe: PE32 executable for MS Windows 4.00 (GUI), Intel i386, Nullsoft Installer self-extracting archive, 5 sections

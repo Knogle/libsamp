@@ -1,0 +1,47 @@
+$$ Edit the first line to point at your output directory before using this file.
+.logopen /t C:\samp-collect\windbg_original.log
+.symfix
+.reload
+
+$$ High-signal module load events.
+sxe -c ".echo === LOAD samp.dll ===;lm m samp;!dh samp -f;g" ld:samp.dll
+sxe -c ".echo === LOAD BASS.dll ===;lm m BASS;!dh BASS -f;g" ld:BASS.dll
+sxe -c ".echo === LOAD d3dx9_25.dll ===;lm m d3dx9_25;!dh d3dx9_25 -f;g" ld:d3dx9_25.dll
+
+$$ Dynamic linking.
+bu kernel32!LoadLibraryA ".printf \"[LoadLibraryA] %ma\\n\", poi(@esp+4);g"
+bu kernel32!LoadLibraryW ".printf \"[LoadLibraryW] %mu\\n\", poi(@esp+4);g"
+bu kernel32!GetProcAddress ".printf \"[GetProcAddress] module=%p name=%ma\\n\", poi(@esp+4), poi(@esp+8);g"
+bu kernel32!FreeLibrary ".printf \"[FreeLibrary] module=%p\\n\", poi(@esp+4);g"
+
+$$ Threading and process lifetime.
+bu kernel32!CreateThread ".printf \"[CreateThread] start=%p param=%p\\n\", poi(@esp+0x10), poi(@esp+0x14);kb;g"
+bu kernel32!ExitProcess ".printf \"[ExitProcess] code=%x\\n\", poi(@esp+4);lm;g"
+
+$$ Windowing, registry, and mutexes.
+bu user32!CreateWindowExA ".printf \"[CreateWindowExA] class=%ma title=%ma\\n\", poi(@esp+8), poi(@esp+0x0c);g"
+bu user32!CreateWindowExW ".printf \"[CreateWindowExW] class=%mu title=%mu\\n\", poi(@esp+8), poi(@esp+0x0c);g"
+bu user32!RegisterClassExA ".printf \"[RegisterClassExA] wc=%p\\n\", poi(@esp+4);g"
+bu user32!RegisterClassExW ".printf \"[RegisterClassExW] wc=%p\\n\", poi(@esp+4);g"
+bu kernel32!CreateMutexA ".printf \"[CreateMutexA] name=%ma\\n\", poi(@esp+0x0c);g"
+bu kernel32!CreateMutexW ".printf \"[CreateMutexW] name=%mu\\n\", poi(@esp+0x0c);g"
+bu advapi32!RegOpenKeyExA ".printf \"[RegOpenKeyExA] subkey=%ma\\n\", poi(@esp+8);g"
+bu advapi32!RegOpenKeyExW ".printf \"[RegOpenKeyExW] subkey=%mu\\n\", poi(@esp+8);g"
+bu advapi32!RegQueryValueExA ".printf \"[RegQueryValueExA] value=%ma\\n\", poi(@esp+8);g"
+bu advapi32!RegQueryValueExW ".printf \"[RegQueryValueExW] value=%mu\\n\", poi(@esp+8);g"
+
+$$ Networking and graphics.
+bu wsock32!WSAStartup ".printf \"[WSAStartup] version=%x\\n\", poi(@esp+4);g"
+bu wsock32!socket ".printf \"[socket] af=%x type=%x proto=%x\\n\", poi(@esp+4), poi(@esp+8), poi(@esp+0x0c);g"
+bu wsock32!connect ".printf \"[connect] socket=%x sockaddr=%p len=%x\\n\", poi(@esp+4), poi(@esp+8), poi(@esp+0x0c);db poi(@esp+8) L10;g"
+bu d3d9!Direct3DCreate9 ".printf \"[Direct3DCreate9] sdk=%x\\n\", poi(@esp+4);g"
+bu BASS!BASS_Init ".printf \"[BASS_Init] device=%d freq=%u flags=%x hwnd=%p\\n\", poi(@esp+4), poi(@esp+8), poi(@esp+0x0c), poi(@esp+0x10);g"
+
+$$ Hard failures.
+sxe -c ".echo === ACCESS VIOLATION ===;r;kb;lm;g" av
+
+$$ Optional and very noisy:
+$$ sxe -c ".echo === C++/SEH EXCEPTION ===;r;kb;g" eh
+
+lm
+g

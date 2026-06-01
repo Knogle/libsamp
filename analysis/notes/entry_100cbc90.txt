@@ -1,0 +1,84 @@
+┌ entry0(int32_t arg_ch, int32_t arg_10h, int32_t arg_8h);
+│           ; var uint32_t var_1ch @ stack - 0x1c
+│           ; var int32_t var_4h @ stack - 0x4
+│           ; arg int32_t arg_8h @ stack + 0x8
+│           ; arg int32_t arg_ch @ stack + 0xc
+│           ; arg int32_t arg_10h @ stack + 0x10
+│           0x100cbc90      push  0xc                                  ; 12
+│           0x100cbc92      push  data.100f0628                        ; 0x100f0628 ; int32_t arg_8h
+│           0x100cbc97      call  fcn.100ce430
+│           0x100cbc9c      xor   eax, eax
+│           0x100cbc9e      inc   eax
+│           0x100cbc9f      mov   dword [var_1ch], eax
+│           0x100cbca2      mov   esi, dword [arg_ch]
+│           0x100cbca5      xor   edi, edi
+│           0x100cbca7      cmp   esi, edi
+│       ┌─< 0x100cbca9      jne   0x100cbcb7
+│       │   0x100cbcab      cmp   dword [data.1026eca4], edi           ; [0x1026eca4:4]=0
+│      ┌──< 0x100cbcb1      je    0x100cbd6a
+│      │└─> 0x100cbcb7      mov   dword [var_4h], edi
+│      │    0x100cbcba      cmp   esi, eax
+│      │┌─< 0x100cbcbc      je    0x100cbcc3
+│      ││   0x100cbcbe      cmp   esi, 2                               ; 2
+│     ┌───< 0x100cbcc1      jne   0x100cbcf4
+│     ││└─> 0x100cbcc3      mov   eax, dword [data.10270558]           ; [0x10270558:4]=0
+│     ││    0x100cbcc8      cmp   eax, edi
+│     ││┌─< 0x100cbcca      je    0x100cbcd8
+│     │││   0x100cbccc      push  dword [arg_10h]
+│     │││   0x100cbccf      push  esi
+│     │││   0x100cbcd0      push  dword [arg_8h]
+│     │││   0x100cbcd3      call  eax
+│     │││   0x100cbcd5      mov   dword [var_1ch], eax
+│     ││└─> 0x100cbcd8      cmp   dword [var_1ch], edi
+│     ││┌─< 0x100cbcdb      je    0x100cbd66
+│     │││   0x100cbce1      push  dword [arg_10h]
+│     │││   0x100cbce4      push  esi
+│     │││   0x100cbce5      push  dword [arg_8h]                       ; int32_t arg_8h
+│     │││   0x100cbce8      call  fcn.100cbb0f
+│     │││   0x100cbced      mov   dword [var_1ch], eax
+│     │││   0x100cbcf0      cmp   eax, edi
+│    ┌────< 0x100cbcf2      je    0x100cbd66
+│    │└───> 0x100cbcf4      mov   ebx, dword [arg_10h]
+│    │ ││   0x100cbcf7      push  ebx
+│    │ ││   0x100cbcf8      push  esi                                  ; int32_t arg_4h
+│    │ ││   0x100cbcf9      push  dword [arg_8h]                       ; int32_t arg_8h
+│    │ ││   0x100cbcfc      call  fcn.100c5270
+│    │ ││   0x100cbd01      mov   dword [var_1ch], eax
+│    │ ││   0x100cbd04      cmp   esi, 1                               ; 1
+│    │┌───< 0x100cbd07      jne   0x100cbd17
+│    ││││   0x100cbd09      cmp   eax, edi
+│   ┌─────< 0x100cbd0b      jne   0x100cbd17
+│   │││││   0x100cbd0d      push  ebx
+│   │││││   0x100cbd0e      push  edi
+│   │││││   0x100cbd0f      push  dword [arg_8h]                       ; int32_t arg_8h
+│   │││││   0x100cbd12      call  fcn.100cbb0f
+│   └─└───> 0x100cbd17      cmp   esi, edi
+│    │┌───< 0x100cbd19      je    0x100cbd20
+│    ││││   0x100cbd1b      cmp   esi, 3                               ; 3
+│   ┌─────< 0x100cbd1e      jne   0x100cbd49
+│   ││└───> 0x100cbd20      push  ebx
+│   ││ ││   0x100cbd21      push  esi
+│   ││ ││   0x100cbd22      push  dword [arg_8h]                       ; int32_t arg_8h
+│   ││ ││   0x100cbd25      call  fcn.100cbb0f
+│   ││ ││   0x100cbd2a      test  eax, eax
+│   ││┌───< 0x100cbd2c      jne   0x100cbd31
+│   │││││   0x100cbd2e      mov   dword [var_1ch], edi
+│   ││└───> 0x100cbd31      cmp   dword [var_1ch], edi
+│   ││┌───< 0x100cbd34      je    0x100cbd49
+│   │││││   0x100cbd36      mov   eax, dword [data.10270558]           ; [0x10270558:4]=0
+│   │││││   0x100cbd3b      cmp   eax, edi
+│  ┌──────< 0x100cbd3d      je    0x100cbd49
+│  ││││││   0x100cbd3f      push  ebx
+│  ││││││   0x100cbd40      push  esi
+│  ││││││   0x100cbd41      push  dword [arg_8h]
+│  ││││││   0x100cbd44      call  eax
+│  ││││││   0x100cbd46      mov   dword [var_1ch], eax
+│  └└─└───> 0x100cbd49      or    dword [var_4h], 0xffffffff           ; [0xffffffff:4]=-1 ; -1
+│    │ ││   0x100cbd4d      mov   eax, dword [var_1ch]
+│    │┌───< 0x100cbd50      jmp   0x100cbd6c
+..
+│    └──└─> 0x100cbd66      or    dword [var_4h], 0xffffffff           ; [0xffffffff:4]=-1 ; -1
+│     │└──> 0x100cbd6a      xor   eax, eax
+│     │     ; CODE XREF from entry0 @ 0x100cbd50
+│     └───> 0x100cbd6c      call  fcn.100ce46b
+└           0x100cbd71      ret   0xc

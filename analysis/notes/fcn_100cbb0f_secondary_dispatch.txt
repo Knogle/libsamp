@@ -1,0 +1,121 @@
+            ; CALL XREFS from entry0 @ 0x100cbce8, 0x100cbd12, 0x100cbd25
+┌ fcn.100cbb0f(int32_t arg_8h);
+│           ; var int32_t var_8h @ stack - 0x8
+│           ; arg int32_t arg_8h @ stack + 0x8
+│           0x100cbb0f      push  ebp
+│           0x100cbb10      mov   ebp, esp
+│           0x100cbb12      mov   eax, dword [arg_8h]
+│           0x100cbb15      cmp   eax, 1                               ; 1
+│           0x100cbb18      push  esi
+│       ┌─< 0x100cbb19      jne   0x100cbbff
+│       │   0x100cbb1f      mov   eax, 0x94                            ; 148
+│       │   0x100cbb24      call  fcn.100c7eb0
+│       │   0x100cbb29      mov   esi, esp
+│       │   0x100cbb2b      push  esi                                  ; LPOSVERSIONINFOA lpVersionInformation
+│       │   0x100cbb2c      mov   dword [esi], 0x94                    ; [0x94:4]=-1 ; 148
+│       │   0x100cbb32      call  dword [sym.imp.KERNEL32.dll_GetVersionExA] ; 0x100e51d0 ; "j\xd6\x0f" ; BOOL GetVersionExA(LPOSVERSIONINFOA lpVersionInformation)
+│       │   0x100cbb38      test  eax, eax
+│      ┌──< 0x100cbb3a      je    0x100cbc74
+│      ││   0x100cbb40      mov   ecx, dword [esi + 0x10]
+│      ││   0x100cbb43      mov   dword [data.1026ec5c], ecx           ; [0x1026ec5c:4]=0
+│      ││   0x100cbb49      mov   eax, dword [esi + 4]
+│      ││   0x100cbb4c      mov   dword [data.1026ec68], eax           ; [0x1026ec68:4]=0
+│      ││   0x100cbb51      mov   edx, dword [esi + 8]
+│      ││   0x100cbb54      mov   dword [data.1026ec6c], edx           ; [0x1026ec6c:4]=0
+│      ││   0x100cbb5a      mov   esi, dword [esi + 0xc]
+│      ││   0x100cbb5d      and   esi, 0x7fff
+│      ││   0x100cbb63      cmp   ecx, 2                               ; 2
+│      ││   0x100cbb66      mov   dword [data.1026ec60], esi           ; [0x1026ec60:4]=0
+│     ┌───< 0x100cbb6c      je    0x100cbb7a
+│     │││   0x100cbb6e      or    esi, 0x8000
+│     │││   0x100cbb74      mov   dword [data.1026ec60], esi           ; [0x1026ec60:4]=0
+│     └───> 0x100cbb7a      shl   eax, 8
+│      ││   0x100cbb7d      add   eax, edx
+│      ││   0x100cbb7f      push  1                                    ; 1 ; int32_t arg_4h
+│      ││   0x100cbb81      mov   dword [data.1026ec64], eax           ; [0x1026ec64:4]=0
+│      ││   0x100cbb86      call  fcn.100cd372
+│      ││   0x100cbb8b      test  eax, eax
+│      ││   0x100cbb8d      pop   ecx
+│     ┌───< 0x100cbb8e      je    0x100cbc74
+│     │││   0x100cbb94      call  fcn.100ccfff
+│     │││   0x100cbb99      test  eax, eax
+│    ┌────< 0x100cbb9b      jne   0x100cbba7
+│    ││││   ; CODE XREF from fcn.100cbb0f @ 0x100cbbfd
+│   ┌─────> 0x100cbb9d      call  fcn.100cd3c3
+│  ┌──────< 0x100cbba2      jmp   0x100cbc74
+│  │╎└────> 0x100cbba7      call  fcn.100d030a
+│  │╎ │││   0x100cbbac      call  dword [sym.imp.KERNEL32.dll_GetCommandLineA] ; 0x100e51cc ; "z\xd6\x0f" ; LPSTR GetCommandLineA(void)
+│  │╎ │││   0x100cbbb2      mov   dword [data.10270554], eax           ; [0x10270554:4]=0
+│  │╎ │││   0x100cbbb7      call  fcn.100d6e0a
+│  │╎ │││   0x100cbbbc      mov   dword [data.1026eca8], eax           ; [0x1026eca8:4]=0
+│  │╎ │││   0x100cbbc1      call  fcn.100d14f1
+│  │╎ │││   0x100cbbc6      test  eax, eax
+│  │╎┌────< 0x100cbbc8      jl    0x100cbbf8
+│  │╎││││   0x100cbbca      call  fcn.100d6d68
+│  │╎││││   0x100cbbcf      test  eax, eax
+│ ┌───────< 0x100cbbd1      jl    0x100cbbf3
+│ ││╎││││   0x100cbbd3      call  fcn.100d6b35
+│ ││╎││││   0x100cbbd8      test  eax, eax
+│ ────────< 0x100cbbda      jl    0x100cbbf3
+│ ││╎││││   0x100cbbdc      push  0
+│ ││╎││││   0x100cbbde      call  fcn.100c7677
+│ ││╎││││   0x100cbbe3      test  eax, eax
+│ ││╎││││   0x100cbbe5      pop   ecx
+│ ────────< 0x100cbbe6      jne   0x100cbbf3
+│ ││╎││││   0x100cbbe8      inc   dword [data.1026eca4]
+│ ────────< 0x100cbbee      jmp   0x100cbc85
+│ └───────> 0x100cbbf3      call  fcn.100d16ef
+│  │╎└────> 0x100cbbf8      call  fcn.100ccddc
+│  │└─────< 0x100cbbfd      jmp   0x100cbb9d
+│  │  ││└─> 0x100cbbff      test  eax, eax
+│  │  ││┌─< 0x100cbc01      jne   0x100cbc2f
+│  │  │││   0x100cbc03      cmp   dword [data.1026eca4], eax           ; [0x1026eca4:4]=0
+│  │ ┌────< 0x100cbc09      jle   0x100cbc74
+│  │ ││││   0x100cbc0b      dec   dword [data.1026eca4]
+│  │ ││││   0x100cbc11      cmp   dword [data.1026ec98], eax           ; [0x1026ec98:4]=0
+│  │┌─────< 0x100cbc17      jne   0x100cbc1e
+│  ││││││   0x100cbc19      call  fcn.100c77c6
+│  │└─────> 0x100cbc1e      call  fcn.100d16ef
+│  │ ││││   0x100cbc23      call  fcn.100ccddc
+│  │ ││││   0x100cbc28      call  fcn.100cd3c3
+│  │┌─────< 0x100cbc2d      jmp   0x100cbc85
+│  │││││└─> 0x100cbc2f      cmp   eax, 2                               ; 2
+│  │││││┌─< 0x100cbc32      jne   0x100cbc78
+│  ││││││   0x100cbc34      push  0x8c                                 ; 140 ; int32_t arg_ch
+│  ││││││   0x100cbc39      push  1                                    ; 1 ; int32_t arg_8h
+│  ││││││   0x100cbc3b      call  fcn.100c6982
+│  ││││││   0x100cbc40      mov   esi, eax
+│  ││││││   0x100cbc42      test  esi, esi
+│  ││││││   0x100cbc44      pop   ecx
+│  ││││││   0x100cbc45      pop   ecx
+│ ┌───────< 0x100cbc46      je    0x100cbc74
+│ │││││││   0x100cbc48      push  esi
+│ │││││││   0x100cbc49      push  dword [data.101176b8]                ; 0x101176b8
+│ │││││││   0x100cbc4f      call  dword [data.1026ecc4]                ; 0x1026ecc4
+│ │││││││   0x100cbc55      test  eax, eax
+│ │││││││   0x100cbc57      push  esi
+│ ────────< 0x100cbc58      je    0x100cbc6e
+│ │││││││   0x100cbc5a      call  fcn.100ccdf9
+│ │││││││   0x100cbc5f      pop   ecx
+│ │││││││   0x100cbc60      call  dword [sym.imp.KERNEL32.dll_GetCurrentThreadId] ; 0x100e50d0 ; "b\xdb\x0f" ; DWORD GetCurrentThreadId(void)
+│ │││││││   0x100cbc66      or    dword [esi + 4], 0xffffffff          ; [0xffffffff:4]=-1 ; -1
+│ │││││││   0x100cbc6a      mov   dword [esi], eax
+│ ────────< 0x100cbc6c      jmp   0x100cbc85
+│ ────────> 0x100cbc6e      call  fcn.100c6a3d
+│ │││││││   0x100cbc73      pop   ecx
+│ │││││││   ; CODE XREF from fcn.100cbb0f @ 0x100cbba2
+│ └└─└└└──> 0x100cbc74      xor   eax, eax
+│   │  ┌──< 0x100cbc76      jmp   0x100cbc88
+│   │  │└─> 0x100cbc78      cmp   eax, 3                               ; 3
+│   │  │┌─< 0x100cbc7b      jne   0x100cbc85
+│   │  ││   0x100cbc7d      push  0                                    ; int32_t arg_8h
+│   │  ││   0x100cbc7f      call  fcn.100ccfc4
+│   │  ││   0x100cbc84      pop   ecx
+│   │  ││   ; CODE XREFS from fcn.100cbb0f @ 0x100cbbee, 0x100cbc2d, 0x100cbc6c
+│ ──└───└─> 0x100cbc85      xor   eax, eax
+│      │    0x100cbc87      inc   eax
+│      │    ; CODE XREF from fcn.100cbb0f @ 0x100cbc76
+│      └──> 0x100cbc88      lea   esp, [var_8h]
+│           0x100cbc8b      pop   esi
+│           0x100cbc8c      pop   ebp
+└           0x100cbc8d      ret   0xc

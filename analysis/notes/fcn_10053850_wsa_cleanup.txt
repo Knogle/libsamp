@@ -1,0 +1,7 @@
+            ; CODE XREF from data.100e4266 @ +0xcf
+┌ fcn.10053850();
+│           0x10053850      cmp   byte [data.10121a38], 1              ; [0x10121a38:1]=0
+│       ┌─< 0x10053857      jne   0x10053866
+│       │   0x10053859      call  dword [sym.imp.WSOCK32.dll_WSACleanup] ; 0x100e5464 ; "t" ; int WSACleanup(void)
+│       │   0x1005385f      mov   byte [data.10121a38], 0              ; [0x10121a38:1]=0
+└       └─> 0x10053866      ret

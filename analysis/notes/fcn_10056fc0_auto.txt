@@ -1,0 +1,38 @@
+            ; CALL XREF from fcn.100571c0 @ +0x23(x)
+┌ 108: fcn.10056fc0 ();
+│ afv: vars(3:sp[0x4..0x10])
+│           0x10056fc0      6aff           push 0xffffffffffffffff
+│           0x10056fc2      680b360e10     push 0x100e360b             ; '\v6\x0e\x10'
+│           0x10056fc7      64a100000000   mov eax, dword fs:[0]
+│           0x10056fcd      50             push eax
+│           0x10056fce      6489250000..   mov dword fs:[0], esp
+│           0x10056fd5      51             push ecx
+│           0x10056fd6      56             push esi
+│           0x10056fd7      8bf1           mov esi, ecx
+│           0x10056fd9      8b4604         mov eax, dword [esi + 4]
+│           0x10056fdc      85c0           test eax, eax
+│       ┌─< 0x10056fde      753c           jne 0x1005701c
+│       │   0x10056fe0      68a7000000     push 0xa7                   ; 167
+│       │   0x10056fe5      e890f20600     call fcn.100c627a
+│       │   0x10056fea      83c404         add esp, 4
+│       │   0x10056fed      89442404       mov dword [var_4h], eax
+│       │   0x10056ff1      85c0           test eax, eax
+│       │   0x10056ff3      c744241000..   mov dword [var_10h], 0
+│      ┌──< 0x10056ffb      741a           je 0x10057017
+│      ││   0x10056ffd      8bc8           mov ecx, eax
+│      ││   0x10056fff      e85ceeffff     call fcn.10055e60
+│      ││   0x10057004      894604         mov dword [esi + 4], eax
+│      ││   0x10057007      5e             pop esi
+│      ││   0x10057008      8b4c2404       mov ecx, dword [var_8h]
+│      ││   0x1005700c      64890d0000..   mov dword fs:[0], ecx
+│      ││   0x10057013      83c410         add esp, 0x10
+│      ││   0x10057016      c3             ret
+│      ││   ; CODE XREF from fcn.10056fc0 @ 0x10056ffb(x)
+│      └──> 0x10057017      33c0           xor eax, eax
+│       │   0x10057019      894604         mov dword [esi + 4], eax
+│       │   ; CODE XREF from fcn.10056fc0 @ 0x10056fde(x)
+│       └─> 0x1005701c      8b4c2408       mov ecx, dword [var_8h]
+│           0x10057020      5e             pop esi
+│           0x10057021      64890d0000..   mov dword fs:[0], ecx
+│           0x10057028      83c410         add esp, 0x10
+└           0x1005702b      c3             ret

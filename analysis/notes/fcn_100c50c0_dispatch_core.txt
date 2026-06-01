@@ -1,0 +1,13 @@
+        │   ; CALL XREF from entry0 @ 0x100cbcfc
+┌ fcn.100c5270(int32_t arg_4h, int32_t arg_8h);
+│       │   ; var int32_t var_130h @ stack - 0x130
+│       │   ; var int32_t var_121h @ stack - 0x121
+│       │   ; var int32_t var_120h @ stack - 0x120
+│       │   ; var int32_t var_11fh @ stack - 0x11f
+│       │   ; var LPSTR lpFilename @ stack - 0x114
+│       │   ; var int32_t var_20h @ stack - 0x20
+│       │   ; var int32_t var_14h @ stack - 0x14
+│       │   ; var int32_t var_ch @ stack - 0xc
+│       │   ; arg int32_t arg_4h @ stack + 0x4
+│       │   ; arg int32_t arg_8h @ stack + 0x8
+│       └─< 0x100c5270      jmp   0x100c50c0

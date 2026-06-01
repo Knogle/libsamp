@@ -1,0 +1,23 @@
+            ; CALL XREF from fcn.1003a9d0 @ 0x1003aafc(x)
+            ; CALL XREF from fcn.1003a9d0 @ +0x29c(x)
+            ; CALL XREF from fcn.1003f440 @ 0x1003fc81(x)
+┌ 46: fcn.10053b40 (int32_t arg_ch, int32_t arg_14h, char *arg_10h_2, char *cp);
+│ `- args(sp[0x0..0x10])
+│           0x10053b40      8b442410       mov eax, dword [cp]
+│           0x10053b44      56             push esi
+│           0x10053b45      50             push eax                    ; const char *cp
+│           0x10053b46      8bf1           mov esi, ecx
+│           0x10053b48      ff1540540e10   call dword [sym.imp.WSOCK32.dll_inet_addr] ; 0x100e5440 ; "\n" ; unsigned long inet_addr(const char *cp)
+│           0x10053b4e      8b4c2418       mov ecx, dword [cp]
+│           0x10053b52      8b542410       mov edx, dword [arg_10h_2]
+│           0x10053b56      51             push ecx
+│           0x10053b57      8b4c240c       mov ecx, dword [arg_ch]
+│           0x10053b5b      50             push eax                    ; u_short hostshort
+│           0x10053b5c      8b442414       mov eax, dword [arg_14h]
+│           0x10053b60      52             push edx                    ; int32_t arg_28h_2
+│           0x10053b61      50             push eax                    ; int32_t arg_24h
+│           0x10053b62      51             push ecx                    ; int32_t arg_18h
+│           0x10053b63      8bce           mov ecx, esi
+│           0x10053b65      e846ffffff     call fcn.10053ab0
+│           0x10053b6a      5e             pop esi
+└           0x10053b6b      c21400         ret 0x14

@@ -1,0 +1,23 @@
+            ; CALL XREF from fcn.100427a0 @ 0x10042812(x)
+┌ 61: fcn.10053bf0 (SOCKET s);
+│ `- args(sp[0x4..0x4]) vars(3:sp[0x10..0x1a])
+│           0x10053bf0      83ec14         sub esp, 0x14
+│           0x10053bf3      8b542418       mov edx, dword [s]
+│           0x10053bf7      8d0424         lea eax, [esp]
+│           0x10053bfa      50             push eax                    ; int *namelen
+│           0x10053bfb      8d4c2408       lea ecx, [name]
+│           0x10053bff      51             push ecx                    ; sockaddr *name
+│           0x10053c00      52             push edx                    ; SOCKET s
+│           0x10053c01      c744240c10..   mov dword [var_ch], 0x10    ; [0x10:4]=-1 ; 16
+│           0x10053c09      ff151c540e10   call dword [sym.imp.WSOCK32.dll_getsockname] ; 0x100e541c ; int getsockname(SOCKET s, sockaddr *name, int *namelen)
+│           0x10053c0f      85c0           test eax, eax
+│       ┌─< 0x10053c11      7409           je 0x10053c1c
+│       │   0x10053c13      6633c0         xor ax, ax
+│       │   0x10053c16      83c414         add esp, 0x14
+│       │   0x10053c19      c20400         ret 4
+│       │   ; CODE XREF from fcn.10053bf0 @ 0x10053c11(x)
+│       └─> 0x10053c1c      8b442406       mov eax, dword [netshort]
+│           0x10053c20      50             push eax                    ; u_short netshort
+│           0x10053c21      ff1530540e10   call dword [sym.imp.WSOCK32.dll_ntohs] ; 0x100e5430 ; u_short ntohs(u_short netshort)
+│           0x10053c27      83c414         add esp, 0x14
+└           0x10053c2a      c20400         ret 4

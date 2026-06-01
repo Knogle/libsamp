@@ -1,0 +1,12 @@
+dll	count
+ADVAPI32.dll	4
+BASS.dll	17
+COMCTL32.dll	1
+GDI32.dll	10
+KERNEL32.dll	125
+PSAPI.DLL	1
+SHELL32.dll	1
+USER32.dll	88
+WINMM.dll	2
+WSOCK32.dll	25
+d3dx9_25.dll	46

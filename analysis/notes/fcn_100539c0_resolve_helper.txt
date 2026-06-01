@@ -1,0 +1,20 @@
+            ; CALL XREF from fcn.100340a0 @ +0xd0
+            ; CALL XREF from fcn.1003a9d0 @ 0x1003aa12
+            ; CALL XREF from fcn.1003a9d0 @ +0x1b0
+            ; CALL XREF from fcn.10040550 @ 0x100405aa
+┌ fcn.100539c0(const char *name);
+│           ; arg const char *name @ stack + 0x4
+│           0x100539c0      mov   eax, dword [name]
+│           0x100539c4      push  eax                                  ; const char *name
+│           0x100539c5      call  dword [sym.imp.WSOCK32.dll_gethostbyname] ; 0x100e5448 ; "4" ; unknown_t *gethostbyname(const char *name)
+│           0x100539cb      test  eax, eax
+│       ┌─< 0x100539cd      je    0x100539e4
+│       │   0x100539cf      mov   ecx, dword [eax + 0xc]
+│       │   0x100539d2      mov   eax, dword [ecx]
+│       │   0x100539d4      test  eax, eax
+│      ┌──< 0x100539d6      je    0x100539e4
+│      ││   0x100539d8      mov   eax, dword [eax]
+│      ││   0x100539da      mov   dword [esp + 4], eax
+│      ││   0x100539de      jmp   dword [sym.imp.WSOCK32.dll_inet_ntoa] ; 0x100e5444
+│      └└─> 0x100539e4      xor   eax, eax
+└           0x100539e6      ret   4

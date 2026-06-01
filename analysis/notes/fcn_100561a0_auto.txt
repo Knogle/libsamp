@@ -1,0 +1,12 @@
+        ╎   ; CALL XREF from fcn.1002a480 @ 0x1002a4ba(x)
+        ╎   ; CALL XREFS from fcn.1002a5b0 @ +0x314(x), +0xbb4(x), +0xbd5(x)
+        ╎   ; CALL XREF from fcn.10057200 @ +0x64(x)
+┌ 18: fcn.100561a0 ();
+│       ╎   0x100561a0      8a4101         mov al, byte [ecx + 1]
+│       ╎   0x100561a3      84c0           test al, al
+│      ┌──< 0x100561a5      7503           jne 0x100561aa
+│      │╎   0x100561a7      33c0           xor eax, eax
+│      │╎   0x100561a9      c3             ret
+│      │╎   ; CODE XREF from fcn.100561a0 @ 0x100561a5(x)
+│      └──> 0x100561aa      83c12b         add ecx, 0x2b               ; 43
+└       └─< 0x100561ad      e96ef8ffff     jmp fcn.10055a20

@@ -1,0 +1,6 @@
+dll	count
+GDI32.dll	2
+KERNEL32.dll	40
+WS2_32.dll	26
+libwinpthread-1.dll	10
+msvcrt.dll	50

@@ -1,0 +1,46 @@
+            ; CALL XREF from fcn.1002a5b0 @ +0x259(x)
+            ; CALL XREF from fcn.10056fc0 @ 0x10056fff(x)
+┌ 199: fcn.10055e60 ();
+│ afv: vars(4:sp[0x4..0x1a0])
+│           0x10055e60      6aff           push 0xffffffffffffffff
+│           0x10055e62      6894350e10     push 0x100e3594
+│           0x10055e67      64a100000000   mov eax, dword fs:[0]
+│           0x10055e6d      50             push eax
+│           0x10055e6e      6489250000..   mov dword fs:[0], esp
+│           0x10055e75      81ec94010000   sub esp, 0x194
+│           0x10055e7b      56             push esi
+│           0x10055e7c      8bf1           mov esi, ecx
+│           0x10055e7e      8d4e07         lea ecx, [esi + 7]
+│           0x10055e81      89742404       mov dword [var_4h], esi
+│           0x10055e85      e886f9ffff     call fcn.10055810
+│           0x10055e8a      8d4e13         lea ecx, [esi + 0x13]
+│           0x10055e8d      c78424a001..   mov dword [var_1a0h], 0
+│           0x10055e98      e873faffff     call fcn.10055910
+│           0x10055e9d      8d4e2b         lea ecx, [esi + 0x2b]
+│           0x10055ea0      c68424a001..   mov byte [var_1a0h], 1
+│           0x10055ea8      e863faffff     call fcn.10055910
+│           0x10055ead      8d4e43         lea ecx, [esi + 0x43]
+│           0x10055eb0      c68424a001..   mov byte [var_1a0h], 2
+│           0x10055eb8      e813fcffff     call fcn.10055ad0
+│           0x10055ebd      8d4e5b         lea ecx, [esi + 0x5b]
+│           0x10055ec0      c68424a001..   mov byte [var_1a0h], 3
+│           0x10055ec8      e803fcffff     call fcn.10055ad0
+│           0x10055ecd      8d4e73         lea ecx, [esi + 0x73]
+│           0x10055ed0      c68424a001..   mov byte [var_1a0h], 4
+│           0x10055ed8      e8f3fbffff     call fcn.10055ad0
+│           0x10055edd      8d8e8b000000   lea ecx, [esi + 0x8b]
+│           0x10055ee3      c68424a001..   mov byte [var_1a0h], 5
+│           0x10055eeb      e8a0fdffff     call fcn.10055c90
+│           0x10055ef0      8d442408       lea eax, [lpWSAData]
+│           0x10055ef4      50             push eax                    ; LPWSADATA lpWSAData
+│           0x10055ef5      6802020000     push 0x202                  ; 514 ; WORD wVersionRequested
+│           0x10055efa      c6460100       mov byte [esi + 1], 0
+│           0x10055efe      c6460200       mov byte [esi + 2], 0
+│           0x10055f02      c74603ffff..   mov dword [esi + 3], 0xffffffff ; [0xffffffff:4]=-1 ; -1
+│           0x10055f09      ff1568540e10   call dword [sym.imp.WSOCK32.dll_WSAStartup] ; 0x100e5468 ; "s" ; int WSAStartup(WORD wVersionRequested, LPWSADATA lpWSAData)
+│           0x10055f0f      8b8c249801..   mov ecx, dword [var_198h]
+│           0x10055f16      8bc6           mov eax, esi
+│           0x10055f18      5e             pop esi
+│           0x10055f19      64890d0000..   mov dword fs:[0], ecx
+│           0x10055f20      81c4a0010000   add esp, 0x1a0
+└           0x10055f26      c3             ret

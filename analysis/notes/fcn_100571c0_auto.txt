@@ -1,0 +1,11 @@
+            ; CALL XREF from fcn.10037980 @ +0x2d1(x)
+┌ 28: fcn.100571c0 ();
+│           0x100571c0      56             push esi
+│           0x100571c1      8bf1           mov esi, ecx
+│           0x100571c3      8d4e08         lea ecx, [esi + 8]
+│           0x100571c6      c7065c930e10   mov dword [esi], 0x100e935c ; [0x100e935c:4]=0x100571e0
+│           0x100571cc      e8dffeffff     call fcn.100570b0
+│           0x100571d1      c746040000..   mov dword [esi + 4], 0
+│           0x100571d8      8bc6           mov eax, esi
+│           0x100571da      5e             pop esi
+└           0x100571db      c3             ret

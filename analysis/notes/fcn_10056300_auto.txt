@@ -1,0 +1,41 @@
+            ; XREFS: CALL 0x1002a839  CALL 0x1002a899  CALL 0x1002a91d  
+            ; XREFS: CALL 0x1002b122  CALL 0x1002b1a6  CODE 0x100e1df6  
+┌ 155: fcn.10056300 ();
+│ afv: vars(3:sp[0x4..0x10])
+│           0x10056300      6aff           push 0xffffffffffffffff
+│           0x10056302      68f0350e10     push 0x100e35f0
+│           0x10056307      64a100000000   mov eax, dword fs:[0]
+│           0x1005630d      50             push eax
+│           0x1005630e      6489250000..   mov dword fs:[0], esp
+│           0x10056315      51             push ecx
+│           0x10056316      56             push esi
+│           0x10056317      8bf1           mov esi, ecx
+│           0x10056319      89742404       mov dword [var_4h], esi
+│           0x1005631d      c744241006..   mov dword [var_10h], 6
+│           0x10056325      e806fcffff     call fcn.10055f30
+│           0x1005632a      8d8e8b000000   lea ecx, [esi + 0x8b]
+│           0x10056330      c644241005     mov byte [var_10h], 5
+│           0x10056335      e8c6f9ffff     call fcn.10055d00
+│           0x1005633a      8d4e73         lea ecx, [esi + 0x73]
+│           0x1005633d      c644241004     mov byte [var_10h], 4
+│           0x10056342      e8f9f7ffff     call fcn.10055b40
+│           0x10056347      8d4e5b         lea ecx, [esi + 0x5b]
+│           0x1005634a      c644241003     mov byte [var_10h], 3
+│           0x1005634f      e8ecf7ffff     call fcn.10055b40
+│           0x10056354      8d4e43         lea ecx, [esi + 0x43]
+│           0x10056357      c644241002     mov byte [var_10h], 2
+│           0x1005635c      e8dff7ffff     call fcn.10055b40
+│           0x10056361      8d4e2b         lea ecx, [esi + 0x2b]
+│           0x10056364      c644241001     mov byte [var_10h], 1
+│           0x10056369      e812f6ffff     call fcn.10055980
+│           0x1005636e      8d4e13         lea ecx, [esi + 0x13]
+│           0x10056371      c644241000     mov byte [var_10h], 0
+│           0x10056376      e805f6ffff     call fcn.10055980
+│           0x1005637b      8d4e07         lea ecx, [esi + 7]
+│           0x1005637e      c7442410ff..   mov dword [var_10h], 0xffffffff ; [0xffffffff:4]=-1 ; -1
+│           0x10056386      e895f4ffff     call fcn.10055820
+│           0x1005638b      8b4c2408       mov ecx, dword [var_8h]
+│           0x1005638f      5e             pop esi
+│           0x10056390      64890d0000..   mov dword fs:[0], ecx
+│           0x10056397      83c410         add esp, 0x10
+└           0x1005639a      c3             ret

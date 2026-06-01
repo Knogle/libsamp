@@ -1,0 +1,17 @@
+index	rva	size	description
+0	00000000	00000000	Export Directory [.edata (or where ever we found it)]
+1	0008f000	00000e2c	Import Directory [parts of .idata]
+2	00091000	000002d0	Resource Directory [.rsrc]
+3	00000000	00000000	Exception Directory [.pdata]
+4	00000000	00000000	Security Directory
+5	00092000	000030a8	Base Relocation Directory [.reloc]
+6	00000000	00000000	Debug Directory
+7	00000000	00000000	Description Directory
+8	00000000	00000000	Special Directory
+9	000740fc	00000018	Thread Storage Directory [.tls]
+a	00000000	00000000	Load Configuration Directory
+b	00000000	00000000	Bound Import Directory
+c	0008f28c	00000214	Import Address Table Directory
+d	00000000	00000000	Delay Import Directory
+e	00000000	00000000	CLR Runtime Header
+f	00000000	00000000	Reserved

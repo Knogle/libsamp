@@ -1,0 +1,25 @@
+┌ fcn.10053870(int32_t arg_4h, int32_t arg_ch);
+│           ; var int32_t var_14h @ stack - 0x14
+│           ; var int32_t var_12h @ stack - 0x12
+│           ; var int32_t var_10h @ stack - 0x10
+│           ; arg int32_t arg_4h @ stack + 0x4
+│           ; arg int32_t arg_ch @ stack + 0xc
+│           0x10053870      sub   esp, 0x10
+│           0x10053873      mov   eax, dword [arg_ch]
+│           0x10053877      push  esi
+│           0x10053878      push  eax
+│           0x10053879      mov   word [var_10h], 2
+│           0x10053880      call  dword [sym.imp.WSOCK32.dll_htons]    ; 0x100e544c ; "\t" ; u_short htons(u_short hostshort)
+│           0x10053886      mov   ecx, dword [arg_4h]
+│           0x1005388a      mov   esi, dword [var_10h + 0x10]
+│           0x1005388e      push  0x10                                 ; 16
+│           0x10053890      lea   edx, [var_14h]
+│           0x10053894      push  edx
+│           0x10053895      push  esi
+│           0x10053896      mov   word [var_12h], ax
+│           0x1005389b      mov   dword [var_10h], ecx
+│           0x1005389f      call  dword [sym.imp.WSOCK32.dll_connect]  ; 0x100e5454 ; int connect(SOCKET s, struct sockaddr *name, int namelen)
+│           0x100538a5      mov   eax, esi
+│           0x100538a7      pop   esi
+│           0x100538a8      add   esp, 0x10
+└           0x100538ab      ret   0xc

@@ -1,0 +1,104 @@
+            ; CALL XREF from fcn.10049250 @ 0x100492d1(x)
+┌ 254: fcn.10056de0 (int32_t arg_20h, int32_t arg_24h, int32_t arg_28h, int32_t arg_2ch);
+│ `- args(sp[0x4..0x10]) vars(6:sp[0x4..0xe])
+│           0x10056de0      83ec0c         sub esp, 0xc
+│           0x10056de3      53             push ebx
+│           0x10056de4      55             push ebp
+│           0x10056de5      56             push esi
+│           0x10056de6      57             push edi
+│           0x10056de7      8b7c2420       mov edi, dword [arg_20h]
+│           0x10056deb      33f6           xor esi, esi
+│           0x10056ded      3bfe           cmp edi, esi
+│           0x10056def      8bd9           mov ebx, ecx
+│           0x10056df1      89742416       mov dword [var_16h], esi
+│           0x10056df5      66c7442410..   mov word [var_10h], 0xd971  ; [0xd971:2]=0xffff
+│           0x10056dfc      66c7442412..   mov word [var_12h], 0xce6d  ; [0xce6d:2]=0xffff
+│           0x10056e03      66c7442414..   mov word [var_14h], 0x58bf  ; [0x58bf:2]=0xffff
+│       ┌─< 0x10056e0a      0f84c2000000   je 0x10056ed2
+│       │   0x10056e10      8b6c2424       mov ebp, dword [arg_24h]
+│       │   0x10056e14      83fd08         cmp ebp, 8                  ; 8
+│      ┌──< 0x10056e17      0f8cb5000000   jl 0x10056ed2
+│      ││   0x10056e1d      8bc5           mov eax, ebp
+│      ││   0x10056e1f      2507000080     and eax, 0x80000007
+│     ┌───< 0x10056e24      7905           jns 0x10056e2b
+│     │││   0x10056e26      48             dec eax
+│     │││   0x10056e27      83c8f8         or eax, 0xfffffff8          ; 4294967288
+│     │││   0x10056e2a      40             inc eax
+│     │││   ; CODE XREF from fcn.10056de0 @ 0x10056e24(x)
+│    ┌└───> 0x10056e2b      0f85a1000000   jne 0x10056ed2
+│    │ ││   0x10056e31      3bee           cmp ebp, esi
+│    │┌───< 0x10056e33      7e17           jle 0x10056e4c
+│    ││││   ; CODE XREF from fcn.10056de0 @ 0x10056e4a(x)
+│   ┌─────> 0x10056e35      8d4c3e04       lea ecx, [esi + edi + 4]
+│   ╎││││   0x10056e39      51             push ecx                    ; int32_t arg_ch
+│   ╎││││   0x10056e3a      8d143e         lea edx, [esi + edi]
+│   ╎││││   0x10056e3d      52             push edx                    ; int32_t arg_14h
+│   ╎││││   0x10056e3e      8bcb           mov ecx, ebx
+│   ╎││││   0x10056e40      e8fbfcffff     call fcn.10056b40
+│   ╎││││   0x10056e45      83c608         add esi, 8
+│   ╎││││   0x10056e48      3bf5           cmp esi, ebp
+│   └─────< 0x10056e4a      7ce9           jl 0x10056e35
+│    ││││   ; CODE XREF from fcn.10056de0 @ 0x10056e33(x)
+│    │└───> 0x10056e4c      8b5c2428       mov ebx, dword [arg_28h]
+│    │ ││   0x10056e50      8a03           mov al, byte [ebx]
+│    │ ││   0x10056e52      88442420       mov byte [arg_20h], al
+│    │ ││   0x10056e56      8a4301         mov al, byte [ebx + 1]
+│    │ ││   0x10056e59      240f           and al, 0xf                 ; 15
+│    │ ││   0x10056e5b      0fb6f0         movzx esi, al
+│    │ ││   0x10056e5e      2bee           sub ebp, esi
+│    │ ││   0x10056e60      8d45fe         lea eax, [ebp - 2]
+│    │ ││   0x10056e63      8b6c242c       mov ebp, dword [arg_2ch]
+│    │ ││   0x10056e67      8d4c3001       lea ecx, [eax + esi + 1]
+│    │ ││   0x10056e6b      51             push ecx
+│    │ ││   0x10056e6c      8d5701         lea edx, [edi + 1]
+│    │ ││   0x10056e6f      52             push edx
+│    │ ││   0x10056e70      8d4c2418       lea ecx, [var_10h]
+│    │ ││   0x10056e74      894500         mov dword [ebp], eax
+│    │ ││   0x10056e77      e8a493fcff     call fcn.10020220
+│    │ ││   0x10056e7c      8a442416       mov al, byte [var_16h_2]
+│    │ ││   0x10056e80      8ac8           mov cl, al
+│    │ ││   0x10056e82      c0e104         shl cl, 4
+│    │ ││   0x10056e85      32c8           xor cl, al
+│    │ ││   0x10056e87      3a4c2420       cmp cl, byte [var_20h]
+│    │┌───< 0x10056e8b      7545           jne 0x10056ed2
+│    ││││   0x10056e8d      3bfb           cmp edi, ebx
+│   ┌─────< 0x10056e8f      751e           jne 0x10056eaf
+│   │││││   0x10056e91      8b5500         mov edx, dword [ebp]
+│   │││││   0x10056e94      52             push edx
+│   │││││   0x10056e95      8d443e02       lea eax, [esi + edi + 2]
+│   │││││   0x10056e99      50             push eax
+│   │││││   0x10056e9a      53             push ebx
+│   │││││   0x10056e9b      e840ff0600     call fcn.100c6de0
+│   │││││   0x10056ea0      83c40c         add esp, 0xc
+│   │││││   0x10056ea3      5f             pop edi
+│   │││││   0x10056ea4      5e             pop esi
+│   │││││   0x10056ea5      5d             pop ebp
+│   │││││   0x10056ea6      b001           mov al, 1
+│   │││││   0x10056ea8      5b             pop ebx
+│   │││││   0x10056ea9      83c40c         add esp, 0xc
+│   │││││   0x10056eac      c21000         ret 0x10
+│   │││││   ; CODE XREF from fcn.10056de0 @ 0x10056e8f(x)
+│   └─────> 0x10056eaf      8b4d00         mov ecx, dword [ebp]
+│    ││││   0x10056eb2      8bd1           mov edx, ecx
+│    ││││   0x10056eb4      8d743e02       lea esi, [esi + edi + 2]
+│    ││││   0x10056eb8      c1e902         shr ecx, 2
+│    ││││   0x10056ebb      8bfb           mov edi, ebx
+│    ││││   0x10056ebd      f3a5           rep movsd dword es:[edi], dword [esi]
+│    ││││   0x10056ebf      8bca           mov ecx, edx
+│    ││││   0x10056ec1      83e103         and ecx, 3
+│    ││││   0x10056ec4      f3a4           rep movsb byte es:[edi], byte [esi]
+│    ││││   0x10056ec6      5f             pop edi
+│    ││││   0x10056ec7      5e             pop esi
+│    ││││   0x10056ec8      5d             pop ebp
+│    ││││   0x10056ec9      b001           mov al, 1
+│    ││││   0x10056ecb      5b             pop ebx
+│    ││││   0x10056ecc      83c40c         add esp, 0xc
+│    ││││   0x10056ecf      c21000         ret 0x10
+│    ││││   ; CODE XREFS from fcn.10056de0 @ 0x10056e0a(x), 0x10056e17(x), 0x10056e2b(x), 0x10056e8b(x)
+│    └└└└─> 0x10056ed2      5f             pop edi
+│           0x10056ed3      5e             pop esi
+│           0x10056ed4      5d             pop ebp
+│           0x10056ed5      32c0           xor al, al
+│           0x10056ed7      5b             pop ebx
+│           0x10056ed8      83c40c         add esp, 0xc
+└           0x10056edb      c21000         ret 0x10

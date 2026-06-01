@@ -1,0 +1,47 @@
+
+7-Zip 25.01 (x64) : Copyright (c) 1999-2025 Igor Pavlov : 2025-08-03
+ 64-bit locale=C.UTF-8 Threads:32 OPEN_MAX:1048576
+
+Scanning the drive for archives:
+1 file, 15531734 bytes (15 MiB)
+
+Listing archive: sa-mp-0.3.7-R5-1-install.exe
+
+--
+Path = sa-mp-0.3.7-R5-1-install.exe
+Type = Nsis
+Physical Size = 15531734
+Method = LZMA:23
+Solid = -
+Headers Size = 16439
+Embedded Stub Size = 46592
+SubType = NSIS-2
+
+   Date      Time    Attr         Size   Compressed  Name
+------------------- ----- ------------ ------------  ------------------------
+                    .....                      7291  $PLUGINSDIR/InstallOptions.dll
+2007-11-14 21:12:38 .....                       141  $PLUGINSDIR/ioSpecial.ini
+2003-09-23 19:34:00 .....                      1481  $PLUGINSDIR/modern-wizard.bmp
+2022-11-06 08:15:02 .....                    404207  samp.exe
+2022-11-14 23:39:26 .....                    464682  samp.dll
+2010-11-30 05:26:04 .....                     89983  bass.dll
+2015-04-16 12:45:42 .....      2689408      2689408  samp.saa
+2007-06-16 02:43:00 .....                     14702  rcon.exe
+2006-04-05 14:55:56 .....                     58824  samp_debug.exe
+2009-06-12 18:59:16 .....                     12294  sampgui.png
+2009-06-06 16:07:00 .....          784          784  mouse.png
+2007-04-14 11:24:26 .....                     36181  gtaweap3.ttf
+2012-02-15 04:57:02 .....                      3947  sampaux3.ttf
+2011-08-28 05:25:14 .....                      1628  samp-license.txt
+2015-04-27 06:43:04 .....                   9470142  SAMP/SAMP.img
+2015-04-08 14:15:10 .....                    848957  SAMP/SAMPCOL.img
+2015-04-16 12:44:48 .....                     14984  SAMP/SAMP.ide
+2015-04-16 12:19:48 .....                       716  SAMP/SAMP.ipl
+2011-10-15 14:18:22 .....                    465797  SAMP/samaps.txd
+2012-04-05 23:29:46 .....                       207  SAMP/blanktex.txd
+2011-08-27 23:35:28 .....                      1094  SAMP/custom.img
+2011-10-11 07:33:44 .....            0            0  SAMP/CUSTOM.ide
+2005-03-18 08:19:58 .....                    873642  $SYSDIR/d3dx9_25.dll
+                    .....                      8414  SAMPUninstall.exe
+------------------- ----- ------------ ------------  ------------------------
+2022-11-14 23:39:26            2690192     15469506  24 files

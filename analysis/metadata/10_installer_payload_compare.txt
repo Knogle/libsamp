@@ -1,0 +1,7 @@
+# Extracted payload hashes
+b72b5dbe725f81864ca3f78bc7063bda56cc05fc7188af822fa7a754432553a2  analysis/metadata/installer_extract/samp.dll
+910227f4b451e3ecd1e0c8565fb2951e1f34164c2f441c6f384ee343b414a1b4  analysis/metadata/installer_extract/samp.exe
+596895c61a70f558a9ad6b9b44cb5c9ac4b374e95ee2266ac9c88585898f8ae7  analysis/metadata/installer_extract/samp.saa
+
+# Bitwise compare (input dll vs installer dll)
+MATCH: DLL files are bit-identical

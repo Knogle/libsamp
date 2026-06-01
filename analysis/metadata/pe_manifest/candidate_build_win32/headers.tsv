@@ -1,0 +1,16 @@
+key	value
+AddressOfEntryPoint	000011f0
+ImageBase	10000000
+SectionAlignment	00001000
+FileAlignment	00001000
+MajorSubsystemVersion	4
+MinorSubsystemVersion	0
+Subsystem	00000002
+DllCharacteristics	00000000
+SizeOfStackReserve	00100000
+SizeOfStackCommit	00001000
+SizeOfHeapReserve	00100000
+SizeOfHeapCommit	00001000
+file_type	PE32 executable for MS Windows 4.00 (DLL), Intel i386 (stripped to external PDB), 9 sections
+sha256	33625f76118fff4d67d5c005202d36684222441b080fb2f5c29ee2962703f436
+size_bytes	606222

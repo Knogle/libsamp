@@ -1,0 +1,25 @@
+            ; CALL XREFS from fcn.10056300 @ +0x21e(x), +0x487(x)
+┌ 53: fcn.100562c0 (int32_t arg_4h);
+│ `- args(sp[0x4..0x4])
+│           0x100562c0      8b542404       mov edx, dword [arg_4h]
+│           0x100562c4      56             push esi
+│           0x100562c5      8bf1           mov esi, ecx
+│           0x100562c7      8b4604         mov eax, dword [esi + 4]
+│           0x100562ca      3bd0           cmp edx, eax
+│       ┌─< 0x100562cc      7323           jae 0x100562f1
+│       │   0x100562ce      8b0e           mov ecx, dword [esi]
+│       │   0x100562d0      8d0c91         lea ecx, [ecx + edx*4]
+│       │   0x100562d3      2bc2           sub eax, edx
+│       │   0x100562d5      8d1485fcff..   lea edx, [eax*4 - 4]
+│       │   0x100562dc      52             push edx
+│       │   0x100562dd      8d4104         lea eax, [ecx + 4]
+│       │   0x100562e0      50             push eax
+│       │   0x100562e1      51             push ecx
+│       │   0x100562e2      e8f90a0700     call fcn.100c6de0
+│       │   0x100562e7      8b4604         mov eax, dword [esi + 4]
+│       │   0x100562ea      83c40c         add esp, 0xc
+│       │   0x100562ed      48             dec eax
+│       │   0x100562ee      894604         mov dword [esi + 4], eax
+│       │   ; CODE XREF from fcn.100562c0 @ 0x100562cc(x)
+│       └─> 0x100562f1      5e             pop esi
+└           0x100562f2      c20400         ret 4

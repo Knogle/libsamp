@@ -1,0 +1,74 @@
+#include "sampdll/net/raknet_client_adapter.h"
+
+#include <string.h>
+
+int samp_raknet_client_available(void) { return 0; }
+
+int samp_raknet_client_create(void **out_client) {
+  if (out_client != 0) {
+    *out_client = 0;
+  }
+  return -1;
+}
+
+int samp_raknet_client_destroy(void *client) {
+  (void)client;
+  return 0;
+}
+
+int samp_raknet_client_connect(void *client, const char *host, uint16_t server_port, uint16_t client_port,
+                               int thread_sleep_timer) {
+  (void)client;
+  (void)host;
+  (void)server_port;
+  (void)client_port;
+  (void)thread_sleep_timer;
+  return -1;
+}
+
+void samp_raknet_client_disconnect(void *client, unsigned int block_duration, unsigned char ordering_channel) {
+  (void)client;
+  (void)block_duration;
+  (void)ordering_channel;
+}
+
+int samp_raknet_client_is_connected(void *client) {
+  (void)client;
+  return 0;
+}
+
+int samp_raknet_client_drain_packets(void *client, int max_packets) {
+  (void)client;
+  if (max_packets < 0) {
+    return -1;
+  }
+  return 0;
+}
+
+int samp_raknet_client_drain_packets_autojoin(void *client, int max_packets, const samp_raknet_join_profile *profile,
+                                              int *out_connected, int *out_join_sent, int *out_last_packet_id) {
+  (void)profile;
+  if (max_packets < 0) {
+    return -1;
+  }
+  (void)client;
+  if (out_connected != 0) {
+    *out_connected = 0;
+  }
+  if (out_join_sent != 0) {
+    *out_join_sent = 0;
+  }
+  if (out_last_packet_id != 0) {
+    *out_last_packet_id = -1;
+  }
+  return 0;
+}
+
+int samp_raknet_client_get_rpc_probe_snapshot(void *client, samp_raknet_rpc_probe_snapshot *out_snapshot) {
+  (void)client;
+  if (out_snapshot == 0) {
+    return -1;
+  }
+  memset(out_snapshot, 0, sizeof(*out_snapshot));
+  return -1;
+}

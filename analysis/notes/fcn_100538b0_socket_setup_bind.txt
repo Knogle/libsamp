@@ -1,0 +1,98 @@
+            ; CALL XREF from fcn.100427a0 @ 0x100427f8
+┌ fcn.100538b0();
+│           ; var struct sockaddr *name @ stack - 0x7c
+│           ; var int32_t var_78h @ stack - 0x78
+│           ; var int32_t var_6ch @ stack - 0x6c
+│           ; var u_short hostshort @ stack - 0x64
+│           ; var int32_t var_60h @ stack - 0x60
+│           ; var u_long *argp @ stack - 0x5c
+│           ; var int32_t var_4ch @ stack - 0x4c
+│           ; var int32_t var_38h @ stack - 0x38
+│           ; var int32_t var_24h @ stack - 0x24
+│           0x100538b0      sub   esp, 0x18
+│           0x100538b3      push  esi
+│           0x100538b4      push  0                                    ; int protocol
+│           0x100538b6      push  2                                    ; 2 ; int type
+│           0x100538b8      push  2                                    ; 2 ; int af
+│           0x100538ba      call  dword [sym.imp.WSOCK32.dll_socket]   ; 0x100e5450 ; SOCKET socket(int af, int type, int protocol)
+│           0x100538c0      mov   esi, eax
+│           0x100538c2      cmp   esi, 0xffffffff
+│       ┌─< 0x100538c5      jne   0x100538d0
+│       │   0x100538c7      or    eax, eax
+│       │   0x100538c9      pop   esi
+│       │   0x100538ca      add   esp, 0x18
+│       │   0x100538cd      ret   0xc
+│       └─> 0x100538d0      push  edi
+│           0x100538d1      mov   edi, dword [sym.imp.WSOCK32.dll_setsockopt] ; [0x100e5434:4]=0x80000015 reloc.WSOCK32.dll_setsockopt
+│           0x100538d7      push  4                                    ; 4
+│           0x100538d9      lea   eax, [var_24h]
+│           0x100538dd      push  eax
+│           0x100538de      push  4                                    ; 4
+│           0x100538e0      push  0xffff
+│           0x100538e5      push  esi
+│           0x100538e6      mov   dword [var_24h], 1
+│           0x100538ee      call  edi
+│           0x100538f0      push  4                                    ; 4
+│           0x100538f2      lea   ecx, [var_38h]
+│           0x100538f6      push  ecx
+│           0x100538f7      push  0x1002
+│           0x100538fc      push  0xffff
+│           0x10053901      push  esi
+│           0x10053902      mov   dword [var_38h], 0x40000             ; [0x40000:4]=-1
+│           0x1005390a      call  edi
+│           0x1005390c      push  4                                    ; 4
+│           0x1005390e      lea   edx, [var_4ch]
+│           0x10053912      push  edx
+│           0x10053913      push  0x1001
+│           0x10053918      push  0xffff
+│           0x1005391d      push  esi
+│           0x1005391e      mov   dword [var_4ch], 0x4000              ; [0x4000:4]=-1
+│           0x10053926      call  edi
+│           0x10053928      lea   eax, [argp]
+│           0x1005392c      push  eax                                  ; u_long *argp
+│           0x1005392d      push  0x8004667e                           ; long cmd
+│           0x10053932      push  esi                                  ; SOCKET s
+│           0x10053933      mov   dword [argp], 1
+│           0x1005393b      call  dword [sym.imp.WSOCK32.dll_ioctlsocket] ; 0x100e5438 ; int ioctlsocket(SOCKET s, long cmd, u_long *argp)
+│           0x10053941      test  eax, eax
+│       ┌─< 0x10053943      je    0x10053950
+│      ┌──> 0x10053945      pop   edi
+│      ╎│   0x10053946      or    eax, 0xffffffff                      ; -1
+│      ╎│   0x10053949      pop   esi
+│      ╎│   0x1005394a      add   esp, 0x18
+│      ╎│   0x1005394d      ret   0xc
+│      ╎└─> 0x10053950      push  4                                    ; 4
+│      ╎    0x10053952      lea   ecx, [var_6ch]
+│      ╎    0x10053956      push  ecx
+│      ╎    0x10053957      push  0x20                                 ; 32
+│      ╎    0x10053959      push  0xffff
+│      ╎    0x1005395e      push  esi
+│      ╎    0x1005395f      call  edi
+│      ╎    0x10053961      mov   edx, dword [hostshort]
+│      ╎    0x10053965      push  edx                                  ; u_short hostshort
+│      ╎    0x10053966      call  dword [sym.imp.WSOCK32.dll_htons]    ; 0x100e544c ; "\t" ; u_short htons(u_short hostshort)
+│      ╎    0x1005396c      mov   word [name + 0x2], ax
+│      ╎    0x10053971      mov   eax, dword [var_60h]
+│      ╎    0x10053975      test  eax, eax
+│      ╎    0x10053977      mov   word [name], 2
+│      ╎┌─< 0x1005397e      je    0x10053992
+│      ╎│   0x10053980      cmp   byte [eax], 0
+│     ┌───< 0x10053983      je    0x10053992
+│     │╎│   0x10053985      push  eax                                  ; const char *cp
+│     │╎│   0x10053986      call  dword [sym.imp.WSOCK32.dll_inet_addr] ; 0x100e5440 ; "\n" ; unsigned long inet_addr(const char *cp)
+│     │╎│   0x1005398c      mov   dword [name], eax
+│    ┌────< 0x10053990      jmp   0x1005399a
+│    │└─└─> 0x10053992      mov   dword [var_78h], 0
+│    │ ╎    ; CODE XREF from fcn.100538b0 @ 0x10053990
+│    └────> 0x1005399a      push  0x10                                 ; 16 ; int namelen
+│      ╎    0x1005399c      lea   eax, [name]
+│      ╎    0x100539a0      push  eax                                  ; struct sockaddr *name
+│      ╎    0x100539a1      push  esi                                  ; SOCKET s
+│      ╎    0x100539a2      call  dword [sym.imp.WSOCK32.dll_bind]     ; 0x100e543c ; int bind(SOCKET s, struct sockaddr *name, int namelen)
+│      ╎    0x100539a8      cmp   eax, 0xffffffff
+│      └──< 0x100539ab      je    0x10053945
+│           0x100539ad      pop   edi
+│           0x100539ae      mov   eax, esi
+│           0x100539b0      pop   esi
+│           0x100539b1      add   esp, 0x18
+└           0x100539b4      ret   0xc

@@ -1,0 +1,77 @@
+            ; CALL XREF from fcn.1002a5b0 @ +0x271(x)
+            ; CALL XREF from fcn.100571c0 @ +0x32(x)
+┌ 206: fcn.10056880 (int32_t arg_20h);
+│ `- args(sp[0x8..0x8]) vars(5:sp[0xc..0x24])
+│           0x10056880      83ec10         sub esp, 0x10
+│           0x10056883      56             push esi
+│           0x10056884      8bf1           mov esi, ecx
+│           0x10056886      8a4601         mov al, byte [esi + 1]
+│           0x10056889      84c0           test al, al
+│       ┌─< 0x1005688b      7409           je 0x10056896
+│       │   0x1005688d      32c0           xor al, al
+│       │   0x1005688f      5e             pop esi
+│       │   0x10056890      83c410         add esp, 0x10
+│       │   0x10056893      c20800         ret 8
+│       │   ; CODE XREF from fcn.10056880 @ 0x1005688b(x)
+│       └─> 0x10056896      57             push edi
+│           0x10056897      668b7c2420     mov di, word [arg_20h]
+│           0x1005689c      6685ff         test di, di
+│           0x1005689f      c6460101       mov byte [esi + 1], 1
+│       ┌─< 0x100568a3      7663           jbe 0x10056908
+│       │   0x100568a5      6a00           push 0
+│       │   0x100568a7      6a01           push 1                      ; 1 ; int type
+│       │   0x100568a9      6a02           push 2                      ; 2 ; int af
+│       │   0x100568ab      ff1550540e10   call dword [sym.imp.WSOCK32.dll_socket] ; 0x100e5450 ; SOCKET socket(int af, int type, int protocol)
+│       │   0x100568b1      85c0           test eax, eax
+│       │   0x100568b3      894603         mov dword [esi + 3], eax
+│      ┌──< 0x100568b6      7d0a           jge 0x100568c2
+│      ││   ; CODE XREFS from fcn.10056880 @ 0x100568f8(x), 0x10056931(x)
+│    ┌┌───> 0x100568b8      5f             pop edi
+│    ╎╎││   0x100568b9      32c0           xor al, al
+│    ╎╎││   0x100568bb      5e             pop esi
+│    ╎╎││   0x100568bc      83c410         add esp, 0x10
+│    ╎╎││   0x100568bf      c20800         ret 8
+│    ╎╎││   ; CODE XREF from fcn.10056880 @ 0x100568b6(x)
+│    ╎╎└──> 0x100568c2      6a00           push 0
+│    ╎╎ │   0x100568c4      66c744240c..   mov word [var_ch], 2
+│    ╎╎ │   0x100568cb      ff1508540e10   call dword [sym.imp.WSOCK32.dll_htonl] ; 0x100e5408 ; u_long htonl(u_long hostlong)
+│    ╎╎ │   0x100568d1      8944240c       mov dword [var_ch], eax
+│    ╎╎ │   0x100568d5      8b44241c       mov eax, dword [hostshort]
+│    ╎╎ │   0x100568d9      50             push eax                    ; u_short hostshort
+│    ╎╎ │   0x100568da      ff154c540e10   call dword [sym.imp.WSOCK32.dll_htons] ; 0x100e544c ; "\t" ; u_short htons(u_short hostshort)
+│    ╎╎ │   0x100568e0      8b5603         mov edx, dword [esi + 3]
+│    ╎╎ │   0x100568e3      6a10           push 0x10                   ; 16 ; int namelen
+│    ╎╎ │   0x100568e5      8d4c240c       lea ecx, [name]
+│    ╎╎ │   0x100568e9      51             push ecx                    ; const sockaddr *name
+│    ╎╎ │   0x100568ea      52             push edx                    ; SOCKET s
+│    ╎╎ │   0x100568eb      6689442416     mov word [var_16h], ax
+│    ╎╎ │   0x100568f0      ff153c540e10   call dword [sym.imp.WSOCK32.dll_bind] ; 0x100e543c ; int bind(SOCKET s, const sockaddr *name, int namelen)
+│    ╎╎ │   0x100568f6      85c0           test eax, eax
+│    └────< 0x100568f8      7cbe           jl 0x100568b8
+│     ╎ │   0x100568fa      8b4e03         mov ecx, dword [esi + 3]
+│     ╎ │   0x100568fd      0fb7c7         movzx eax, di
+│     ╎ │   0x10056900      50             push eax                    ; int backlog
+│     ╎ │   0x10056901      51             push ecx                    ; SOCKET s
+│     ╎ │   0x10056902      ff150c540e10   call dword [sym.imp.WSOCK32.dll_listen] ; 0x100e540c ; "\r" ; int listen(SOCKET s, int backlog)
+│     ╎ │   ; CODE XREF from fcn.10056880 @ 0x100568a3(x)
+│     ╎ └─> 0x10056908      8d542420       lea edx, [arg_20h]
+│     ╎     0x1005690c      52             push edx
+│     ╎     0x1005690d      6a00           push 0
+│     ╎     0x1005690f      56             push esi
+│     ╎     0x10056910      68a0630510     push 0x100563a0
+│     ╎     0x10056915      6a00           push 0
+│     ╎     0x10056917      6a00           push 0
+│     ╎     0x10056919      c744243800..   mov dword [arg_20h], 0
+│     ╎     0x10056921      e8c2240700     call fcn.100c8de8
+│     ╎     0x10056926      83c418         add esp, 0x18
+│     ╎     0x10056929      85c0           test eax, eax
+│     ╎     0x1005692b      8986a3000000   mov dword [esi + 0xa3], eax
+│     └───< 0x10056931      7485           je 0x100568b8
+│           0x10056933      50             push eax                    ; HANDLE hObject
+│           0x10056934      ff1560520e10   call dword [sym.imp.KERNEL32.dll_CloseHandle] ; 0x100e5260 ; "p\xd4\x0f" ; BOOL CloseHandle(HANDLE hObject)
+│           0x1005693a      5f             pop edi
+│           0x1005693b      c786a30000..   mov dword [esi + 0xa3], 0
+│           0x10056945      b001           mov al, 1
+│           0x10056947      5e             pop esi
+│           0x10056948      83c410         add esp, 0x10
+└           0x1005694b      c20800         ret 8

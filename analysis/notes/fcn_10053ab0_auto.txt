@@ -1,0 +1,56 @@
+            ; CALL XREFS from fcn.1003f440 @ 0x1003fa13(x), 0x1003fa6c(x)
+            ; CALL XREF from fcn.10041450 @ 0x100416d9(x)
+            ; CALL XREF from fcn.10043d10 @ 0x10043e0b(x)
+            ; CALL XREF from fcn.10053b40 @ 0x10053b65(x)
+┌ 137: fcn.10053ab0 (int32_t arg_18h, int32_t arg_24h, int32_t arg_28h_2, u_short hostshort);
+│ `- args(sp[0x4..0x14]) vars(3:sp[0x10..0x14])
+│           0x10053ab0      83ec10         sub esp, 0x10
+│           0x10053ab3      57             push edi
+│           0x10053ab4      8b7c2418       mov edi, dword [arg_18h]
+│           0x10053ab8      83ffff         cmp edi, 0xffffffff
+│       ┌─< 0x10053abb      7509           jne 0x10053ac6
+│       │   0x10053abd      0bc7           or eax, edi
+│       │   0x10053abf      5f             pop edi
+│       │   0x10053ac0      83c410         add esp, 0x10
+│       │   0x10053ac3      c21400         ret 0x14
+│       │   ; CODE XREF from fcn.10053ab0 @ 0x10053abb(x)
+│       └─> 0x10053ac6      8b442428       mov eax, dword [hostshort]
+│           0x10053aca      56             push esi
+│           0x10053acb      50             push eax                    ; u_short hostshort
+│           0x10053acc      ff154c540e10   call dword [sym.imp.WSOCK32.dll_htons] ; 0x100e544c ; "\t" ; u_short htons(u_short hostshort)
+│           0x10053ad2      8b4c2428       mov ecx, dword [arg_28h_2]
+│           0x10053ad6      8d542424       lea edx, [arg_24h]
+│           0x10053ada      668944240a     mov word [var_ah], ax
+│           0x10053adf      8b442420       mov eax, dword [arg_18h]
+│           0x10053ae3      52             push edx                    ; int32_t arg_14h
+│           0x10053ae4      50             push eax                    ; int32_t arg_14h_2
+│           0x10053ae5      68389a1110     push 0x10119a38             ; int32_t arg_1ch
+│           0x10053aea      894c2418       mov dword [var_18h], ecx
+│           0x10053aee      66c7442414..   mov word [var_14h], 2
+│           0x10053af5      e8b6bbfcff     call fcn.1001f6b0
+│           0x10053afa      8b3524540e10   mov esi, dword [sym.imp.WSOCK32.dll_sendto] ; [0x100e5424:4]=0x80000014 reloc.WSOCK32.dll_sendto
+│           0x10053b00      83c40c         add esp, 0xc
+│           ; CODE XREF from fcn.10053ab0 @ 0x10053b1b(x)
+│       ┌─> 0x10053b03      8b542424       mov edx, dword [arg_24h]
+│       ╎   0x10053b07      6a10           push 0x10                   ; 16
+│       ╎   0x10053b09      8d4c240c       lea ecx, [var_14h]
+│       ╎   0x10053b0d      51             push ecx
+│       ╎   0x10053b0e      6a00           push 0
+│       ╎   0x10053b10      52             push edx
+│       ╎   0x10053b11      68389a1110     push 0x10119a38
+│       ╎   0x10053b16      57             push edi
+│       ╎   0x10053b17      ffd6           call esi
+│       ╎   0x10053b19      85c0           test eax, eax
+│       └─< 0x10053b1b      74e6           je 0x10053b03
+│           0x10053b1d      83f8ff         cmp eax, 0xffffffff
+│           0x10053b20      5e             pop esi
+│       ┌─< 0x10053b21      7409           je 0x10053b2c
+│       │   0x10053b23      33c0           xor eax, eax
+│       │   0x10053b25      5f             pop edi
+│       │   0x10053b26      83c410         add esp, 0x10
+│       │   0x10053b29      c21400         ret 0x14
+│       │   ; CODE XREF from fcn.10053ab0 @ 0x10053b21(x)
+│       └─> 0x10053b2c      ff1528540e10   call dword [sym.imp.WSOCK32.dll_WSAGetLastError] ; 0x100e5428 ; "o" ; int WSAGetLastError(void)
+│           0x10053b32      5f             pop edi
+│           0x10053b33      83c410         add esp, 0x10
+└           0x10053b36      c21400         ret 0x14

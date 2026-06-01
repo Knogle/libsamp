@@ -1,0 +1,14 @@
+            ; CALL XREF from data.100e4266 @ +0x4f
+┌ fcn.10053820();
+│           0x10053820      mov   al, byte [data.10121a38]             ; [0x10121a38:1]=0
+│           0x10053825      test  al, al
+│           0x10053827      push  esi
+│           0x10053828      mov   esi, ecx
+│       ┌─< 0x1005382a      jne   0x10053843
+│       │   0x1005382c      push  data.101198a8                        ; 0x101198a8 ; LPWSADATA lpWSAData
+│       │   0x10053831      push  0x202                                ; 514 ; WORD wVersionRequested
+│       │   0x10053836      call  dword [sym.imp.WSOCK32.dll_WSAStartup] ; 0x100e5468 ; "s" ; int WSAStartup(WORD wVersionRequested, LPWSADATA lpWSAData)
+│       │   0x1005383c      mov   byte [data.10121a38], 1              ; [0x10121a38:1]=0
+│       └─> 0x10053843      mov   eax, esi
+│           0x10053845      pop   esi
+└           0x10053846      ret

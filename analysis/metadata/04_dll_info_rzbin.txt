@@ -1,0 +1,42 @@
+[Info]
+arch     x86
+cpu      N/A
+baddr    0x10000000
+binsz    0x00126000
+bintype  pe
+bits     32
+retguard false
+class    PE32
+cmp.csum 0x0012ba34
+compiled Mon Nov 14 23:39:26 2022 UTC+1
+compiler N/A
+dbg_file c:\sampcvs037R4\sampcvs\main\saco\Release\samp.pdb
+endian   LE
+hdr.csum 0x0012ba34
+guid     0DD2B22EE64440CDAFFE4829ED551A101
+intrp    N/A
+laddr    0x00000000
+lang     c
+machine  i386
+maxopsz  16
+minopsz  1
+os       windows
+overlay  false
+cc       cdecl
+pcalign  0
+rpath    N/A
+signed   false
+subsys   Windows GUI
+stripped false
+crypto   false
+havecode true
+va       true
+sanitiz  false
+static   false
+linenum  true
+lsyms    true
+canary   false
+PIE      false
+RELROCS  false
+NX       false
+
