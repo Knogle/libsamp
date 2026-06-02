@@ -1210,6 +1210,43 @@ void decode_client_message_payload(const unsigned char *data, unsigned int bytes
              message->text);
 }
 
+bool decode_textdraw_select_payload(const unsigned char *data, unsigned int bytes, unsigned int bits,
+                                    unsigned char *out_enabled, unsigned int *out_color) {
+  bool enabled = false;
+  unsigned int color = 0U;
+
+  if (out_enabled == nullptr || out_color == nullptr) {
+    return false;
+  }
+  *out_enabled = 0U;
+  *out_color = 0U;
+
+  if (data == nullptr || bytes == 0U || bits == 0U) {
+    return false;
+  }
+
+  RakNet::BitStream bs(const_cast<unsigned char *>(data), bytes, false);
+  if (!bs.Read(enabled)) {
+    return false;
+  }
+
+  if (enabled) {
+    /*
+     * PROBE_TRACE + INFERRED:
+     * 0.3.7/open.mp SelectTextDraw arrives as 33 bits: bool enabled + DWORD hoverColor.
+     * A follow-up all-zero payload disables selection and must not be treated as a black hover color.
+     */
+    color = 0xFFFFFFFFU;
+    if (bits >= 33U && !bs.Read(color)) {
+      color = 0xFFFFFFFFU;
+    }
+  }
+
+  *out_enabled = enabled ? 1U : 0U;
+  *out_color = enabled ? color : 0U;
+  return true;
+}
+
 bool decode_dialog_payload(const unsigned char *data, unsigned int bytes) {
   unsigned short dialog_id = 0;
   unsigned char style = 0;
@@ -1571,6 +1608,7 @@ void service_rpc_probe_actions(RakNet::RakClientInterface *rak_client) {
     g_rpc_probe.select_mode_click_ready_time = 0;
     if (sent) {
       g_rpc_probe.sent_select_mode_freeroam_click = 1;
+      g_rpc_probe.textdraw_select_active = 0U;
       g_rpc_probe.pending_request_spawn = 0;
       g_rpc_probe.next_request_spawn_time = 0;
       g_rpc_probe.request_spawn_retry_count = kMaxSpawnRetries;
@@ -1727,12 +1765,25 @@ void rpc_observer(RakNet::RPCParameters *rpc_params, void *extra) {
       }
     }
   } else if (rpc_id == 83U) {
+    unsigned char select_enabled = 0U;
+    unsigned int select_color = 0U;
+    const unsigned int bits = rpc_params != nullptr ? rpc_params->numberOfBitsOfData : 0U;
+
     g_rpc_probe.saw_textdraw_select = 1;
-    g_rpc_probe.textdraw_select_active = 1U;
-    g_rpc_probe.textdraw_select_color = (rpc_params != nullptr && bytes >= 4U) ? read_le32(rpc_params->input) : 0xFFFFFFFFU;
-    trace_netf("rpc-state id=83 select_textdraw active=1 color=0x%08x bytes=%u observe_only=1",
-               g_rpc_probe.textdraw_select_color, bytes);
-    schedule_select_mode_freeroam_click("select_textdraw");
+    if (rpc_params != nullptr &&
+        decode_textdraw_select_payload(rpc_params->input, bytes, bits, &select_enabled, &select_color)) {
+      g_rpc_probe.textdraw_select_active = select_enabled;
+      g_rpc_probe.textdraw_select_color = select_color;
+      trace_netf("rpc-state id=83 select_textdraw active=%u color=0x%08x bits=%u bytes=%u observe_only=1",
+                 static_cast<unsigned int>(select_enabled), g_rpc_probe.textdraw_select_color, bits, bytes);
+      if (select_enabled != 0U) {
+        schedule_select_mode_freeroam_click("select_textdraw");
+      }
+    } else {
+      g_rpc_probe.textdraw_select_active = 0U;
+      g_rpc_probe.textdraw_select_color = 0U;
+      trace_netf("rpc-state id=83 select_textdraw decode_failed bits=%u bytes=%u active=0", bits, bytes);
+    }
   } else if (rpc_id == 134U) {
     if (rpc_params == nullptr || !decode_textdraw_show_payload(rpc_params->input, bytes)) {
       trace_netf("rpc-state id=134 textdraw_show decode_failed bytes=%u", bytes);

@@ -632,6 +632,7 @@ static void textdraw_compat_update_from_snapshot(const samp_raknet_rpc_probe_sna
 static int textdraw_compat_draw_d3dx_overlay(void *device);
 static int textdraw_compat_handle_mouse(HWND hwnd, UINT msg, LPARAM lparam);
 static int textdraw_compat_submit_click(uint16_t textdraw_id);
+static void textdraw_compat_clear_select_mode(const char *reason);
 static void textdraw_compat_release_fonts(void);
 static int loading_screen_compat_active(void);
 static int loading_screen_compat_draw_d3dx_overlay(void *device);
@@ -3081,14 +3082,26 @@ static int textdraw_compat_submit_click(uint16_t textdraw_id) {
     result = samp_raknet_client_send_textdraw_click(g_runtime.net_mgr.raknet_client, textdraw_id);
   }
   if (result == 0) {
-    InterlockedExchange(&g_runtime.textdraw_select_active, 0);
-    InterlockedExchange(&g_runtime.textdraw_mouse_down, 0);
-    if (!dialog_compat_active()) {
-      dialog_compat_set_mouse_mode(0);
-    }
+    textdraw_compat_clear_select_mode("click");
   }
   runtime_tracef("textdraw: click id=%u result=%d", (unsigned)textdraw_id, result);
   return result;
+}
+
+static void textdraw_compat_clear_select_mode(const char *reason) {
+  LONG was_select = InterlockedExchange(&g_runtime.textdraw_select_active, 0);
+  LONG was_down = InterlockedExchange(&g_runtime.textdraw_mouse_down, 0);
+  LONG mouse_mode = InterlockedCompareExchange(&g_runtime.dialog_mouse_mode, 0, 0);
+  int dialog_active = dialog_compat_active();
+
+  if (!dialog_active && (was_select != 0 || was_down != 0 || mouse_mode != 0)) {
+    dialog_compat_set_mouse_mode(0);
+  }
+  if (was_select != 0 || was_down != 0 || (!dialog_active && mouse_mode != 0)) {
+    runtime_tracef("textdraw: select mode cleared reason=%s active=%ld mouse_down=%ld dialog=%d mouse_mode=%ld",
+                   reason != NULL ? reason : "unknown", (long)was_select, (long)was_down, dialog_active,
+                   (long)mouse_mode);
+  }
 }
 
 static int textdraw_compat_handle_mouse(HWND hwnd, UINT msg, LPARAM lparam) {
@@ -6334,6 +6347,7 @@ static void apply_multiplayer_session_bridge_compat(void) {
   LONG applied_player_pos_seq = 0;
   LONG player_facing_seq = 0;
   LONG applied_player_facing_seq = 0;
+  int spawn_finalized = 0;
 
   if (!g_runtime.settings.play_online) {
     return;
@@ -6369,6 +6383,7 @@ static void apply_multiplayer_session_bridge_compat(void) {
   has_spawn_info = (rpc_flags & SAMP_RAKNET_RPC_FLAG_SPAWN_INFO) != 0u;
   spawn_ready = ((rpc_flags & SAMP_RAKNET_RPC_FLAG_REQUEST_SPAWN_REPLY) != 0u) &&
                 (spawn_outcome == 1 || spawn_outcome == 2);
+  spawn_finalized = InterlockedCompareExchange(&g_runtime.mp_session_spawn_finalized, 0, 0) != 0;
   if (!spawn_ready) {
     apply_session_frontend_hold_flags_compat("class_select");
   }
@@ -6435,7 +6450,12 @@ static void apply_multiplayer_session_bridge_compat(void) {
     }
   }
 
-  if (ped != 0u && (game_rpc_flags & SAMP_RAKNET_RPC_FLAG_PLAYER_FACING) != 0u) {
+  /*
+   * OLD_02X_REF + PROBE_TRACE:
+   * ScrSetPlayerFacingAngle is an RPC event, while these bridge flags are sticky. After Spawn() consumes the initial
+   * rotation, keep local camera/ped steering free and let the seq-gated live handler below consume later RPC updates.
+   */
+  if (ped != 0u && !spawn_finalized && (game_rpc_flags & SAMP_RAKNET_RPC_FLAG_PLAYER_FACING) != 0u) {
     float angle_rad = target_angle * SAMP_DEG_TO_RAD;
     memcpy((void *)(ped + SAMP_PED_OFFSET_ROTATION1), &angle_rad, sizeof(angle_rad));
     memcpy((void *)(ped + SAMP_PED_OFFSET_ROTATION2), &angle_rad, sizeof(angle_rad));
@@ -6473,6 +6493,7 @@ static void apply_multiplayer_session_bridge_compat(void) {
     write_game_u8(SAMP_ADDR_ENABLE_HUD, 1u);
     write_game_u8(SAMP_ADDR_RADAR_BLANK, 0u);
     memcpy((void *)(ped + SAMP_PED_OFFSET_HEALTH), &health, sizeof(health));
+    textdraw_compat_clear_select_mode("spawn_finalize");
 
     if (has_spawn_info) {
       (void)gta_entity_teleport_compat(ped, target_pos[0], target_pos[1], target_z);
@@ -6531,6 +6552,9 @@ static void apply_multiplayer_session_bridge_compat(void) {
     }
     if (has_spawn_info) {
       (void)gta_entity_teleport_compat(ped, target_pos[0], target_pos[1], target_z);
+      if (!gta_script_command_compat(0x0373u, "")) {
+        mp_bridge_record_script_failure("set_camera_behind_player_after_spawn_teleport", 0x0373u);
+      }
     }
 
     {
