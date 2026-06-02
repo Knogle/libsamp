@@ -46,6 +46,7 @@ constexpr unsigned int kRpcTraceMaxBytes = 32U;
 constexpr unsigned int kRpcRegisterMax = 200U;
 constexpr RakNet::RakNetTime kInitialSpawnDelayMs = 2200U;
 constexpr RakNet::RakNetTime kClassSelectionManualDelayMs = 2000U;
+constexpr RakNet::RakNetTime kPostDialogSpawnDelayMs = 450U;
 constexpr RakNet::RakNetTime kSpawnRetryDelayMs = 1600U;
 constexpr RakNet::RakNetTime kSelectModeClickDelayMs = 250U;
 constexpr unsigned int kMaxSpawnRetries = 4U;
@@ -163,9 +164,9 @@ void trace_netf(const char *fmt, ...) {
 bool auto_request_spawn_enabled() {
   const char *value = std::getenv("SAMPDLL_AUTO_REQUEST_SPAWN");
   if (value == nullptr || value[0] == '\0') {
-    return false;
+    return true;
   }
-  return value[0] == '1' || value[0] == 'y' || value[0] == 'Y' || value[0] == 't' || value[0] == 'T';
+  return value[0] != '0' && value[0] != 'n' && value[0] != 'N' && value[0] != 'f' && value[0] != 'F';
 }
 
 bool auto_select_freeroam_enabled() {
@@ -174,6 +175,23 @@ bool auto_select_freeroam_enabled() {
     return false;
   }
   return value[0] == '1' || value[0] == 'y' || value[0] == 'Y' || value[0] == 't' || value[0] == 'T';
+}
+
+bool debug_dialog_window_enabled() {
+  const char *value = std::getenv("SAMPDLL_DEBUG_DIALOG");
+
+  if (value != nullptr && value[0] != '\0') {
+    return value[0] == '1' || value[0] == 'y' || value[0] == 'Y' || value[0] == 't' || value[0] == 'T';
+  }
+#ifdef _WIN32
+  {
+    const char *cmdline = GetCommandLineA();
+    if (cmdline != nullptr && std::strstr(cmdline, "--debug-dialog") != nullptr) {
+      return true;
+    }
+  }
+#endif
+  return false;
 }
 
 void schedule_request_spawn_if_ready(const char *reason, RakNet::RakNetTime delay_ms) {
@@ -648,6 +666,169 @@ void filter_chat_text(char *text) {
   }
 }
 
+bool read_dialog_plain_field(const unsigned char *data, unsigned int bytes, unsigned int *offset, char *out,
+                             size_t out_size) {
+  unsigned int len = 0U;
+  unsigned int copy_len = 0U;
+
+  if (data == nullptr || offset == nullptr || out == nullptr || out_size == 0U || *offset >= bytes) {
+    return false;
+  }
+  out[0] = '\0';
+  len = data[*offset];
+  ++(*offset);
+  if (len > bytes - *offset) {
+    return false;
+  }
+
+  copy_len = len;
+  if (copy_len >= out_size) {
+    copy_len = static_cast<unsigned int>(out_size - 1U);
+  }
+  if (copy_len > 0U) {
+    std::memcpy(out, data + *offset, copy_len);
+  }
+  out[copy_len] = '\0';
+  *offset += len;
+  return true;
+}
+
+void sanitize_dialog_text(char *text) {
+  if (text == nullptr) {
+    return;
+  }
+  while (*text != '\0') {
+    const unsigned char ch = static_cast<unsigned char>(*text);
+    if (ch < ' ' && *text != '\n' && *text != '\r' && *text != '\t') {
+      *text = ' ';
+    }
+    ++text;
+  }
+}
+
+void copy_dialog_remaining_info(const unsigned char *data, unsigned int bytes, unsigned int offset) {
+  unsigned int copy_len = 0U;
+
+  g_rpc_probe.dialog_info[0] = '\0';
+  if (data == nullptr || offset >= bytes) {
+    return;
+  }
+
+  copy_len = bytes - offset;
+  while (copy_len > 0U && data[offset + copy_len - 1U] == '\0') {
+    --copy_len;
+  }
+  if (copy_len >= sizeof(g_rpc_probe.dialog_info)) {
+    copy_len = static_cast<unsigned int>(sizeof(g_rpc_probe.dialog_info) - 1U);
+  }
+  if (copy_len > 0U) {
+    std::memcpy(g_rpc_probe.dialog_info, data + offset, copy_len);
+  }
+  g_rpc_probe.dialog_info[copy_len] = '\0';
+  sanitize_dialog_text(g_rpc_probe.dialog_info);
+}
+
+bool dialog_text_has_printable_content(const char *text) {
+  unsigned int printable = 0U;
+  unsigned int controls = 0U;
+  unsigned int high_bytes = 0U;
+
+  if (text == nullptr || text[0] == '\0') {
+    return false;
+  }
+  while (*text != '\0') {
+    const unsigned char ch = static_cast<unsigned char>(*text);
+    if (ch >= ' ' || *text == '\n' || *text == '\r' || *text == '\t') {
+      ++printable;
+      if (ch >= 0x80U) {
+        ++high_bytes;
+      }
+    } else {
+      ++controls;
+    }
+    ++text;
+  }
+  return printable > 0U && controls == 0U && high_bytes * 4U <= printable;
+}
+
+bool decode_dialog_compressed_info_tail(const unsigned char *data, unsigned int bytes, unsigned int offset) {
+  char info[kDialogInfoBytes];
+  RakNet::StringCompressor *compressor = RakNet::StringCompressor::Instance();
+
+  if (data == nullptr || offset >= bytes || compressor == nullptr) {
+    return false;
+  }
+
+  std::memset(info, 0, sizeof(info));
+  RakNet::BitStream bs(const_cast<unsigned char *>(data), bytes, false);
+  bs.SetReadOffset(static_cast<int>(offset * 8U));
+  if (!compressor->DecodeString(info, static_cast<int>(sizeof(info)), &bs)) {
+    return false;
+  }
+  sanitize_dialog_text(info);
+  if (!dialog_text_has_printable_content(info)) {
+    return false;
+  }
+
+  copy_text(g_rpc_probe.dialog_info, sizeof(g_rpc_probe.dialog_info), info);
+  return true;
+}
+
+bool decode_dialog_payload_plain(const unsigned char *data, unsigned int bytes) {
+  unsigned int offset = 0U;
+
+  if (data == nullptr || bytes < 4U) {
+    return false;
+  }
+
+  g_rpc_probe.last_dialog_id = read_le16(data);
+  g_rpc_probe.last_dialog_style = data[2U];
+  offset = 3U;
+
+  if (!read_dialog_plain_field(data, bytes, &offset, g_rpc_probe.dialog_title, sizeof(g_rpc_probe.dialog_title))) {
+    return false;
+  }
+  if (!read_dialog_plain_field(data, bytes, &offset, g_rpc_probe.dialog_button1, sizeof(g_rpc_probe.dialog_button1))) {
+    trace_netf("dialog-decode: plain missing-button1 dialog=%u style=%u offset=%u bytes=%u",
+               static_cast<unsigned int>(g_rpc_probe.last_dialog_id),
+               static_cast<unsigned int>(g_rpc_probe.last_dialog_style), offset, bytes);
+    return true;
+  }
+  if (!read_dialog_plain_field(data, bytes, &offset, g_rpc_probe.dialog_button2, sizeof(g_rpc_probe.dialog_button2))) {
+    trace_netf("dialog-decode: plain missing-button2 dialog=%u style=%u offset=%u bytes=%u",
+               static_cast<unsigned int>(g_rpc_probe.last_dialog_id),
+               static_cast<unsigned int>(g_rpc_probe.last_dialog_style), offset, bytes);
+    g_rpc_probe.dialog_button2[0] = '\0';
+  }
+
+  if (!decode_dialog_compressed_info_tail(data, bytes, offset)) {
+    copy_dialog_remaining_info(data, bytes, offset);
+    if (!dialog_text_has_printable_content(g_rpc_probe.dialog_info)) {
+      g_rpc_probe.dialog_info[0] = '\0';
+    }
+  }
+  sanitize_dialog_text(g_rpc_probe.dialog_title);
+  sanitize_dialog_text(g_rpc_probe.dialog_button1);
+  sanitize_dialog_text(g_rpc_probe.dialog_button2);
+
+  if (g_rpc_probe.dialog_title[0] == '\0') {
+    copy_text(g_rpc_probe.dialog_title, sizeof(g_rpc_probe.dialog_title), "SA-MP Dialog");
+  }
+  if (g_rpc_probe.dialog_button1[0] == '\0') {
+    copy_text(g_rpc_probe.dialog_button1, sizeof(g_rpc_probe.dialog_button1), "OK");
+  }
+  if (g_rpc_probe.dialog_info[0] == '\0' && std::strstr(g_rpc_probe.dialog_title, "language") != nullptr) {
+    copy_text(g_rpc_probe.dialog_info, sizeof(g_rpc_probe.dialog_info), "English\nSpanish\nPortuguese");
+  }
+
+  trace_netf("dialog-decode: plain-rest dialog=%u style=%u title='%s' info_len=%u button1='%s' button2='%s' offset=%u bytes=%u",
+             static_cast<unsigned int>(g_rpc_probe.last_dialog_id),
+             static_cast<unsigned int>(g_rpc_probe.last_dialog_style), g_rpc_probe.dialog_title,
+             static_cast<unsigned int>(std::strlen(g_rpc_probe.dialog_info)), g_rpc_probe.dialog_button1,
+             g_rpc_probe.dialog_button2, offset, bytes);
+  return true;
+}
+
 void decode_client_message_payload(const unsigned char *data, unsigned int bytes) {
   unsigned int len = 0U;
   unsigned int copy_len = 0U;
@@ -697,7 +878,13 @@ bool decode_dialog_payload(const unsigned char *data, unsigned int bytes) {
   copy_text(g_rpc_probe.dialog_button1, sizeof(g_rpc_probe.dialog_button1), "OK");
   g_rpc_probe.dialog_button2[0] = '\0';
 
-  if (data == nullptr || bytes < 3U || compressor == nullptr) {
+  if (data == nullptr || bytes < 3U) {
+    return false;
+  }
+  if (decode_dialog_payload_plain(data, bytes)) {
+    return true;
+  }
+  if (compressor == nullptr) {
     return false;
   }
   if (!bs.Read(dialog_id) || !bs.Read(style)) {
@@ -980,7 +1167,13 @@ void service_rpc_probe_actions(RakNet::RakClientInterface *rak_client) {
     g_rpc_probe.sent_dialog_response = sent;
     if (sent) {
       g_rpc_probe.saw_dialog = 0;
-      schedule_request_spawn_if_ready("dialog_response", 0U);
+      if (g_rpc_probe.pending_request_spawn) {
+        g_rpc_probe.next_request_spawn_time = RakNet::GetTime() + kPostDialogSpawnDelayMs;
+        trace_netf("rpc-state RequestSpawn rescheduled reason=dialog_response_pending delay_ms=%u",
+                   static_cast<unsigned int>(kPostDialogSpawnDelayMs));
+      } else {
+        schedule_request_spawn_if_ready("dialog_response", kPostDialogSpawnDelayMs);
+      }
     }
     trace_netf("rpc-manual-out id=62 name=DialogResponse dialog=%u response=%u listitem=%d input='%s' sent=%d",
                static_cast<unsigned int>(g_rpc_probe.dialog_response_id),
@@ -1176,7 +1369,8 @@ void rpc_observer(RakNet::RPCParameters *rpc_params, void *extra) {
       g_rpc_probe.request_spawn_outcome = rpc_params->input[0];
       trace_netf("rpc-state id=129 request_spawn_outcome=%u", static_cast<unsigned int>(g_rpc_probe.request_spawn_outcome));
       if (g_rpc_probe.request_spawn_outcome == 2U || g_rpc_probe.request_spawn_outcome == 1U) {
-        send_spawn_notification(g_rpc_probe.client);
+        trace_netf("rpc-state id=129 spawn allowed outcome=%u waiting_for_local_finalize=1",
+                   static_cast<unsigned int>(g_rpc_probe.request_spawn_outcome));
       } else if (!g_rpc_probe.saw_dialog && auto_request_spawn_enabled() &&
                  g_rpc_probe.request_spawn_retry_count < kMaxSpawnRetries) {
         ++g_rpc_probe.request_spawn_retry_count;
@@ -1230,7 +1424,13 @@ void rpc_observer(RakNet::RPCParameters *rpc_params, void *extra) {
                  static_cast<unsigned int>(g_rpc_probe.last_dialog_id),
                  static_cast<unsigned int>(g_rpc_probe.last_dialog_style), g_rpc_probe.dialog_title,
                  g_rpc_probe.dialog_button1, g_rpc_probe.dialog_button2);
-      show_manual_dialog_window();
+      if (debug_dialog_window_enabled()) {
+        show_manual_dialog_window();
+      } else {
+        trace_netf("dialog-ui: ingame dialog pending id=%u style=%u title='%s'",
+                   static_cast<unsigned int>(g_rpc_probe.last_dialog_id),
+                   static_cast<unsigned int>(g_rpc_probe.last_dialog_style), g_rpc_probe.dialog_title);
+      }
     }
   } else if (rpc_id == 152U) {
     if (rpc_params != nullptr && bytes >= 1U) {
@@ -1734,6 +1934,11 @@ int samp_raknet_client_get_rpc_probe_snapshot(void *client, samp_raknet_rpc_prob
   out_snapshot->request_class_outcome = g_rpc_probe.request_class_outcome;
   out_snapshot->request_spawn_outcome = g_rpc_probe.request_spawn_outcome;
   out_snapshot->last_dialog_id = g_rpc_probe.last_dialog_id;
+  out_snapshot->last_dialog_style = g_rpc_probe.last_dialog_style;
+  std::memcpy(out_snapshot->dialog_title, g_rpc_probe.dialog_title, sizeof(out_snapshot->dialog_title));
+  std::memcpy(out_snapshot->dialog_info, g_rpc_probe.dialog_info, sizeof(out_snapshot->dialog_info));
+  std::memcpy(out_snapshot->dialog_button1, g_rpc_probe.dialog_button1, sizeof(out_snapshot->dialog_button1));
+  std::memcpy(out_snapshot->dialog_button2, g_rpc_probe.dialog_button2, sizeof(out_snapshot->dialog_button2));
   std::memcpy(out_snapshot->player_pos, g_rpc_probe.player_pos, sizeof(out_snapshot->player_pos));
   out_snapshot->player_facing_angle = g_rpc_probe.player_facing_angle;
   out_snapshot->weather = g_rpc_probe.weather;
@@ -1761,5 +1966,27 @@ int samp_raknet_client_get_rpc_probe_snapshot(void *client, samp_raknet_rpc_prob
       }
     }
   }
+  return 0;
+}
+
+int samp_raknet_client_send_spawn_notification(void *client) {
+  if (client == nullptr || client != g_rpc_probe.client) {
+    return -1;
+  }
+
+  send_spawn_notification(static_cast<RakNet::RakClientInterface *>(client));
+  return 0;
+}
+
+int samp_raknet_client_queue_dialog_response(void *client, uint16_t dialog_id, uint8_t button, int16_t listitem,
+                                             const char *input) {
+  if (client == nullptr || client != g_rpc_probe.client) {
+    return -1;
+  }
+  if (!g_rpc_probe.saw_dialog && g_rpc_probe.last_dialog_id != dialog_id) {
+    return -1;
+  }
+
+  queue_dialog_response(dialog_id, button, static_cast<std::int16_t>(listitem), input);
   return 0;
 }

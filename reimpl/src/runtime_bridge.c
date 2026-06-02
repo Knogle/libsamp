@@ -162,6 +162,22 @@
 #define SAMP_CHAT_INPUT_HISTORY 10
 #define SAMP_CHAT_INPUT_DRAW_BYTES 160
 #define SAMP_D3D9_END_SCENE_INDEX 42u
+#define SAMP_D3D9_GET_FRONT_BUFFER_DATA_INDEX 33u
+#define SAMP_D3D9_CREATE_OFFSCREEN_PLAIN_SURFACE_INDEX 36u
+#define SAMP_D3D9_CLEAR_INDEX 43u
+#define SAMP_D3DCLEAR_TARGET 0x00000001u
+#define SAMP_D3DFMT_A8R8G8B8 21u
+#define SAMP_D3DPOOL_SCRATCH 3u
+#define SAMP_D3DXIFF_PNG 3u
+#define SAMP_DIALOG_COMPAT_MAX_VISIBLE_ITEMS 8
+#define SAMP_DIALOG_COMPAT_MAX_ITEM_BYTES 256
+#define SAMP_DIALOG_COMPAT_COLOR_PANEL 0xE0000000u
+#define SAMP_DIALOG_COMPAT_COLOR_HEADER 0xFF202020u
+#define SAMP_DIALOG_COMPAT_COLOR_BODY 0xFF050505u
+#define SAMP_DIALOG_COMPAT_COLOR_SELECTED 0xFF9E1B1Bu
+#define SAMP_DIALOG_COMPAT_COLOR_BUTTON 0xFF171717u
+#define SAMP_DIALOG_COMPAT_COLOR_TEXT 0xFFFFFFFFu
+#define SAMP_DIALOG_COMPAT_COLOR_MUTED 0xFFB8B8B8u
 #define SAMP_RAKNET_RPC_FLAG_GAME_STATE_MASK                                                                      \
   (SAMP_RAKNET_RPC_FLAG_PLAYER_POS | SAMP_RAKNET_RPC_FLAG_PLAYER_FACING | SAMP_RAKNET_RPC_FLAG_WEATHER |          \
    SAMP_RAKNET_RPC_FLAG_INTERIOR | SAMP_RAKNET_RPC_FLAG_CAMERA_POS | SAMP_RAKNET_RPC_FLAG_CAMERA_LOOK_AT)
@@ -233,6 +249,13 @@ typedef struct samp_d3d9_display_mode_compat {
   int32_t flags;
 } samp_d3d9_display_mode_compat;
 
+typedef struct samp_d3drect_compat {
+  LONG x1;
+  LONG y1;
+  LONG x2;
+  LONG y2;
+} samp_d3drect_compat;
+
 typedef void(__cdecl *samp_script_process_fn)(void);
 typedef HANDLE(WINAPI *samp_create_file_a_fn)(LPCSTR, DWORD, DWORD, LPSECURITY_ATTRIBUTES, DWORD, DWORD, HANDLE);
 typedef BOOL(WINAPI *samp_read_file_fn)(HANDLE, LPVOID, DWORD, LPDWORD, LPOVERLAPPED);
@@ -242,6 +265,10 @@ typedef BOOL(WINAPI *samp_close_handle_fn)(HANDLE);
 typedef DWORD(WINAPI *samp_get_file_type_fn)(HANDLE);
 typedef int(WINAPI *samp_show_cursor_fn)(BOOL);
 typedef HRESULT(WINAPI *samp_d3d9_end_scene_fn)(void *);
+typedef HRESULT(WINAPI *samp_d3d9_clear_fn)(void *, DWORD, const void *, DWORD, DWORD, float, DWORD);
+typedef HRESULT(WINAPI *samp_d3d9_get_front_buffer_data_fn)(void *, UINT, void *);
+typedef HRESULT(WINAPI *samp_d3d9_create_offscreen_plain_surface_fn)(void *, UINT, UINT, DWORD, DWORD, void **, void *);
+typedef ULONG(WINAPI *samp_unknown_release_fn)(void *);
 typedef int(__cdecl *samp_rw_get_num_subsystems_fn)(void);
 typedef int(__cdecl *samp_rw_set_subsystem_fn)(int);
 typedef int(__cdecl *samp_rw_get_num_video_modes_fn)(void);
@@ -275,6 +302,26 @@ struct samp_id3dx_font_compat {
 
 typedef HRESULT(WINAPI *samp_d3dx_create_font_a_fn)(void *, INT, UINT, UINT, UINT, BOOL, DWORD, DWORD, DWORD, DWORD,
                                                     LPCSTR, samp_id3dx_font_compat **);
+typedef HRESULT(WINAPI *samp_d3dx_save_surface_to_file_a_fn)(LPCSTR, DWORD, void *, const void *, const RECT *);
+
+typedef struct samp_dialog_layout_compat {
+  int panel_x;
+  int panel_y;
+  int panel_w;
+  int panel_h;
+  int body_x;
+  int body_y;
+  int body_w;
+  int body_h;
+  int button1_x;
+  int button1_y;
+  int button1_w;
+  int button1_h;
+  int button2_x;
+  int button2_y;
+  int button2_w;
+  int button2_h;
+} samp_dialog_layout_compat;
 
 typedef struct samp_bootstrap_shims {
   HMODULE kernel32_module;
@@ -447,10 +494,32 @@ typedef struct samp_runtime_state {
   char chat_input_buffer[SAMP_CHAT_INPUT_MAX + 1];
   char chat_input_history[SAMP_CHAT_INPUT_HISTORY][SAMP_CHAT_INPUT_MAX + 1];
   char chat_input_recall_saved[SAMP_CHAT_INPUT_MAX + 1];
+  LONG dialog_overlay_active;
+  LONG dialog_overlay_id;
+  LONG dialog_overlay_style;
+  LONG dialog_overlay_selected;
+  LONG dialog_overlay_scroll;
+  LONG dialog_overlay_input_len;
+  LONG dialog_overlay_logged;
+  LONG dialog_overlay_response_count;
+  LONG dialog_mouse_mode;
+  LONG dialog_mouse_down;
+  LONG dialog_mouse_x;
+  LONG dialog_mouse_y;
+  LONG dialog_mouse_logged;
+  LONG screenshot_requested;
+  LONG screenshot_count;
+  LONG screenshot_fail_logged;
+  char dialog_overlay_title[SAMP_RAKNET_DIALOG_TITLE_BYTES];
+  char dialog_overlay_info[SAMP_RAKNET_DIALOG_INFO_BYTES];
+  char dialog_overlay_button1[SAMP_RAKNET_DIALOG_BUTTON_BYTES];
+  char dialog_overlay_button2[SAMP_RAKNET_DIALOG_BUTTON_BYTES];
+  char dialog_overlay_input[SAMP_RAKNET_DIALOG_INPUT_BYTES];
   void *chat_d3d_device;
   void **chat_d3d_vtbl;
   samp_d3d9_end_scene_fn chat_end_scene_original;
   samp_d3dx_create_font_a_fn d3dx_create_font_a;
+  samp_d3dx_save_surface_to_file_a_fn d3dx_save_surface_to_file_a;
   samp_id3dx_font_compat *chat_d3dx_font;
   char gtaweap3_font_path[MAX_PATH];
   char sampaux3_font_path[MAX_PATH];
@@ -470,6 +539,10 @@ static samp_script_process_fn g_script_process_original = NULL;
 static uint8_t g_scan_list_memory[SAMP_SCANLIST_SIZE];
 static LONG read_game_entry_gate_value(void);
 static HRESULT WINAPI chat_compat_end_scene_hook(void *device);
+static void chat_compat_viewport_rect(int *out_x, int *out_y, int *out_w, int *out_h);
+static void dialog_compat_normalize_selection(void);
+static void dialog_compat_submit(unsigned char button);
+static int screenshot_compat_resolve_d3dx_save_surface(void);
 static LRESULT CALLBACK chat_input_wndproc_compat(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam);
 static const uint8_t kGameProcessHookJmpCode[6] = {0xFFu, 0x25u, 0xD1u, 0xBEu, 0x53u, 0x00u};
 
@@ -995,6 +1068,470 @@ static void chat_input_format_draw_line_compat(char *out_line, size_t out_size) 
   out_line[out_size - 1u] = '\0';
 }
 
+static int dialog_compat_active(void) {
+  return InterlockedCompareExchange(&g_runtime.dialog_overlay_active, 0, 0) != 0;
+}
+
+static int dialog_compat_uses_list(LONG style) {
+  return style == 2 || style == 4 || style == 5;
+}
+
+static int dialog_compat_uses_input(LONG style) {
+  return style == 1 || style == 3;
+}
+
+static int dialog_compat_has_header(LONG style) {
+  return style == 5;
+}
+
+static int dialog_compat_get_line(const char *text, int index, char *out_line, size_t out_size) {
+  const char *cursor = text;
+  const char *line_start = NULL;
+  size_t len = 0u;
+  int current = 0;
+
+  if (out_line == NULL || out_size == 0u) {
+    return 0;
+  }
+  out_line[0] = '\0';
+  if (text == NULL || index < 0) {
+    return 0;
+  }
+
+  while (*cursor != '\0') {
+    line_start = cursor;
+    while (*cursor != '\0' && *cursor != '\n' && *cursor != '\r') {
+      ++cursor;
+    }
+    if (current == index) {
+      len = (size_t)(cursor - line_start);
+      if (len >= out_size) {
+        len = out_size - 1u;
+      }
+      memcpy(out_line, line_start, len);
+      out_line[len] = '\0';
+      chat_compat_filter_invalid_chars(out_line);
+      chat_compat_strip_samp_color_tags(out_line);
+      for (len = 0u; out_line[len] != '\0'; ++len) {
+        if (out_line[len] == '\t') {
+          out_line[len] = ' ';
+        }
+      }
+      return 1;
+    }
+    while (*cursor == '\n' || *cursor == '\r') {
+      ++cursor;
+    }
+    ++current;
+  }
+  return 0;
+}
+
+static int dialog_compat_line_count(const char *text) {
+  const char *cursor = text;
+  int count = 0;
+
+  if (text == NULL || *text == '\0') {
+    return 0;
+  }
+  while (*cursor != '\0') {
+    ++count;
+    while (*cursor != '\0' && *cursor != '\n' && *cursor != '\r') {
+      ++cursor;
+    }
+    while (*cursor == '\n' || *cursor == '\r') {
+      ++cursor;
+    }
+  }
+  return count;
+}
+
+static int dialog_compat_item_count(void) {
+  LONG style = InterlockedCompareExchange(&g_runtime.dialog_overlay_style, 0, 0);
+  int count = dialog_compat_line_count(g_runtime.dialog_overlay_info);
+
+  if (dialog_compat_has_header(style) && count > 0) {
+    --count;
+  }
+  return count < 0 ? 0 : count;
+}
+
+static void dialog_compat_set_mouse_mode(int enabled) {
+  HWND hwnd = NULL;
+  POINT cursor;
+  int viewport_x = 0;
+  int viewport_y = 0;
+  int viewport_w = 0;
+  int viewport_h = 0;
+  int i = 0;
+
+  if (enabled) {
+    if (InterlockedExchange(&g_runtime.dialog_mouse_mode, 1) != 0) {
+      SetCursor(LoadCursorA(NULL, IDC_ARROW));
+      return;
+    }
+
+    hwnd = read_game_hwnd_compat();
+    if (hwnd != NULL && GetCursorPos(&cursor) && ScreenToClient(hwnd, &cursor)) {
+      InterlockedExchange(&g_runtime.dialog_mouse_x, cursor.x);
+      InterlockedExchange(&g_runtime.dialog_mouse_y, cursor.y);
+    } else {
+      chat_compat_viewport_rect(&viewport_x, &viewport_y, &viewport_w, &viewport_h);
+      InterlockedExchange(&g_runtime.dialog_mouse_x, viewport_x + (viewport_w / 2));
+      InterlockedExchange(&g_runtime.dialog_mouse_y, viewport_y + (viewport_h / 2));
+    }
+
+    ClipCursor(NULL);
+    if (g_runtime.bootstrap_shims.show_cursor != NULL) {
+      while (i++ < 8 && g_runtime.bootstrap_shims.show_cursor(TRUE) < 0) {
+      }
+    } else {
+      while (i++ < 8 && ShowCursor(TRUE) < 0) {
+      }
+    }
+    SetCursor(LoadCursorA(NULL, IDC_ARROW));
+    if (InterlockedCompareExchange(&g_runtime.dialog_mouse_logged, 1, 0) == 0) {
+      runtime_tracef("dialog_overlay: mouse mode enabled hwnd=0x%08lx", (unsigned long)(uintptr_t)hwnd);
+    }
+    return;
+  }
+
+  if (InterlockedExchange(&g_runtime.dialog_mouse_mode, 0) == 0) {
+    return;
+  }
+  InterlockedExchange(&g_runtime.dialog_mouse_down, 0);
+  ClipCursor(NULL);
+  i = 0;
+  if (g_runtime.bootstrap_shims.show_cursor != NULL) {
+    while (i++ < 8 && g_runtime.bootstrap_shims.show_cursor(FALSE) >= 0) {
+    }
+  } else {
+    while (i++ < 8 && ShowCursor(FALSE) >= 0) {
+    }
+  }
+  runtime_tracef("dialog_overlay: mouse mode disabled");
+}
+
+static void dialog_compat_close(void) {
+  dialog_compat_set_mouse_mode(0);
+  InterlockedExchange(&g_runtime.dialog_overlay_active, 0);
+  InterlockedExchange(&g_runtime.dialog_overlay_input_len, 0);
+  g_runtime.dialog_overlay_input[0] = '\0';
+}
+
+static int dialog_compat_layout(samp_dialog_layout_compat *layout) {
+  int viewport_x = 0;
+  int viewport_y = 0;
+  int viewport_w = 0;
+  int viewport_h = 0;
+  int panel_w = 520;
+  int panel_h = 292;
+
+  if (layout == NULL) {
+    return 0;
+  }
+  memset(layout, 0, sizeof(*layout));
+  chat_compat_viewport_rect(&viewport_x, &viewport_y, &viewport_w, &viewport_h);
+  if (viewport_w < panel_w + 40) {
+    panel_w = viewport_w - 40;
+  }
+  if (viewport_h < panel_h + 40) {
+    panel_h = viewport_h - 40;
+  }
+  if (panel_w < 320) {
+    panel_w = 320;
+  }
+  if (panel_h < 220) {
+    panel_h = 220;
+  }
+
+  layout->panel_w = panel_w;
+  layout->panel_h = panel_h;
+  layout->panel_x = viewport_x + ((viewport_w - panel_w) / 2);
+  layout->panel_y = viewport_y + ((viewport_h - panel_h) / 2);
+  layout->body_x = layout->panel_x + 14;
+  layout->body_y = layout->panel_y + 42;
+  layout->body_w = panel_w - 28;
+  layout->body_h = panel_h - 92;
+  layout->button1_y = layout->panel_y + panel_h - 42;
+  layout->button1_h = 28;
+  layout->button2_y = layout->button1_y;
+  layout->button2_h = 28;
+
+  if (g_runtime.dialog_overlay_button2[0] != '\0') {
+    layout->button2_x = layout->panel_x + panel_w - 204;
+    layout->button2_w = 88;
+    layout->button1_x = layout->panel_x + panel_w - 102;
+    layout->button1_w = 88;
+  } else {
+    layout->button1_x = layout->panel_x + ((panel_w - 96) / 2);
+    layout->button1_w = 96;
+    layout->button2_x = 0;
+    layout->button2_w = 0;
+  }
+  return 1;
+}
+
+static int dialog_compat_point_in_rect(int x, int y, int rx, int ry, int rw, int rh) {
+  return rw > 0 && rh > 0 && x >= rx && y >= ry && x < rx + rw && y < ry + rh;
+}
+
+static void dialog_compat_record_mouse(HWND hwnd, LPARAM lparam) {
+  POINT cursor;
+
+  cursor.x = (short)LOWORD(lparam);
+  cursor.y = (short)HIWORD(lparam);
+  InterlockedExchange(&g_runtime.dialog_mouse_x, cursor.x);
+  InterlockedExchange(&g_runtime.dialog_mouse_y, cursor.y);
+  if (hwnd != NULL) {
+    SetCursor(LoadCursorA(NULL, IDC_ARROW));
+  }
+}
+
+static void dialog_compat_select_from_mouse(int x, int y, int submit) {
+  LONG style = InterlockedCompareExchange(&g_runtime.dialog_overlay_style, 0, 0);
+  LONG scroll = InterlockedCompareExchange(&g_runtime.dialog_overlay_scroll, 0, 0);
+  samp_dialog_layout_compat layout;
+  int line_y = 0;
+  int row = 0;
+  int item = 0;
+  int item_count = 0;
+
+  if (!dialog_compat_uses_list(style) || !dialog_compat_layout(&layout)) {
+    return;
+  }
+  line_y = layout.body_y + 8;
+  if (dialog_compat_has_header(style)) {
+    line_y += 22;
+  }
+  if (!dialog_compat_point_in_rect(x, y, layout.body_x, line_y, layout.body_w, layout.body_h - (line_y - layout.body_y))) {
+    return;
+  }
+
+  row = (y - line_y) / 22;
+  if (row < 0 || row >= SAMP_DIALOG_COMPAT_MAX_VISIBLE_ITEMS) {
+    return;
+  }
+  item = (int)scroll + row;
+  item_count = dialog_compat_item_count();
+  if (item < 0 || item >= item_count) {
+    return;
+  }
+  InterlockedExchange(&g_runtime.dialog_overlay_selected, item);
+  dialog_compat_normalize_selection();
+  if (submit) {
+    dialog_compat_submit(1u);
+  }
+}
+
+static int dialog_compat_handle_mouse(HWND hwnd, UINT msg, LPARAM lparam) {
+  LONG x = 0;
+  LONG y = 0;
+  samp_dialog_layout_compat layout;
+
+  if (!dialog_compat_active()) {
+    return 0;
+  }
+
+  dialog_compat_record_mouse(hwnd, lparam);
+  x = InterlockedCompareExchange(&g_runtime.dialog_mouse_x, 0, 0);
+  y = InterlockedCompareExchange(&g_runtime.dialog_mouse_y, 0, 0);
+
+  if (msg == WM_MOUSEMOVE) {
+    return 1;
+  }
+  if (msg == WM_LBUTTONDBLCLK) {
+    dialog_compat_select_from_mouse((int)x, (int)y, 1);
+    return 1;
+  }
+  if (msg == WM_LBUTTONDOWN) {
+    InterlockedExchange(&g_runtime.dialog_mouse_down, 1);
+    dialog_compat_select_from_mouse((int)x, (int)y, 0);
+    return 1;
+  }
+  if (msg == WM_LBUTTONUP) {
+    InterlockedExchange(&g_runtime.dialog_mouse_down, 0);
+    if (!dialog_compat_layout(&layout)) {
+      return 1;
+    }
+    if (dialog_compat_point_in_rect((int)x, (int)y, layout.button1_x, layout.button1_y, layout.button1_w,
+                                    layout.button1_h)) {
+      dialog_compat_submit(1u);
+      return 1;
+    }
+    if (dialog_compat_point_in_rect((int)x, (int)y, layout.button2_x, layout.button2_y, layout.button2_w,
+                                    layout.button2_h)) {
+      dialog_compat_submit(0u);
+      return 1;
+    }
+  }
+  return 1;
+}
+
+static void screenshot_compat_request(void) {
+  InterlockedExchange(&g_runtime.screenshot_requested, 1);
+  runtime_tracef("screenshot: requested by F8");
+}
+
+static void dialog_compat_normalize_selection(void) {
+  LONG selected = InterlockedCompareExchange(&g_runtime.dialog_overlay_selected, 0, 0);
+  LONG scroll = InterlockedCompareExchange(&g_runtime.dialog_overlay_scroll, 0, 0);
+  int count = dialog_compat_item_count();
+
+  if (count <= 0) {
+    selected = -1;
+    scroll = 0;
+  } else {
+    if (selected < 0) {
+      selected = 0;
+    }
+    if (selected >= count) {
+      selected = count - 1;
+    }
+    if (scroll < 0) {
+      scroll = 0;
+    }
+    if (selected < scroll) {
+      scroll = selected;
+    }
+    if (selected >= scroll + SAMP_DIALOG_COMPAT_MAX_VISIBLE_ITEMS) {
+      scroll = selected - SAMP_DIALOG_COMPAT_MAX_VISIBLE_ITEMS + 1;
+    }
+  }
+
+  InterlockedExchange(&g_runtime.dialog_overlay_selected, selected);
+  InterlockedExchange(&g_runtime.dialog_overlay_scroll, scroll);
+}
+
+static void dialog_compat_move_selection(int delta) {
+  LONG selected = InterlockedCompareExchange(&g_runtime.dialog_overlay_selected, 0, 0);
+  int count = dialog_compat_item_count();
+
+  if (count <= 0) {
+    return;
+  }
+  selected += delta;
+  if (selected < 0) {
+    selected = 0;
+  }
+  if (selected >= count) {
+    selected = count - 1;
+  }
+  InterlockedExchange(&g_runtime.dialog_overlay_selected, selected);
+  dialog_compat_normalize_selection();
+}
+
+static void dialog_compat_append_input_char(char ch) {
+  LONG len = InterlockedCompareExchange(&g_runtime.dialog_overlay_input_len, 0, 0);
+
+  if (len < 0) {
+    len = 0;
+  }
+  if (len >= (LONG)(SAMP_RAKNET_DIALOG_INPUT_BYTES - 1u)) {
+    return;
+  }
+  g_runtime.dialog_overlay_input[len] = ch;
+  g_runtime.dialog_overlay_input[len + 1] = '\0';
+  InterlockedExchange(&g_runtime.dialog_overlay_input_len, len + 1);
+}
+
+static void dialog_compat_backspace_input(void) {
+  LONG len = InterlockedCompareExchange(&g_runtime.dialog_overlay_input_len, 0, 0);
+
+  if (len <= 0) {
+    return;
+  }
+  --len;
+  g_runtime.dialog_overlay_input[len] = '\0';
+  InterlockedExchange(&g_runtime.dialog_overlay_input_len, len);
+}
+
+static void dialog_compat_submit(unsigned char button) {
+  LONG style = InterlockedCompareExchange(&g_runtime.dialog_overlay_style, 0, 0);
+  LONG dialog_id = InterlockedCompareExchange(&g_runtime.dialog_overlay_id, 0, 0);
+  LONG selected = InterlockedCompareExchange(&g_runtime.dialog_overlay_selected, 0, 0);
+  int16_t listitem = -1;
+  char input[SAMP_RAKNET_DIALOG_INPUT_BYTES];
+  int result = -1;
+
+  if (!dialog_compat_active() || dialog_id < 0 || dialog_id > 65535) {
+    return;
+  }
+  input[0] = '\0';
+
+  if (button != 0u && dialog_compat_uses_list(style)) {
+    int line_index = (int)selected + (dialog_compat_has_header(style) ? 1 : 0);
+    if (selected < 0 || !dialog_compat_get_line(g_runtime.dialog_overlay_info, line_index, input, sizeof(input))) {
+      return;
+    }
+    listitem = (int16_t)selected;
+  } else if (button != 0u && dialog_compat_uses_input(style)) {
+    strncpy(input, g_runtime.dialog_overlay_input, sizeof(input) - 1u);
+    input[sizeof(input) - 1u] = '\0';
+  }
+
+  if (g_runtime.net_mgr.raknet_client != NULL) {
+    result = samp_raknet_client_queue_dialog_response(g_runtime.net_mgr.raknet_client, (uint16_t)dialog_id, button,
+                                                      listitem, input);
+  }
+  if (result == 0) {
+    InterlockedIncrement(&g_runtime.dialog_overlay_response_count);
+    dialog_compat_close();
+  }
+  runtime_tracef("dialog_overlay: submit dialog=%ld button=%u listitem=%ld input='%s' result=%d", (long)dialog_id,
+                 (unsigned)button, (long)listitem, input, result);
+}
+
+static void dialog_compat_update_from_snapshot(const samp_raknet_rpc_probe_snapshot *snapshot) {
+  LONG current_id = InterlockedCompareExchange(&g_runtime.dialog_overlay_id, 0, 0);
+  int new_dialog = 0;
+
+  if (snapshot == NULL || (snapshot->flags & SAMP_RAKNET_RPC_FLAG_DIALOG) == 0u) {
+    if (dialog_compat_active()) {
+      runtime_tracef("dialog_overlay: closed by rpc state");
+    }
+    dialog_compat_close();
+    return;
+  }
+
+  new_dialog = !dialog_compat_active() || current_id != (LONG)snapshot->last_dialog_id;
+  InterlockedExchange(&g_runtime.dialog_overlay_active, 1);
+  dialog_compat_set_mouse_mode(1);
+  InterlockedExchange(&g_runtime.dialog_overlay_id, (LONG)snapshot->last_dialog_id);
+  InterlockedExchange(&g_runtime.dialog_overlay_style, (LONG)snapshot->last_dialog_style);
+  strncpy(g_runtime.dialog_overlay_title, snapshot->dialog_title, sizeof(g_runtime.dialog_overlay_title) - 1u);
+  g_runtime.dialog_overlay_title[sizeof(g_runtime.dialog_overlay_title) - 1u] = '\0';
+  strncpy(g_runtime.dialog_overlay_info, snapshot->dialog_info, sizeof(g_runtime.dialog_overlay_info) - 1u);
+  g_runtime.dialog_overlay_info[sizeof(g_runtime.dialog_overlay_info) - 1u] = '\0';
+  strncpy(g_runtime.dialog_overlay_button1, snapshot->dialog_button1, sizeof(g_runtime.dialog_overlay_button1) - 1u);
+  g_runtime.dialog_overlay_button1[sizeof(g_runtime.dialog_overlay_button1) - 1u] = '\0';
+  strncpy(g_runtime.dialog_overlay_button2, snapshot->dialog_button2, sizeof(g_runtime.dialog_overlay_button2) - 1u);
+  g_runtime.dialog_overlay_button2[sizeof(g_runtime.dialog_overlay_button2) - 1u] = '\0';
+  if (g_runtime.dialog_overlay_title[0] == '\0') {
+    strcpy(g_runtime.dialog_overlay_title, "SA-MP Dialog");
+  }
+  if (g_runtime.dialog_overlay_button1[0] == '\0') {
+    strcpy(g_runtime.dialog_overlay_button1, "OK");
+  }
+
+  if (new_dialog) {
+    chat_input_close_compat();
+    InterlockedExchange(&g_runtime.dialog_overlay_selected, dialog_compat_uses_list(snapshot->last_dialog_style) ? 0 : -1);
+    InterlockedExchange(&g_runtime.dialog_overlay_scroll, 0);
+    InterlockedExchange(&g_runtime.dialog_overlay_input_len, 0);
+    InterlockedExchange(&g_runtime.dialog_overlay_logged, 0);
+    g_runtime.dialog_overlay_input[0] = '\0';
+  }
+  dialog_compat_normalize_selection();
+
+  if (InterlockedCompareExchange(&g_runtime.dialog_overlay_logged, 1, 0) == 0) {
+    runtime_tracef("dialog_overlay: active id=%u style=%u title='%s' items=%d button1='%s' button2='%s'",
+                   (unsigned)snapshot->last_dialog_id, (unsigned)snapshot->last_dialog_style,
+                   g_runtime.dialog_overlay_title, dialog_compat_item_count(), g_runtime.dialog_overlay_button1,
+                   g_runtime.dialog_overlay_button2);
+  }
+}
+
 static void chat_input_uninstall_wndproc_compat(void) {
   HWND hwnd = g_runtime.chat_input_hwnd;
   WNDPROC old_proc = g_runtime.chat_input_old_wndproc;
@@ -1057,9 +1594,87 @@ static void chat_input_try_install_wndproc_compat(void) {
 
 static LRESULT CALLBACK chat_input_wndproc_compat(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam) {
   const int active = InterlockedCompareExchange(&g_runtime.chat_input_active, 0, 0) != 0;
+  const int dialog_active = dialog_compat_active();
 
   if (!chat_input_enabled_compat() || !g_runtime.settings.play_online) {
     return chat_input_call_original_compat(hwnd, msg, wparam, lparam);
+  }
+
+  if ((msg == WM_KEYDOWN || msg == WM_KEYUP) && wparam == VK_F8) {
+    if (msg == WM_KEYDOWN && (lparam & 0x40000000L) == 0) {
+      screenshot_compat_request();
+    }
+    return 0;
+  }
+
+  if (dialog_active) {
+    LONG style = InterlockedCompareExchange(&g_runtime.dialog_overlay_style, 0, 0);
+
+    if (msg == WM_MOUSEMOVE || msg == WM_LBUTTONDOWN || msg == WM_LBUTTONUP || msg == WM_LBUTTONDBLCLK) {
+      if (dialog_compat_handle_mouse(hwnd, msg, lparam)) {
+        return 0;
+      }
+    }
+
+    if (msg == WM_KEYUP) {
+      return 0;
+    }
+
+    if (msg == WM_KEYDOWN) {
+      if (wparam == VK_RETURN) {
+        dialog_compat_submit(1u);
+        return 0;
+      }
+      if (wparam == VK_ESCAPE) {
+        dialog_compat_submit(0u);
+        return 0;
+      }
+      if (dialog_compat_uses_list(style)) {
+        if (wparam == VK_UP) {
+          dialog_compat_move_selection(-1);
+          return 0;
+        }
+        if (wparam == VK_DOWN) {
+          dialog_compat_move_selection(1);
+          return 0;
+        }
+        if (wparam == VK_PRIOR) {
+          dialog_compat_move_selection(-SAMP_DIALOG_COMPAT_MAX_VISIBLE_ITEMS);
+          return 0;
+        }
+        if (wparam == VK_NEXT) {
+          dialog_compat_move_selection(SAMP_DIALOG_COMPAT_MAX_VISIBLE_ITEMS);
+          return 0;
+        }
+      }
+      if (dialog_compat_uses_input(style) && wparam == VK_BACK) {
+        dialog_compat_backspace_input();
+        return 0;
+      }
+      return 0;
+    }
+
+    if (msg == WM_CHAR) {
+      if (dialog_compat_uses_input(style)) {
+        if (wparam == '\b') {
+          dialog_compat_backspace_input();
+          return 0;
+        }
+        if (wparam == '\r' || wparam == '\n') {
+          dialog_compat_submit(1u);
+          return 0;
+        }
+        if (wparam == 27u) {
+          dialog_compat_submit(0u);
+          return 0;
+        }
+        if (wparam >= 32u && wparam <= 126u) {
+          dialog_compat_append_input_char((char)wparam);
+          return 0;
+        }
+      }
+      return 0;
+    }
   }
 
   if (msg == WM_CHAR) {
@@ -1158,6 +1773,141 @@ static int memory_is_readable_compat(const void *ptr, size_t size) {
   return end <= region_end ? 1 : 0;
 }
 
+static void screenshot_compat_release_unknown(void *unknown) {
+  void **vtbl = NULL;
+  samp_unknown_release_fn release_fn = NULL;
+
+  if (unknown == NULL || !memory_is_readable_compat(unknown, sizeof(void **))) {
+    return;
+  }
+  vtbl = *(void ***)unknown;
+  if (vtbl == NULL || !memory_is_readable_compat(&vtbl[2], sizeof(void *)) || vtbl[2] == NULL) {
+    return;
+  }
+  release_fn = (samp_unknown_release_fn)vtbl[2];
+  (void)release_fn(unknown);
+}
+
+static int screenshot_compat_next_path(char *out_path, size_t out_size) {
+  LONG start = InterlockedCompareExchange(&g_runtime.screenshot_count, 0, 0);
+  LONG candidate = 0;
+  int written = 0;
+  int i = 0;
+
+  if (out_path == NULL || out_size == 0u) {
+    return 0;
+  }
+  out_path[0] = '\0';
+
+  for (i = 0; i < 1000; ++i) {
+    candidate = (start + i) % 1000;
+    written = snprintf(out_path, out_size, "%ssa-mp-%03ld.png", g_runtime.module_dir, (long)candidate);
+    if (written <= 0 || (size_t)written >= out_size) {
+      return 0;
+    }
+    if (GetFileAttributesA(out_path) == INVALID_FILE_ATTRIBUTES) {
+      InterlockedExchange(&g_runtime.screenshot_count, (candidate + 1) % 1000);
+      return 1;
+    }
+  }
+
+  candidate = start % 1000;
+  written = snprintf(out_path, out_size, "%ssa-mp-%03ld.png", g_runtime.module_dir, (long)candidate);
+  if (written <= 0 || (size_t)written >= out_size) {
+    return 0;
+  }
+  InterlockedExchange(&g_runtime.screenshot_count, (candidate + 1) % 1000);
+  return 1;
+}
+
+static void screenshot_compat_capture_if_requested(void *device) {
+  void **vtbl = NULL;
+  samp_d3d9_create_offscreen_plain_surface_fn create_surface_fn = NULL;
+  samp_d3d9_get_front_buffer_data_fn get_front_buffer_fn = NULL;
+  void *surface = NULL;
+  HRESULT hr = E_FAIL;
+  UINT width = 0u;
+  UINT height = 0u;
+  char path[MAX_PATH];
+  RECT rect;
+  RECT *save_rect = NULL;
+  POINT point;
+  HWND hwnd = NULL;
+
+  if (InterlockedExchange(&g_runtime.screenshot_requested, 0) == 0) {
+    return;
+  }
+
+  if (device == NULL || !memory_is_readable_compat(device, sizeof(void **)) ||
+      !screenshot_compat_resolve_d3dx_save_surface()) {
+    chat_compat_add_message("Unable to save screenshot.");
+    runtime_tracef("screenshot: capture skipped device=0x%08lx", (unsigned long)(uintptr_t)device);
+    return;
+  }
+  vtbl = *(void ***)device;
+  if (vtbl == NULL ||
+      !memory_is_readable_compat(&vtbl[SAMP_D3D9_CREATE_OFFSCREEN_PLAIN_SURFACE_INDEX], sizeof(void *)) ||
+      !memory_is_readable_compat(&vtbl[SAMP_D3D9_GET_FRONT_BUFFER_DATA_INDEX], sizeof(void *)) ||
+      vtbl[SAMP_D3D9_CREATE_OFFSCREEN_PLAIN_SURFACE_INDEX] == NULL ||
+      vtbl[SAMP_D3D9_GET_FRONT_BUFFER_DATA_INDEX] == NULL) {
+    chat_compat_add_message("Unable to save screenshot.");
+    runtime_tracef("screenshot: d3d vtbl missing device=0x%08lx", (unsigned long)(uintptr_t)device);
+    return;
+  }
+
+  if (!screenshot_compat_next_path(path, sizeof(path))) {
+    chat_compat_add_message("Unable to save screenshot.");
+    runtime_tracef("screenshot: filename failed");
+    return;
+  }
+
+  width = (UINT)GetSystemMetrics(SM_CXSCREEN);
+  height = (UINT)GetSystemMetrics(SM_CYSCREEN);
+  if (width == 0u || height == 0u) {
+    width = 800u;
+    height = 600u;
+  }
+
+  create_surface_fn = (samp_d3d9_create_offscreen_plain_surface_fn)vtbl[SAMP_D3D9_CREATE_OFFSCREEN_PLAIN_SURFACE_INDEX];
+  get_front_buffer_fn = (samp_d3d9_get_front_buffer_data_fn)vtbl[SAMP_D3D9_GET_FRONT_BUFFER_DATA_INDEX];
+  hr = create_surface_fn(device, width, height, SAMP_D3DFMT_A8R8G8B8, SAMP_D3DPOOL_SCRATCH, &surface, NULL);
+  if (FAILED(hr) || surface == NULL) {
+    chat_compat_add_message("Unable to save screenshot.");
+    runtime_tracef("screenshot: CreateOffscreenPlainSurface failed hr=0x%08lx size=%ux%u", (unsigned long)hr,
+                   (unsigned)width, (unsigned)height);
+    return;
+  }
+
+  hr = get_front_buffer_fn(device, 0u, surface);
+  if (SUCCEEDED(hr)) {
+    hwnd = read_game_hwnd_compat();
+    if (hwnd != NULL && GetClientRect(hwnd, &rect)) {
+      point.x = 0;
+      point.y = 0;
+      if (ClientToScreen(hwnd, &point)) {
+        rect.left += point.x;
+        rect.right += point.x;
+        rect.top += point.y;
+        rect.bottom += point.y;
+        save_rect = &rect;
+      }
+    }
+    hr = g_runtime.d3dx_save_surface_to_file_a(path, SAMP_D3DXIFF_PNG, surface, NULL, save_rect);
+  }
+  screenshot_compat_release_unknown(surface);
+
+  if (SUCCEEDED(hr)) {
+    InterlockedExchange(&g_runtime.screenshot_fail_logged, 0);
+    chat_compat_add_message("Screenshot Taken - %s", path);
+    runtime_tracef("screenshot: saved '%s'", path);
+  } else {
+    chat_compat_add_message("Unable to save screenshot.");
+    if (InterlockedCompareExchange(&g_runtime.screenshot_fail_logged, 1, 0) == 0) {
+      runtime_tracef("screenshot: save failed hr=0x%08lx path='%s'", (unsigned long)hr, path);
+    }
+  }
+}
+
 static void chat_compat_draw_text_outline(HDC dc, int x, int y, const char *text, DWORD argb_color) {
   if (dc == NULL || text == NULL || text[0] == '\0') {
     return;
@@ -1203,6 +1953,31 @@ static int chat_compat_resolve_d3dx_create_font(void) {
     return 0;
   }
   g_runtime.d3dx_create_font_a = (samp_d3dx_create_font_a_fn)proc;
+  return 1;
+}
+
+static int screenshot_compat_resolve_d3dx_save_surface(void) {
+  FARPROC proc = NULL;
+
+  if (g_runtime.d3dx_save_surface_to_file_a != NULL) {
+    return 1;
+  }
+  if (g_runtime.d3dx9_module == NULL) {
+    g_runtime.d3dx9_module = LoadLibraryA("d3dx9_25.dll");
+    runtime_tracef("screenshot: d3dx9_25 load %s", (g_runtime.d3dx9_module != NULL) ? "OK" : "FAILED");
+  }
+  if (g_runtime.d3dx9_module == NULL) {
+    return 0;
+  }
+
+  proc = GetProcAddress(g_runtime.d3dx9_module, "D3DXSaveSurfaceToFileA");
+  if (proc == NULL) {
+    if (InterlockedCompareExchange(&g_runtime.screenshot_fail_logged, 1, 0) == 0) {
+      runtime_tracef("screenshot: D3DXSaveSurfaceToFileA missing");
+    }
+    return 0;
+  }
+  g_runtime.d3dx_save_surface_to_file_a = (samp_d3dx_save_surface_to_file_a_fn)proc;
   return 1;
 }
 
@@ -1356,6 +2131,55 @@ static void chat_compat_viewport_origin(int *out_x, int *out_y) {
   }
 }
 
+static void chat_compat_viewport_rect(int *out_x, int *out_y, int *out_w, int *out_h) {
+  HWND hwnd = NULL;
+  RECT client_rect;
+  int client_w = 800;
+  int client_h = 600;
+  int viewport_x = 0;
+  int viewport_w = 800;
+
+  hwnd = read_game_hwnd_compat();
+  if (hwnd != NULL && GetClientRect(hwnd, &client_rect)) {
+    client_w = client_rect.right - client_rect.left;
+    client_h = client_rect.bottom - client_rect.top;
+    if (client_w <= 0) {
+      client_w = 800;
+    }
+    if (client_h <= 0) {
+      client_h = 600;
+    }
+  }
+
+  viewport_w = client_h * 4 / 3;
+  if (viewport_w > 0 && viewport_w < client_w) {
+    viewport_x = (client_w - viewport_w) / 2;
+  } else {
+    viewport_w = client_w;
+  }
+
+  if (out_x != NULL) {
+    *out_x = viewport_x;
+  }
+  if (out_y != NULL) {
+    *out_y = 0;
+  }
+  if (out_w != NULL) {
+    *out_w = viewport_w;
+  }
+  if (out_h != NULL) {
+    *out_h = client_h;
+  }
+}
+
+static void chat_compat_d3dx_draw_text(samp_id3dx_font_compat *font, RECT rect, const char *text, DWORD argb_color,
+                                       DWORD flags) {
+  if (font == NULL || font->lpVtbl == NULL || font->lpVtbl->DrawTextA == NULL || text == NULL || text[0] == '\0') {
+    return;
+  }
+  font->lpVtbl->DrawTextA(font, NULL, text, -1, &rect, flags, argb_color);
+}
+
 static void chat_compat_d3dx_draw_text_outline(samp_id3dx_font_compat *font, RECT rect, const char *text,
                                                DWORD argb_color) {
   if (font == NULL || font->lpVtbl == NULL || font->lpVtbl->DrawTextA == NULL || text == NULL || text[0] == '\0') {
@@ -1375,9 +2199,198 @@ static void chat_compat_d3dx_draw_text_outline(samp_id3dx_font_compat *font, REC
   font->lpVtbl->DrawTextA(font, NULL, text, -1, &rect, DT_NOCLIP | DT_SINGLELINE | DT_LEFT, argb_color);
 }
 
+static void dialog_compat_d3d_fill_rect(void *device, int x, int y, int w, int h, DWORD argb_color) {
+  void **vtbl = NULL;
+  samp_d3d9_clear_fn clear_fn = NULL;
+  samp_d3drect_compat rect;
+
+  if (device == NULL || w <= 0 || h <= 0 || x < 0 || y < 0) {
+    return;
+  }
+  if (!memory_is_readable_compat(device, sizeof(void **))) {
+    return;
+  }
+  vtbl = *(void ***)device;
+  if (vtbl == NULL || !memory_is_readable_compat(&vtbl[SAMP_D3D9_CLEAR_INDEX], sizeof(void *)) ||
+      vtbl[SAMP_D3D9_CLEAR_INDEX] == NULL) {
+    return;
+  }
+
+  rect.x1 = (LONG)x;
+  rect.y1 = (LONG)y;
+  rect.x2 = (LONG)(x + w);
+  rect.y2 = (LONG)(y + h);
+  clear_fn = (samp_d3d9_clear_fn)vtbl[SAMP_D3D9_CLEAR_INDEX];
+  (void)clear_fn(device, 1u, &rect, SAMP_D3DCLEAR_TARGET, argb_color, 1.0f, 0u);
+}
+
+static void dialog_compat_draw_button(samp_id3dx_font_compat *font, void *device, int x, int y, int w, int h,
+                                      const char *text, int primary) {
+  RECT rect;
+
+  dialog_compat_d3d_fill_rect(device, x, y, w, h, primary ? SAMP_DIALOG_COMPAT_COLOR_SELECTED
+                                                          : SAMP_DIALOG_COMPAT_COLOR_BUTTON);
+  rect.left = x;
+  rect.top = y + 5;
+  rect.right = x + w;
+  rect.bottom = y + h;
+  chat_compat_d3dx_draw_text(font, rect, text != NULL && text[0] != '\0' ? text : "OK", SAMP_DIALOG_COMPAT_COLOR_TEXT,
+                             DT_SINGLELINE | DT_CENTER | DT_NOCLIP);
+}
+
+static int dialog_compat_draw_d3dx_overlay(void *device, samp_id3dx_font_compat *font) {
+  LONG style = InterlockedCompareExchange(&g_runtime.dialog_overlay_style, 0, 0);
+  LONG selected = InterlockedCompareExchange(&g_runtime.dialog_overlay_selected, 0, 0);
+  LONG scroll = InterlockedCompareExchange(&g_runtime.dialog_overlay_scroll, 0, 0);
+  samp_dialog_layout_compat layout;
+  int panel_x = 0;
+  int panel_y = 0;
+  int panel_w = 0;
+  int panel_h = 0;
+  int body_x = 0;
+  int body_y = 0;
+  int body_w = 0;
+  int body_h = 0;
+  RECT rect;
+  int i = 0;
+
+  if (!dialog_compat_active() || font == NULL || device == NULL) {
+    return 0;
+  }
+
+  dialog_compat_normalize_selection();
+  selected = InterlockedCompareExchange(&g_runtime.dialog_overlay_selected, 0, 0);
+  scroll = InterlockedCompareExchange(&g_runtime.dialog_overlay_scroll, 0, 0);
+  if (!dialog_compat_layout(&layout)) {
+    return 0;
+  }
+  panel_x = layout.panel_x;
+  panel_y = layout.panel_y;
+  panel_w = layout.panel_w;
+  panel_h = layout.panel_h;
+  body_x = layout.body_x;
+  body_y = layout.body_y;
+  body_w = layout.body_w;
+  body_h = layout.body_h;
+
+  dialog_compat_d3d_fill_rect(device, panel_x - 2, panel_y - 2, panel_w + 4, panel_h + 4, 0xFF000000u);
+  dialog_compat_d3d_fill_rect(device, panel_x, panel_y, panel_w, panel_h, SAMP_DIALOG_COMPAT_COLOR_PANEL);
+  dialog_compat_d3d_fill_rect(device, panel_x, panel_y, panel_w, 30, SAMP_DIALOG_COMPAT_COLOR_HEADER);
+  dialog_compat_d3d_fill_rect(device, body_x, body_y, body_w, body_h, SAMP_DIALOG_COMPAT_COLOR_BODY);
+
+  rect.left = panel_x + 12;
+  rect.top = panel_y + 7;
+  rect.right = panel_x + panel_w - 12;
+  rect.bottom = panel_y + 29;
+  chat_compat_d3dx_draw_text(font, rect, g_runtime.dialog_overlay_title, SAMP_DIALOG_COMPAT_COLOR_TEXT,
+                             DT_SINGLELINE | DT_LEFT | DT_NOCLIP);
+
+  if (dialog_compat_uses_list(style)) {
+    int line_y = body_y + 8;
+    int header_offset = dialog_compat_has_header(style) ? 1 : 0;
+    int item_count = dialog_compat_item_count();
+
+    if (header_offset != 0) {
+      char header[SAMP_DIALOG_COMPAT_MAX_ITEM_BYTES];
+      if (dialog_compat_get_line(g_runtime.dialog_overlay_info, 0, header, sizeof(header))) {
+        rect.left = body_x + 8;
+        rect.top = line_y;
+        rect.right = body_x + body_w - 8;
+        rect.bottom = line_y + 20;
+        chat_compat_d3dx_draw_text(font, rect, header, SAMP_DIALOG_COMPAT_COLOR_MUTED,
+                                   DT_SINGLELINE | DT_LEFT | DT_NOCLIP);
+        line_y += 22;
+      }
+    }
+
+    for (i = 0; i < SAMP_DIALOG_COMPAT_MAX_VISIBLE_ITEMS && (scroll + i) < item_count; ++i) {
+      char line[SAMP_DIALOG_COMPAT_MAX_ITEM_BYTES];
+      int item_index = (int)scroll + i;
+      int line_index = item_index + header_offset;
+      int item_y = line_y + (i * 22);
+
+      if (!dialog_compat_get_line(g_runtime.dialog_overlay_info, line_index, line, sizeof(line))) {
+        continue;
+      }
+      if (item_index == selected) {
+        dialog_compat_d3d_fill_rect(device, body_x + 4, item_y - 1, body_w - 8, 21,
+                                    SAMP_DIALOG_COMPAT_COLOR_SELECTED);
+      }
+      rect.left = body_x + 10;
+      rect.top = item_y + 1;
+      rect.right = body_x + body_w - 10;
+      rect.bottom = item_y + 21;
+      chat_compat_d3dx_draw_text(font, rect, line, SAMP_DIALOG_COMPAT_COLOR_TEXT,
+                                 DT_SINGLELINE | DT_LEFT | DT_NOCLIP);
+    }
+  } else if (dialog_compat_uses_input(style)) {
+    char input_line[SAMP_RAKNET_DIALOG_INPUT_BYTES];
+    size_t input_len = 0u;
+    DWORD tick = GetTickCount();
+
+    rect.left = body_x + 8;
+    rect.top = body_y + 8;
+    rect.right = body_x + body_w - 8;
+    rect.bottom = body_y + 86;
+    chat_compat_d3dx_draw_text(font, rect, g_runtime.dialog_overlay_info, SAMP_DIALOG_COMPAT_COLOR_TEXT,
+                               DT_WORDBREAK | DT_LEFT | DT_NOCLIP);
+
+    strncpy(input_line, g_runtime.dialog_overlay_input, sizeof(input_line) - 2u);
+    input_line[sizeof(input_line) - 2u] = '\0';
+    if (style == 3) {
+      for (input_len = 0u; input_line[input_len] != '\0'; ++input_len) {
+        input_line[input_len] = '*';
+      }
+    } else {
+      input_len = strlen(input_line);
+    }
+    if ((tick / 450u) % 2u == 0u && input_len + 1u < sizeof(input_line)) {
+      input_line[input_len] = '_';
+      input_line[input_len + 1u] = '\0';
+    }
+
+    dialog_compat_d3d_fill_rect(device, body_x + 8, body_y + body_h - 42, body_w - 16, 28, 0xFF101010u);
+    rect.left = body_x + 14;
+    rect.top = body_y + body_h - 36;
+    rect.right = body_x + body_w - 14;
+    rect.bottom = body_y + body_h - 8;
+    chat_compat_d3dx_draw_text(font, rect, input_line, SAMP_DIALOG_COMPAT_COLOR_TEXT,
+                               DT_SINGLELINE | DT_LEFT | DT_NOCLIP);
+  } else {
+    rect.left = body_x + 8;
+    rect.top = body_y + 8;
+    rect.right = body_x + body_w - 8;
+    rect.bottom = body_y + body_h - 8;
+    chat_compat_d3dx_draw_text(font, rect, g_runtime.dialog_overlay_info, SAMP_DIALOG_COMPAT_COLOR_TEXT,
+                               DT_WORDBREAK | DT_LEFT | DT_NOCLIP);
+  }
+
+  if (g_runtime.dialog_overlay_button2[0] != '\0') {
+    dialog_compat_draw_button(font, device, layout.button2_x, layout.button2_y, layout.button2_w, layout.button2_h,
+                              g_runtime.dialog_overlay_button2, 0);
+    dialog_compat_draw_button(font, device, layout.button1_x, layout.button1_y, layout.button1_w, layout.button1_h,
+                              g_runtime.dialog_overlay_button1, 1);
+  } else {
+    dialog_compat_draw_button(font, device, layout.button1_x, layout.button1_y, layout.button1_w, layout.button1_h,
+                              g_runtime.dialog_overlay_button1, 1);
+  }
+
+  {
+    LONG mouse_x = InterlockedCompareExchange(&g_runtime.dialog_mouse_x, 0, 0);
+    LONG mouse_y = InterlockedCompareExchange(&g_runtime.dialog_mouse_y, 0, 0);
+    dialog_compat_d3d_fill_rect(device, (int)mouse_x + 1, (int)mouse_y + 1, 13, 2, 0xFF000000u);
+    dialog_compat_d3d_fill_rect(device, (int)mouse_x + 1, (int)mouse_y + 1, 2, 13, 0xFF000000u);
+    dialog_compat_d3d_fill_rect(device, (int)mouse_x, (int)mouse_y, 13, 2, 0xFFFFFFFFu);
+    dialog_compat_d3d_fill_rect(device, (int)mouse_x, (int)mouse_y, 2, 13, 0xFFFFFFFFu);
+  }
+
+  return 1;
+}
+
 static int chat_compat_draw_d3dx_overlay(void *device) {
   LONG count = 0;
   LONG input_active = 0;
+  LONG dialog_active = 0;
   int x = 0;
   int y = 0;
   int i = 0;
@@ -1388,7 +2401,8 @@ static int chat_compat_draw_d3dx_overlay(void *device) {
   chat_input_try_install_wndproc_compat();
   count = InterlockedCompareExchange(&g_runtime.chat_overlay_line_count, 0, 0);
   input_active = InterlockedCompareExchange(&g_runtime.chat_input_active, 0, 0);
-  if (count <= 0 && input_active == 0) {
+  dialog_active = InterlockedCompareExchange(&g_runtime.dialog_overlay_active, 0, 0);
+  if (count <= 0 && input_active == 0 && dialog_active == 0) {
     return 0;
   }
   if (count < 0) {
@@ -1422,10 +2436,13 @@ static int chat_compat_draw_d3dx_overlay(void *device) {
     rect.bottom = rect.top + SAMP_CHAT_COMPAT_LINE_HEIGHT + 4;
     chat_compat_d3dx_draw_text_outline(g_runtime.chat_d3dx_font, rect, input_line, 0xFFFFFFFFu);
   }
+  if (dialog_active != 0) {
+    (void)dialog_compat_draw_d3dx_overlay(device, g_runtime.chat_d3dx_font);
+  }
 
   if (InterlockedCompareExchange(&g_runtime.chat_d3d_draw_logged, 1, 0) == 0) {
-    runtime_tracef("chat_d3dx: drawing enabled device=0x%08lx lines=%ld x=%d y=%d",
-                   (unsigned long)(uintptr_t)device, (long)count, x, y);
+    runtime_tracef("chat_d3dx: drawing enabled device=0x%08lx lines=%ld dialog=%ld x=%d y=%d",
+                   (unsigned long)(uintptr_t)device, (long)count, (long)dialog_active, x, y);
   }
   return 1;
 }
@@ -1435,6 +2452,7 @@ static HRESULT WINAPI chat_compat_end_scene_hook(void *device) {
 
   if (InterlockedCompareExchange(&g_runtime.chat_d3d_draw_active, 1, 0) == 0) {
     (void)chat_compat_draw_d3dx_overlay(device);
+    screenshot_compat_capture_if_requested(device);
     InterlockedExchange(&g_runtime.chat_d3d_draw_active, 0);
   }
 
@@ -1455,7 +2473,7 @@ static void chat_compat_try_install_d3d_hook(void) {
     return;
   }
   if (g_runtime.settings.play_online && InterlockedCompareExchange(&g_runtime.preconnect_ready, 0, 0) == 0 &&
-      !chat_d3d_early_enabled_compat()) {
+      !chat_d3d_early_enabled_compat() && !dialog_compat_active()) {
     return;
   }
 
@@ -3322,6 +4340,7 @@ static uint32_t refresh_raknet_rpc_snapshot_compat(void) {
   game_rpc_flags = snapshot.flags & SAMP_RAKNET_RPC_FLAG_GAME_STATE_MASK;
   previous_game_rpc_flags = InterlockedExchange(&g_runtime.raknet_game_rpc_flags, (LONG)game_rpc_flags);
   apply_raknet_init_game_settings_compat(&snapshot);
+  dialog_compat_update_from_snapshot(&snapshot);
   previous_chat_seq = (uint32_t)InterlockedCompareExchange(&g_runtime.chat_client_message_seq, 0, 0);
   if ((snapshot.flags & SAMP_RAKNET_RPC_FLAG_CLIENT_MESSAGE) != 0u && snapshot.client_message_count > 0u) {
     uint32_t latest_seq = previous_chat_seq;
@@ -4252,6 +5271,15 @@ static void apply_multiplayer_session_bridge_compat(void) {
       }
     }
 
+    {
+      int spawn_notify_result = -1;
+
+      if (g_runtime.net_mgr.raknet_client != NULL) {
+        spawn_notify_result = samp_raknet_client_send_spawn_notification(g_runtime.net_mgr.raknet_client);
+      }
+      runtime_tracef("mp_session_bridge: spawn_notify_after_finalize result=%d", spawn_notify_result);
+    }
+
     runtime_tracef("mp_session_bridge: spawn_finalize outcome=%ld info=%d team=%u skin=%ld pos=(%.3f,%.3f,%.3f) "
                    "rot=%.3f entry=%ld game_started=%u",
                    (long)spawn_outcome, has_spawn_info, (unsigned)g_runtime.raknet_spawn_team,
@@ -4528,6 +5556,18 @@ static void launch_prepare_network_compat(void) {
     InterlockedExchange(&g_runtime.raknet_game_rpc_flags, 0);
     InterlockedExchange(&g_runtime.raknet_init_game_applied, 0);
     InterlockedExchange(&g_runtime.chat_client_message_seq, 0);
+    InterlockedExchange(&g_runtime.dialog_overlay_active, 0);
+    InterlockedExchange(&g_runtime.dialog_overlay_id, 0);
+    InterlockedExchange(&g_runtime.dialog_overlay_style, 0);
+    InterlockedExchange(&g_runtime.dialog_overlay_selected, -1);
+    InterlockedExchange(&g_runtime.dialog_overlay_scroll, 0);
+    InterlockedExchange(&g_runtime.dialog_overlay_input_len, 0);
+    InterlockedExchange(&g_runtime.dialog_overlay_logged, 0);
+    g_runtime.dialog_overlay_title[0] = '\0';
+    g_runtime.dialog_overlay_info[0] = '\0';
+    g_runtime.dialog_overlay_button1[0] = '\0';
+    g_runtime.dialog_overlay_button2[0] = '\0';
+    g_runtime.dialog_overlay_input[0] = '\0';
     InterlockedExchange(&g_runtime.online_session_drift_seen, 0);
     InterlockedExchange(&g_runtime.online_session_last_entry, 0);
     InterlockedExchange(&g_runtime.online_session_last_game_started, 0);

@@ -17,6 +17,7 @@ void samp_raknet_client_disconnect(void *client, unsigned int block_duration, un
 int samp_raknet_client_is_connected(void *client);
 int samp_raknet_client_send_chat(void *client, const char *text);
 int samp_raknet_client_send_server_command(void *client, const char *command);
+int samp_raknet_client_send_spawn_notification(void *client);
 
 typedef struct samp_raknet_join_profile {
   char nickname[25];
@@ -45,6 +46,10 @@ typedef struct samp_raknet_join_profile {
 #define SAMP_RAKNET_CLIENT_MESSAGE_BYTES 256u
 #define SAMP_RAKNET_HOSTNAME_BYTES 256u
 #define SAMP_RAKNET_REQUIRED_VEHICLE_MODELS 212u
+#define SAMP_RAKNET_DIALOG_TITLE_BYTES 256u
+#define SAMP_RAKNET_DIALOG_INFO_BYTES 4096u
+#define SAMP_RAKNET_DIALOG_BUTTON_BYTES 64u
+#define SAMP_RAKNET_DIALOG_INPUT_BYTES 256u
 
 typedef struct samp_raknet_client_message_probe {
   uint32_t seq;
@@ -81,6 +86,11 @@ typedef struct samp_raknet_rpc_probe_snapshot {
   uint8_t request_class_outcome;
   uint8_t request_spawn_outcome;
   uint16_t last_dialog_id;
+  uint8_t last_dialog_style;
+  char dialog_title[SAMP_RAKNET_DIALOG_TITLE_BYTES];
+  char dialog_info[SAMP_RAKNET_DIALOG_INFO_BYTES];
+  char dialog_button1[SAMP_RAKNET_DIALOG_BUTTON_BYTES];
+  char dialog_button2[SAMP_RAKNET_DIALOG_BUTTON_BYTES];
   float player_pos[3];
   float player_facing_angle;
   uint8_t weather;
@@ -113,6 +123,8 @@ int samp_raknet_client_drain_packets_autojoin(void *client, int max_packets, con
                                               int *out_connected, int *out_join_sent, int *out_last_packet_id);
 
 int samp_raknet_client_get_rpc_probe_snapshot(void *client, samp_raknet_rpc_probe_snapshot *out_snapshot);
+int samp_raknet_client_queue_dialog_response(void *client, uint16_t dialog_id, uint8_t button, int16_t listitem,
+                                             const char *input);
 
 #ifdef __cplusplus
 }
