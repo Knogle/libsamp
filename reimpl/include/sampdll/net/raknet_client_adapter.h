@@ -137,6 +137,8 @@ typedef struct samp_raknet_rpc_probe_snapshot {
   char dialog_button2[SAMP_RAKNET_DIALOG_BUTTON_BYTES];
   float player_pos[3];
   float player_facing_angle;
+  uint32_t player_pos_seq;
+  uint32_t player_facing_seq;
   uint8_t weather;
   uint8_t interior;
   float camera_pos[3];

@@ -131,6 +131,8 @@ struct RpcProbeState {
   unsigned char request_spawn_outcome;
   float player_pos[3];
   float player_facing_angle;
+  unsigned int player_pos_seq;
+  unsigned int player_facing_seq;
   unsigned char weather;
   unsigned char interior;
   float camera_pos[3];
@@ -417,6 +419,8 @@ void reset_rpc_probe_runtime(RakNet::RakClientInterface *client) {
   g_rpc_probe.request_spawn_outcome = 0;
   std::memset(g_rpc_probe.player_pos, 0, sizeof(g_rpc_probe.player_pos));
   g_rpc_probe.player_facing_angle = 0.0f;
+  g_rpc_probe.player_pos_seq = 0U;
+  g_rpc_probe.player_facing_seq = 0U;
   g_rpc_probe.weather = 0;
   g_rpc_probe.interior = 0;
   std::memset(g_rpc_probe.camera_pos, 0, sizeof(g_rpc_probe.camera_pos));
@@ -1757,7 +1761,12 @@ void rpc_observer(RakNet::RPCParameters *rpc_params, void *extra) {
     if (rpc_params != nullptr && bytes >= 12U) {
       g_rpc_probe.saw_player_pos = 1;
       read_vec3(rpc_params->input, g_rpc_probe.player_pos);
-      trace_netf("rpc-state id=12 player_pos=%.3f %.3f %.3f observe_only=1",
+      ++g_rpc_probe.player_pos_seq;
+      if (g_rpc_probe.player_pos_seq == 0U) {
+        g_rpc_probe.player_pos_seq = 1U;
+      }
+      trace_netf("rpc-state id=12 player_pos_seq=%u player_pos=%.3f %.3f %.3f observe_only=1",
+                 g_rpc_probe.player_pos_seq,
                  static_cast<double>(g_rpc_probe.player_pos[0]), static_cast<double>(g_rpc_probe.player_pos[1]),
                  static_cast<double>(g_rpc_probe.player_pos[2]));
     }
@@ -1765,8 +1774,12 @@ void rpc_observer(RakNet::RPCParameters *rpc_params, void *extra) {
     if (rpc_params != nullptr && bytes >= 4U) {
       g_rpc_probe.saw_player_facing = 1;
       g_rpc_probe.player_facing_angle = read_le_float(rpc_params->input);
-      trace_netf("rpc-state id=19 player_facing=%.3f observe_only=1",
-                 static_cast<double>(g_rpc_probe.player_facing_angle));
+      ++g_rpc_probe.player_facing_seq;
+      if (g_rpc_probe.player_facing_seq == 0U) {
+        g_rpc_probe.player_facing_seq = 1U;
+      }
+      trace_netf("rpc-state id=19 player_facing_seq=%u player_facing=%.3f observe_only=1",
+                 g_rpc_probe.player_facing_seq, static_cast<double>(g_rpc_probe.player_facing_angle));
     }
   } else if (rpc_id == kRpcScrDialogBox) {
     g_rpc_probe.saw_dialog = 1;
@@ -2334,6 +2347,8 @@ int samp_raknet_client_get_rpc_probe_snapshot(void *client, samp_raknet_rpc_prob
   std::memcpy(out_snapshot->dialog_button2, g_rpc_probe.dialog_button2, sizeof(out_snapshot->dialog_button2));
   std::memcpy(out_snapshot->player_pos, g_rpc_probe.player_pos, sizeof(out_snapshot->player_pos));
   out_snapshot->player_facing_angle = g_rpc_probe.player_facing_angle;
+  out_snapshot->player_pos_seq = g_rpc_probe.player_pos_seq;
+  out_snapshot->player_facing_seq = g_rpc_probe.player_facing_seq;
   out_snapshot->weather = g_rpc_probe.weather;
   out_snapshot->interior = g_rpc_probe.interior;
   std::memcpy(out_snapshot->camera_pos, g_rpc_probe.camera_pos, sizeof(out_snapshot->camera_pos));

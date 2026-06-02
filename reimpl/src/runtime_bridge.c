@@ -481,6 +481,8 @@ typedef struct samp_runtime_state {
   LONG chat_input_hook_logged;
   LONG mp_session_apply_count;
   LONG mp_session_teleport_count;
+  LONG mp_session_applied_player_pos_seq;
+  LONG mp_session_applied_player_facing_seq;
   LONG mp_session_script_failures;
   LONG mp_session_spawn_finalized;
   LONG mp_session_frontend_hold_logged;
@@ -539,6 +541,8 @@ typedef struct samp_runtime_state {
   uint8_t script_buf[SAMP_SCRIPT_BUF_BYTES];
   float raknet_player_pos[3];
   float raknet_player_facing_angle;
+  LONG raknet_player_pos_seq;
+  LONG raknet_player_facing_seq;
   float raknet_camera_pos[3];
   float raknet_camera_look_at[3];
   float raknet_init_gravity;
@@ -5450,6 +5454,8 @@ static uint32_t refresh_raknet_rpc_snapshot_compat(void) {
   LONG previous_class = 0;
   LONG previous_spawn = 0;
   LONG previous_dialog = 0;
+  LONG previous_player_pos_seq = 0;
+  LONG previous_player_facing_seq = 0;
   uint32_t previous_chat_seq = 0u;
   uint32_t game_rpc_flags = 0;
 
@@ -5491,11 +5497,24 @@ static uint32_t refresh_raknet_rpc_snapshot_compat(void) {
       InterlockedExchange(&g_runtime.chat_client_message_seq, (LONG)latest_seq);
     }
   }
-  if ((snapshot.flags & SAMP_RAKNET_RPC_FLAG_PLAYER_POS) != 0u) {
+  previous_player_pos_seq = InterlockedCompareExchange(&g_runtime.raknet_player_pos_seq, 0, 0);
+  if ((snapshot.flags & SAMP_RAKNET_RPC_FLAG_PLAYER_POS) != 0u && snapshot.player_pos_seq != 0u &&
+      snapshot.player_pos_seq != (uint32_t)previous_player_pos_seq) {
     memcpy(g_runtime.raknet_player_pos, snapshot.player_pos, sizeof(g_runtime.raknet_player_pos));
+    InterlockedExchange(&g_runtime.raknet_player_pos_seq, (LONG)snapshot.player_pos_seq);
+    runtime_tracef("network_prepare: player_pos seq=%lu previous=%ld pos=(%.3f,%.3f,%.3f)",
+                   (unsigned long)snapshot.player_pos_seq, (long)previous_player_pos_seq,
+                   (double)snapshot.player_pos[0], (double)snapshot.player_pos[1],
+                   (double)snapshot.player_pos[2]);
   }
-  if ((snapshot.flags & SAMP_RAKNET_RPC_FLAG_PLAYER_FACING) != 0u) {
+  previous_player_facing_seq = InterlockedCompareExchange(&g_runtime.raknet_player_facing_seq, 0, 0);
+  if ((snapshot.flags & SAMP_RAKNET_RPC_FLAG_PLAYER_FACING) != 0u && snapshot.player_facing_seq != 0u &&
+      snapshot.player_facing_seq != (uint32_t)previous_player_facing_seq) {
     g_runtime.raknet_player_facing_angle = snapshot.player_facing_angle;
+    InterlockedExchange(&g_runtime.raknet_player_facing_seq, (LONG)snapshot.player_facing_seq);
+    runtime_tracef("network_prepare: player_facing seq=%lu previous=%ld angle=%.3f",
+                   (unsigned long)snapshot.player_facing_seq, (long)previous_player_facing_seq,
+                   (double)snapshot.player_facing_angle);
   }
   if ((snapshot.flags & SAMP_RAKNET_RPC_FLAG_WEATHER) != 0u) {
     g_runtime.raknet_weather = snapshot.weather;
@@ -6227,6 +6246,10 @@ static void apply_multiplayer_session_bridge_compat(void) {
   float target_pos[3] = {0.0f, 0.0f, 0.0f};
   float target_angle = 0.0f;
   float target_z = 0.0f;
+  LONG player_pos_seq = 0;
+  LONG applied_player_pos_seq = 0;
+  LONG player_facing_seq = 0;
+  LONG applied_player_facing_seq = 0;
 
   if (!g_runtime.settings.play_online) {
     return;
@@ -6411,12 +6434,62 @@ static void apply_multiplayer_session_bridge_compat(void) {
       runtime_tracef("mp_session_bridge: spawn_notify_after_finalize result=%d", spawn_notify_result);
     }
 
+    /*
+     * PROBE_TRACE + OPENMP_REF + INFERRED:
+     * SuperFreeroam's spawn and /teles paths use SetPlayerPos/SetPlayerFacingAngle. The RPC flags stay sticky, so
+     * mark all pre-finalize values as consumed and only apply later seq bumps as live server movement.
+     */
+    InterlockedExchange(&g_runtime.mp_session_applied_player_pos_seq,
+                        InterlockedCompareExchange(&g_runtime.raknet_player_pos_seq, 0, 0));
+    InterlockedExchange(&g_runtime.mp_session_applied_player_facing_seq,
+                        InterlockedCompareExchange(&g_runtime.raknet_player_facing_seq, 0, 0));
+    InterlockedExchange(&g_runtime.mp_session_teleport_count, 0);
+
     runtime_tracef("mp_session_bridge: spawn_finalize outcome=%ld info=%d team=%u skin=%ld pos=(%.3f,%.3f,%.3f) "
                    "rot=%.3f entry=%ld game_started=%u",
                    (long)spawn_outcome, has_spawn_info, (unsigned)g_runtime.raknet_spawn_team,
                    (long)g_runtime.raknet_spawn_skin, (double)target_pos[0], (double)target_pos[1],
                    (double)target_z, (double)target_angle, (long)read_game_entry_gate_value(),
                    (unsigned)read_game_u8(SAMP_ADDR_GAME_STARTED));
+  }
+
+  if (ped != 0u && spawn_ready && InterlockedCompareExchange(&g_runtime.mp_session_spawn_finalized, 0, 0) != 0) {
+    player_pos_seq = InterlockedCompareExchange(&g_runtime.raknet_player_pos_seq, 0, 0);
+    applied_player_pos_seq = InterlockedCompareExchange(&g_runtime.mp_session_applied_player_pos_seq, 0, 0);
+    if (player_pos_seq != 0 && player_pos_seq != applied_player_pos_seq) {
+      float server_pos[3];
+      int teleported = 0;
+
+      memcpy(server_pos, g_runtime.raknet_player_pos, sizeof(server_pos));
+      gta_prepare_scene_at_compat("server_player_pos", server_pos[0], server_pos[1], server_pos[2],
+                                  g_runtime.raknet_spawn_skin >= 0 ? g_runtime.raknet_spawn_skin : -1);
+      teleported = gta_entity_teleport_compat(ped, server_pos[0], server_pos[1], server_pos[2]);
+      if (!gta_script_command_compat(0x0373u, "")) {
+        mp_bridge_record_script_failure("set_camera_behind_player_after_pos", 0x0373u);
+      }
+      InterlockedExchange(&g_runtime.mp_session_applied_player_pos_seq, player_pos_seq);
+      InterlockedIncrement(&g_runtime.mp_session_teleport_count);
+      runtime_tracef(
+          "mp_session_bridge: apply_player_pos seq=%ld previous=%ld teleported=%d pos=(%.3f,%.3f,%.3f) entry=%ld",
+          (long)player_pos_seq, (long)applied_player_pos_seq, teleported, (double)server_pos[0],
+          (double)server_pos[1], (double)server_pos[2], (long)read_game_entry_gate_value());
+    }
+
+    player_facing_seq = InterlockedCompareExchange(&g_runtime.raknet_player_facing_seq, 0, 0);
+    applied_player_facing_seq = InterlockedCompareExchange(&g_runtime.mp_session_applied_player_facing_seq, 0, 0);
+    if (player_facing_seq != 0 && player_facing_seq != applied_player_facing_seq) {
+      float angle = g_runtime.raknet_player_facing_angle;
+      float angle_rad = angle * SAMP_DEG_TO_RAD;
+
+      memcpy((void *)(ped + SAMP_PED_OFFSET_ROTATION1), &angle_rad, sizeof(angle_rad));
+      memcpy((void *)(ped + SAMP_PED_OFFSET_ROTATION2), &angle_rad, sizeof(angle_rad));
+      if (!gta_script_command_compat(0x0173u, "if", SAMP_GTA_ACTOR_LOCAL_ID, angle)) {
+        mp_bridge_record_script_failure("set_actor_z_angle_after_pos", 0x0173u);
+      }
+      InterlockedExchange(&g_runtime.mp_session_applied_player_facing_seq, player_facing_seq);
+      runtime_tracef("mp_session_bridge: apply_player_facing seq=%ld previous=%ld angle=%.3f",
+                     (long)player_facing_seq, (long)applied_player_facing_seq, (double)angle);
+    }
   }
 
   if (ped != 0u && !spawn_ready && (game_rpc_flags & SAMP_RAKNET_RPC_FLAG_PLAYER_POS) != 0u &&
@@ -6711,6 +6784,8 @@ static void launch_prepare_network_compat(void) {
     InterlockedExchange(&g_runtime.online_session_last_game_started, 0);
     InterlockedExchange(&g_runtime.mp_session_apply_count, 0);
     InterlockedExchange(&g_runtime.mp_session_teleport_count, 0);
+    InterlockedExchange(&g_runtime.mp_session_applied_player_pos_seq, 0);
+    InterlockedExchange(&g_runtime.mp_session_applied_player_facing_seq, 0);
     InterlockedExchange(&g_runtime.mp_session_script_failures, 0);
     InterlockedExchange(&g_runtime.mp_session_frontend_hold_logged, 0);
     InterlockedExchange(&g_runtime.mp_session_spawn_finalized, 0);
@@ -6727,6 +6802,8 @@ static void launch_prepare_network_compat(void) {
     g_runtime.raknet_init_local_player_id = 0u;
     g_runtime.raknet_init_death_drop_money = 0;
     g_runtime.raknet_player_facing_angle = 0.0f;
+    InterlockedExchange(&g_runtime.raknet_player_pos_seq, 0);
+    InterlockedExchange(&g_runtime.raknet_player_facing_seq, 0);
     g_runtime.raknet_init_gravity = 0.0f;
     g_runtime.raknet_init_name_tag_draw_distance = 0.0f;
     g_runtime.raknet_init_global_chat_radius = 0.0f;
