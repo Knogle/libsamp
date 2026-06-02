@@ -3098,8 +3098,8 @@ static int textdraw_compat_handle_mouse(HWND hwnd, UINT msg, LPARAM lparam) {
   }
 
   dialog_compat_record_mouse(hwnd, lparam);
-  cursor.x = (short)LOWORD(lparam);
-  cursor.y = (short)HIWORD(lparam);
+  cursor.x = (LONG)InterlockedCompareExchange(&g_runtime.dialog_mouse_x, 0, 0);
+  cursor.y = (LONG)InterlockedCompareExchange(&g_runtime.dialog_mouse_y, 0, 0);
 
   if (msg == WM_LBUTTONDOWN || msg == WM_LBUTTONDBLCLK) {
     InterlockedExchange(&g_runtime.textdraw_mouse_down, 1);
