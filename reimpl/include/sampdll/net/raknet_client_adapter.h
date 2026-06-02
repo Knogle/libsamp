@@ -18,6 +18,7 @@ int samp_raknet_client_is_connected(void *client);
 int samp_raknet_client_send_chat(void *client, const char *text);
 int samp_raknet_client_send_server_command(void *client, const char *command);
 int samp_raknet_client_send_spawn_notification(void *client);
+int samp_raknet_client_send_textdraw_click(void *client, uint16_t textdraw_id);
 
 typedef struct samp_raknet_join_profile {
   char nickname[25];
@@ -41,6 +42,8 @@ typedef struct samp_raknet_join_profile {
 #define SAMP_RAKNET_RPC_FLAG_CAMERA_POS 0x00001000u
 #define SAMP_RAKNET_RPC_FLAG_CAMERA_LOOK_AT 0x00002000u
 #define SAMP_RAKNET_RPC_FLAG_CLIENT_MESSAGE 0x00004000u
+#define SAMP_RAKNET_RPC_FLAG_TEXTDRAW_EVENT 0x00008000u
+#define SAMP_RAKNET_RPC_FLAG_TEXTDRAW_SELECT 0x00010000u
 
 #define SAMP_RAKNET_CLIENT_MESSAGE_RING 8u
 #define SAMP_RAKNET_CLIENT_MESSAGE_BYTES 256u
@@ -50,6 +53,12 @@ typedef struct samp_raknet_join_profile {
 #define SAMP_RAKNET_DIALOG_INFO_BYTES 4096u
 #define SAMP_RAKNET_DIALOG_BUTTON_BYTES 64u
 #define SAMP_RAKNET_DIALOG_INPUT_BYTES 256u
+#define SAMP_RAKNET_TEXTDRAW_EVENT_RING 64u
+#define SAMP_RAKNET_TEXTDRAW_TEXT_BYTES 256u
+#define SAMP_RAKNET_MAX_TEXTDRAWS 4096u
+#define SAMP_RAKNET_TEXTDRAW_ACTION_SHOW 1u
+#define SAMP_RAKNET_TEXTDRAW_ACTION_HIDE 2u
+#define SAMP_RAKNET_TEXTDRAW_ACTION_EDIT 3u
 
 typedef struct samp_raknet_client_message_probe {
   uint32_t seq;
@@ -57,9 +66,44 @@ typedef struct samp_raknet_client_message_probe {
   char text[SAMP_RAKNET_CLIENT_MESSAGE_BYTES];
 } samp_raknet_client_message_probe;
 
+#pragma pack(push, 1)
+typedef struct samp_raknet_textdraw_transmit {
+  float letter_width;
+  float letter_height;
+  uint32_t letter_color;
+  float line_width;
+  float line_height;
+  uint32_t box_color;
+  uint8_t flags;
+  uint8_t shadow;
+  uint8_t outline;
+  uint32_t background_color;
+  uint8_t style;
+  float x;
+  float y;
+  uint8_t selectable;
+  uint16_t preview_model;
+  float preview_rotation[3];
+  float preview_zoom;
+  int16_t preview_color1;
+  int16_t preview_color2;
+} samp_raknet_textdraw_transmit;
+#pragma pack(pop)
+
+typedef struct samp_raknet_textdraw_event {
+  uint32_t seq;
+  uint8_t action;
+  uint16_t textdraw_id;
+  samp_raknet_textdraw_transmit transmit;
+  char text[SAMP_RAKNET_TEXTDRAW_TEXT_BYTES];
+} samp_raknet_textdraw_event;
+
 typedef struct samp_raknet_rpc_probe_snapshot {
   uint32_t flags;
   uint32_t client_message_count;
+  uint32_t textdraw_event_count;
+  uint8_t textdraw_select_active;
+  uint32_t textdraw_select_color;
   uint16_t init_spawns_available;
   uint16_t init_local_player_id;
   uint8_t init_show_player_tags;
@@ -105,6 +149,7 @@ typedef struct samp_raknet_rpc_probe_snapshot {
   int32_t spawn_weapons[3];
   int32_t spawn_weapon_ammo[3];
   samp_raknet_client_message_probe client_messages[SAMP_RAKNET_CLIENT_MESSAGE_RING];
+  samp_raknet_textdraw_event textdraw_events[SAMP_RAKNET_TEXTDRAW_EVENT_RING];
 } samp_raknet_rpc_probe_snapshot;
 
 /*

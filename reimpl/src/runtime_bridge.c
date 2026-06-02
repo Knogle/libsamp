@@ -178,6 +178,11 @@
 #define SAMP_DIALOG_COMPAT_COLOR_BUTTON 0xFF171717u
 #define SAMP_DIALOG_COMPAT_COLOR_TEXT 0xFFFFFFFFu
 #define SAMP_DIALOG_COMPAT_COLOR_MUTED 0xFFB8B8B8u
+#define SAMP_TEXTDRAW_COMPAT_FONT_BUCKETS 4
+#define SAMP_TEXTDRAW_COMPAT_SCRIPT_WIDTH 640.0f
+#define SAMP_TEXTDRAW_COMPAT_SCRIPT_HEIGHT 448.0f
+#define SAMP_TEXTDRAW_COMPAT_MIN_WIDTH 48
+#define SAMP_TEXTDRAW_COMPAT_MAX_TEXT_BYTES SAMP_RAKNET_TEXTDRAW_TEXT_BYTES
 #define SAMP_RAKNET_RPC_FLAG_GAME_STATE_MASK                                                                      \
   (SAMP_RAKNET_RPC_FLAG_PLAYER_POS | SAMP_RAKNET_RPC_FLAG_PLAYER_FACING | SAMP_RAKNET_RPC_FLAG_WEATHER |          \
    SAMP_RAKNET_RPC_FLAG_INTERIOR | SAMP_RAKNET_RPC_FLAG_CAMERA_POS | SAMP_RAKNET_RPC_FLAG_CAMERA_LOOK_AT)
@@ -322,6 +327,13 @@ typedef struct samp_dialog_layout_compat {
   int button2_w;
   int button2_h;
 } samp_dialog_layout_compat;
+
+typedef struct samp_textdraw_slot_compat {
+  LONG active;
+  uint32_t seq;
+  samp_raknet_textdraw_transmit transmit;
+  char text[SAMP_TEXTDRAW_COMPAT_MAX_TEXT_BYTES];
+} samp_textdraw_slot_compat;
 
 typedef struct samp_bootstrap_shims {
   HMODULE kernel32_module;
@@ -510,6 +522,13 @@ typedef struct samp_runtime_state {
   LONG screenshot_requested;
   LONG screenshot_count;
   LONG screenshot_fail_logged;
+  LONG textdraw_event_seq;
+  LONG textdraw_active_count;
+  LONG textdraw_logged;
+  LONG textdraw_d3d_font_fail_logged;
+  LONG textdraw_select_active;
+  LONG textdraw_mouse_down;
+  DWORD textdraw_select_color;
   char dialog_overlay_title[SAMP_RAKNET_DIALOG_TITLE_BYTES];
   char dialog_overlay_info[SAMP_RAKNET_DIALOG_INFO_BYTES];
   char dialog_overlay_button1[SAMP_RAKNET_DIALOG_BUTTON_BYTES];
@@ -521,6 +540,9 @@ typedef struct samp_runtime_state {
   samp_d3dx_create_font_a_fn d3dx_create_font_a;
   samp_d3dx_save_surface_to_file_a_fn d3dx_save_surface_to_file_a;
   samp_id3dx_font_compat *chat_d3dx_font;
+  samp_id3dx_font_compat *textdraw_d3dx_fonts[SAMP_TEXTDRAW_COMPAT_FONT_BUCKETS];
+  void *textdraw_d3d_device;
+  samp_textdraw_slot_compat textdraw_slots[SAMP_RAKNET_MAX_TEXTDRAWS];
   char gtaweap3_font_path[MAX_PATH];
   char sampaux3_font_path[MAX_PATH];
   samp_endpoint endpoint;
@@ -542,6 +564,12 @@ static HRESULT WINAPI chat_compat_end_scene_hook(void *device);
 static void chat_compat_viewport_rect(int *out_x, int *out_y, int *out_w, int *out_h);
 static void dialog_compat_normalize_selection(void);
 static void dialog_compat_submit(unsigned char button);
+static void textdraw_compat_update_from_snapshot(const samp_raknet_rpc_probe_snapshot *snapshot);
+static int textdraw_compat_draw_d3dx_overlay(void *device);
+static int textdraw_compat_handle_mouse(HWND hwnd, UINT msg, LPARAM lparam);
+static int textdraw_compat_submit_click(uint16_t textdraw_id);
+static void textdraw_compat_release_fonts(void);
+static void gta_streaming_request_model_compat(int32_t model_id, int32_t flags);
 static int screenshot_compat_resolve_d3dx_save_surface(void);
 static LRESULT CALLBACK chat_input_wndproc_compat(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam);
 static const uint8_t kGameProcessHookJmpCode[6] = {0xFFu, 0x25u, 0xD1u, 0xBEu, 0x53u, 0x00u};
@@ -1002,6 +1030,65 @@ static void chat_input_recall_down_compat(void) {
   InterlockedExchange(&g_runtime.chat_input_history_index, -1);
 }
 
+static int chat_input_ascii_ieq_compat(char left, char right) {
+  if (left >= 'A' && left <= 'Z') {
+    left = (char)(left - 'A' + 'a');
+  }
+  if (right >= 'A' && right <= 'Z') {
+    right = (char)(right - 'A' + 'a');
+  }
+  return left == right;
+}
+
+static int chat_input_only_spaces_compat(const char *text) {
+  if (text == NULL) {
+    return 1;
+  }
+  while (*text == ' ' || *text == '\t') {
+    ++text;
+  }
+  return *text == '\0';
+}
+
+static int chat_input_is_local_quit_command_compat(const char *line) {
+  const char *cursor = line;
+
+  if (cursor == NULL) {
+    return 0;
+  }
+  while (*cursor == ' ' || *cursor == '\t') {
+    ++cursor;
+  }
+  if (*cursor != '/') {
+    return 0;
+  }
+  ++cursor;
+  if (chat_input_ascii_ieq_compat(cursor[0], 'q') && chat_input_only_spaces_compat(cursor + 1)) {
+    return 1;
+  }
+  if (chat_input_ascii_ieq_compat(cursor[0], 'q') && chat_input_ascii_ieq_compat(cursor[1], 'u') &&
+      chat_input_ascii_ieq_compat(cursor[2], 'i') && chat_input_ascii_ieq_compat(cursor[3], 't') &&
+      chat_input_only_spaces_compat(cursor + 4)) {
+    return 1;
+  }
+  return 0;
+}
+
+static void chat_input_request_quit_compat(const char *line) {
+  HWND hwnd = read_game_hwnd_compat();
+
+  if (g_runtime.net_mgr.raknet_client != NULL) {
+    samp_raknet_client_disconnect(g_runtime.net_mgr.raknet_client, 0U, 0U);
+  }
+  chat_compat_add_message("Exiting...");
+  runtime_tracef("chat_input: local quit command hwnd=0x%08lx text='%s'", (unsigned long)(uintptr_t)hwnd,
+                 line != NULL ? line : "");
+  if (hwnd != NULL) {
+    PostMessageA(hwnd, WM_CLOSE, 0, 0);
+  }
+  PostQuitMessage(0);
+}
+
 static void chat_input_submit_compat(void) {
   char line[SAMP_CHAT_INPUT_MAX + 1];
   LONG len = InterlockedCompareExchange(&g_runtime.chat_input_len, 0, 0);
@@ -1022,6 +1109,10 @@ static void chat_input_submit_compat(void) {
   }
 
   chat_input_add_history_compat(line);
+  if (chat_input_is_local_quit_command_compat(line)) {
+    chat_input_request_quit_compat(line);
+    return;
+  }
   if (g_runtime.net_mgr.raknet_client == NULL || !samp_raknet_client_is_connected(g_runtime.net_mgr.raknet_client)) {
     chat_compat_add_message("Chat not connected.");
     InterlockedIncrement(&g_runtime.chat_input_send_failures);
@@ -1532,6 +1623,111 @@ static void dialog_compat_update_from_snapshot(const samp_raknet_rpc_probe_snaps
   }
 }
 
+static void textdraw_compat_hide_slot(uint16_t textdraw_id) {
+  samp_textdraw_slot_compat *slot = NULL;
+
+  if (textdraw_id >= SAMP_RAKNET_MAX_TEXTDRAWS) {
+    return;
+  }
+  slot = &g_runtime.textdraw_slots[textdraw_id];
+  if (InterlockedExchange(&slot->active, 0) != 0) {
+    LONG count = InterlockedDecrement(&g_runtime.textdraw_active_count);
+    if (count < 0) {
+      InterlockedExchange(&g_runtime.textdraw_active_count, 0);
+    }
+  }
+  slot->text[0] = '\0';
+}
+
+static void textdraw_compat_apply_event(const samp_raknet_textdraw_event *event) {
+  samp_textdraw_slot_compat *slot = NULL;
+
+  if (event == NULL || event->seq == 0u || event->textdraw_id >= SAMP_RAKNET_MAX_TEXTDRAWS) {
+    return;
+  }
+
+  if (event->action == SAMP_RAKNET_TEXTDRAW_ACTION_HIDE) {
+    textdraw_compat_hide_slot(event->textdraw_id);
+    runtime_tracef("textdraw: hide seq=%lu id=%u", (unsigned long)event->seq, (unsigned)event->textdraw_id);
+    return;
+  }
+
+  slot = &g_runtime.textdraw_slots[event->textdraw_id];
+  if (event->action == SAMP_RAKNET_TEXTDRAW_ACTION_SHOW) {
+    if (InterlockedExchange(&slot->active, 1) == 0) {
+      InterlockedIncrement(&g_runtime.textdraw_active_count);
+    }
+    slot->seq = event->seq;
+    memcpy(&slot->transmit, &event->transmit, sizeof(slot->transmit));
+    strncpy(slot->text, event->text, sizeof(slot->text) - 1u);
+    slot->text[sizeof(slot->text) - 1u] = '\0';
+    runtime_tracef("textdraw: show seq=%lu id=%u pos=(%.2f,%.2f) size=(%.2f,%.2f) style=%u flags=0x%02x selectable=%u model=%u zoom=%.2f text='%s'",
+                   (unsigned long)event->seq, (unsigned)event->textdraw_id, (double)slot->transmit.x,
+                   (double)slot->transmit.y, (double)slot->transmit.line_width,
+                   (double)slot->transmit.line_height, (unsigned)slot->transmit.style,
+                   (unsigned)slot->transmit.flags, (unsigned)slot->transmit.selectable,
+                   (unsigned)slot->transmit.preview_model, (double)slot->transmit.preview_zoom, slot->text);
+    return;
+  }
+
+  if (event->action == SAMP_RAKNET_TEXTDRAW_ACTION_EDIT && InterlockedCompareExchange(&slot->active, 0, 0) != 0) {
+    slot->seq = event->seq;
+    strncpy(slot->text, event->text, sizeof(slot->text) - 1u);
+    slot->text[sizeof(slot->text) - 1u] = '\0';
+    runtime_tracef("textdraw: edit seq=%lu id=%u text='%s'", (unsigned long)event->seq,
+                   (unsigned)event->textdraw_id, slot->text);
+  }
+}
+
+static void textdraw_compat_update_from_snapshot(const samp_raknet_rpc_probe_snapshot *snapshot) {
+  uint32_t previous_seq = 0u;
+  uint32_t latest_seq = 0u;
+  uint32_t count = 0u;
+  uint32_t i = 0u;
+
+  if (snapshot == NULL) {
+    return;
+  }
+
+  if ((snapshot->flags & SAMP_RAKNET_RPC_FLAG_TEXTDRAW_SELECT) != 0u && snapshot->textdraw_select_active != 0u) {
+    if (InterlockedExchange(&g_runtime.textdraw_select_active, 1) == 0) {
+      runtime_tracef("textdraw: select mode enabled color=0x%08lx", (unsigned long)snapshot->textdraw_select_color);
+    }
+    g_runtime.textdraw_select_color = snapshot->textdraw_select_color;
+    dialog_compat_set_mouse_mode(1);
+  } else if (InterlockedCompareExchange(&g_runtime.textdraw_select_active, 0, 0) != 0) {
+    InterlockedExchange(&g_runtime.textdraw_select_active, 0);
+    InterlockedExchange(&g_runtime.textdraw_mouse_down, 0);
+    if (!dialog_compat_active()) {
+      dialog_compat_set_mouse_mode(0);
+    }
+    runtime_tracef("textdraw: select mode disabled by rpc state");
+  }
+
+  if ((snapshot->flags & SAMP_RAKNET_RPC_FLAG_TEXTDRAW_EVENT) == 0u) {
+    return;
+  }
+
+  previous_seq = (uint32_t)InterlockedCompareExchange(&g_runtime.textdraw_event_seq, 0, 0);
+  latest_seq = previous_seq;
+  count = snapshot->textdraw_event_count;
+  if (count > SAMP_RAKNET_TEXTDRAW_EVENT_RING) {
+    count = SAMP_RAKNET_TEXTDRAW_EVENT_RING;
+  }
+
+  for (i = 0u; i < count; ++i) {
+    const samp_raknet_textdraw_event *event = &snapshot->textdraw_events[i];
+    if (event->seq != 0u && event->seq > previous_seq) {
+      textdraw_compat_apply_event(event);
+      latest_seq = event->seq;
+    }
+  }
+
+  if (latest_seq != previous_seq) {
+    InterlockedExchange(&g_runtime.textdraw_event_seq, (LONG)latest_seq);
+  }
+}
+
 static void chat_input_uninstall_wndproc_compat(void) {
   HWND hwnd = g_runtime.chat_input_hwnd;
   WNDPROC old_proc = g_runtime.chat_input_old_wndproc;
@@ -1595,6 +1791,7 @@ static void chat_input_try_install_wndproc_compat(void) {
 static LRESULT CALLBACK chat_input_wndproc_compat(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam) {
   const int active = InterlockedCompareExchange(&g_runtime.chat_input_active, 0, 0) != 0;
   const int dialog_active = dialog_compat_active();
+  const int textdraw_select_active = InterlockedCompareExchange(&g_runtime.textdraw_select_active, 0, 0) != 0;
 
   if (!chat_input_enabled_compat() || !g_runtime.settings.play_online) {
     return chat_input_call_original_compat(hwnd, msg, wparam, lparam);
@@ -1673,6 +1870,18 @@ static LRESULT CALLBACK chat_input_wndproc_compat(HWND hwnd, UINT msg, WPARAM wp
           return 0;
         }
       }
+      return 0;
+    }
+  }
+
+  if (textdraw_select_active) {
+    if (msg == WM_MOUSEMOVE || msg == WM_LBUTTONDOWN || msg == WM_LBUTTONUP || msg == WM_LBUTTONDBLCLK) {
+      if (textdraw_compat_handle_mouse(hwnd, msg, lparam)) {
+        return 0;
+      }
+    }
+    if (msg == WM_KEYDOWN && wparam == VK_ESCAPE) {
+      (void)textdraw_compat_submit_click(0xFFFFu);
       return 0;
     }
   }
@@ -1922,6 +2131,19 @@ static void chat_compat_draw_text_outline(HDC dc, int x, int y, const char *text
   TextOutA(dc, x, y, text, (int)strlen(text));
 }
 
+static void textdraw_compat_release_fonts(void) {
+  int i = 0;
+
+  for (i = 0; i < SAMP_TEXTDRAW_COMPAT_FONT_BUCKETS; ++i) {
+    samp_id3dx_font_compat *font = g_runtime.textdraw_d3dx_fonts[i];
+    if (font != NULL && font->lpVtbl != NULL && font->lpVtbl->Release != NULL) {
+      font->lpVtbl->Release(font);
+    }
+    g_runtime.textdraw_d3dx_fonts[i] = NULL;
+  }
+  g_runtime.textdraw_d3d_device = NULL;
+}
+
 static void chat_compat_release_d3dx_font(void) {
   samp_id3dx_font_compat *font = g_runtime.chat_d3dx_font;
   if (font != NULL && font->lpVtbl != NULL && font->lpVtbl->Release != NULL) {
@@ -1929,6 +2151,7 @@ static void chat_compat_release_d3dx_font(void) {
   }
   g_runtime.chat_d3dx_font = NULL;
   g_runtime.chat_d3d_device = NULL;
+  textdraw_compat_release_fonts();
 }
 
 static int chat_compat_resolve_d3dx_create_font(void) {
@@ -2224,6 +2447,428 @@ static void dialog_compat_d3d_fill_rect(void *device, int x, int y, int w, int h
   (void)clear_fn(device, 1u, &rect, SAMP_D3DCLEAR_TARGET, argb_color, 1.0f, 0u);
 }
 
+static DWORD textdraw_compat_abgr_to_argb(uint32_t color) {
+  DWORD converted = (DWORD)((color & 0xFF00FF00u) | ((color & 0x000000FFu) << 16u) |
+                            ((color & 0x00FF0000u) >> 16u));
+  if ((converted & 0xFF000000u) == 0u) {
+    converted |= 0xFF000000u;
+  }
+  return converted;
+}
+
+static void textdraw_compat_prepare_text(const char *input, char *output, size_t output_size) {
+  const char *read_cursor = input;
+  char *write_cursor = output;
+  char *write_end = output != NULL && output_size > 0u ? output + output_size - 1u : NULL;
+
+  if (output == NULL || output_size == 0u) {
+    return;
+  }
+  output[0] = '\0';
+  if (input == NULL) {
+    return;
+  }
+
+  while (*read_cursor != '\0' && write_cursor < write_end) {
+    if (read_cursor[0] == '~') {
+      const char *end = strchr(read_cursor + 1, '~');
+      if (end != NULL) {
+        if ((end - read_cursor) == 2 && (read_cursor[1] == 'n' || read_cursor[1] == 'N')) {
+          *write_cursor++ = '\n';
+        }
+        read_cursor = end + 1;
+        continue;
+      }
+    }
+    if ((unsigned char)*read_cursor < ' ' && *read_cursor != '\n' && *read_cursor != '\r' && *read_cursor != '\t') {
+      *write_cursor++ = ' ';
+      ++read_cursor;
+      continue;
+    }
+    *write_cursor++ = *read_cursor++;
+  }
+  *write_cursor = '\0';
+  chat_compat_strip_samp_color_tags(output);
+}
+
+static int textdraw_compat_font_bucket(const samp_textdraw_slot_compat *slot) {
+  float height = 1.0f;
+
+  if (slot != NULL && slot->transmit.letter_height > 0.0f) {
+    height = slot->transmit.letter_height;
+  }
+  if (height >= 2.0f) {
+    return 3;
+  }
+  if (height >= 1.2f) {
+    return 2;
+  }
+  if (height >= 0.7f) {
+    return 1;
+  }
+  return 0;
+}
+
+static int textdraw_compat_font_height_for_bucket(int bucket) {
+  switch (bucket) {
+    case 3:
+      return 46;
+    case 2:
+      return 32;
+    case 1:
+      return 20;
+    default:
+      return 14;
+  }
+}
+
+static int textdraw_compat_is_preview_like(const samp_textdraw_slot_compat *slot) {
+  return slot != NULL && (slot->transmit.style == 4u || slot->transmit.style == 5u);
+}
+
+static int textdraw_compat_has_box(const samp_textdraw_slot_compat *slot) {
+  return slot != NULL && (slot->transmit.flags & 0x01u) != 0u;
+}
+
+static int textdraw_compat_is_box_marker_text(const char *text) {
+  return text != NULL && (lstrcmpiA(text, "box") == 0 || lstrcmpiA(text, "_") == 0);
+}
+
+static samp_id3dx_font_compat *textdraw_compat_ensure_font(void *device, int bucket) {
+  HRESULT hr = 0;
+  samp_id3dx_font_compat *font = NULL;
+  int height = 0;
+
+  if (device == NULL) {
+    return NULL;
+  }
+  if (bucket < 0) {
+    bucket = 0;
+  }
+  if (bucket >= SAMP_TEXTDRAW_COMPAT_FONT_BUCKETS) {
+    bucket = SAMP_TEXTDRAW_COMPAT_FONT_BUCKETS - 1;
+  }
+  if (g_runtime.textdraw_d3d_device != NULL && g_runtime.textdraw_d3d_device != device) {
+    textdraw_compat_release_fonts();
+  }
+  if (g_runtime.textdraw_d3dx_fonts[bucket] != NULL && g_runtime.textdraw_d3d_device == device) {
+    return g_runtime.textdraw_d3dx_fonts[bucket];
+  }
+  if (!chat_compat_resolve_d3dx_create_font()) {
+    return NULL;
+  }
+
+  height = textdraw_compat_font_height_for_bucket(bucket);
+  hr = g_runtime.d3dx_create_font_a(device, height, 0u, FW_BOLD, 1u, FALSE, DEFAULT_CHARSET, OUT_DEFAULT_PRECIS,
+                                    DEFAULT_QUALITY, DEFAULT_PITCH | FF_DONTCARE, "Arial", &font);
+  if (FAILED(hr) || font == NULL) {
+    if (InterlockedCompareExchange(&g_runtime.textdraw_d3d_font_fail_logged, 1, 0) == 0) {
+      runtime_tracef("textdraw_d3dx: font create failed hr=0x%08lx bucket=%d height=%d device=0x%08lx",
+                     (unsigned long)hr, bucket, height, (unsigned long)(uintptr_t)device);
+    }
+    return NULL;
+  }
+  g_runtime.textdraw_d3dx_fonts[bucket] = font;
+  g_runtime.textdraw_d3d_device = device;
+  InterlockedExchange(&g_runtime.textdraw_d3d_font_fail_logged, 0);
+  runtime_tracef("textdraw_d3dx: font created bucket=%d height=%d device=0x%08lx", bucket, height,
+                 (unsigned long)(uintptr_t)device);
+  return font;
+}
+
+static int textdraw_compat_slot_rect(const samp_textdraw_slot_compat *slot, int *out_x, int *out_y, int *out_w,
+                                     int *out_h) {
+  int viewport_x = 0;
+  int viewport_y = 0;
+  int viewport_w = 0;
+  int viewport_h = 0;
+  float scale_x = 1.0f;
+  float scale_y = 1.0f;
+  int x = 0;
+  int y = 0;
+  int w = SAMP_TEXTDRAW_COMPAT_MIN_WIDTH;
+  int h = 22;
+  int preview_like = 0;
+
+  if (slot == NULL) {
+    return 0;
+  }
+  chat_compat_viewport_rect(&viewport_x, &viewport_y, &viewport_w, &viewport_h);
+  if (viewport_w <= 0 || viewport_h <= 0) {
+    return 0;
+  }
+  scale_x = (float)viewport_w / SAMP_TEXTDRAW_COMPAT_SCRIPT_WIDTH;
+  scale_y = (float)viewport_h / SAMP_TEXTDRAW_COMPAT_SCRIPT_HEIGHT;
+  x = viewport_x + (int)(slot->transmit.x * scale_x);
+  y = viewport_y + (int)(slot->transmit.y * scale_y);
+  preview_like = textdraw_compat_is_preview_like(slot);
+  if (preview_like && slot->transmit.line_width > 0.0f) {
+    w = (int)(slot->transmit.line_width * scale_x);
+  } else if (slot->transmit.line_width > slot->transmit.x) {
+    w = (int)((slot->transmit.line_width - slot->transmit.x) * scale_x);
+  }
+  if (preview_like && slot->transmit.line_height > 0.0f) {
+    h = (int)(slot->transmit.line_height * scale_y);
+  } else if (slot->transmit.line_height > slot->transmit.y) {
+    h = (int)((slot->transmit.line_height - slot->transmit.y) * scale_y);
+  }
+  if (w < SAMP_TEXTDRAW_COMPAT_MIN_WIDTH) {
+    w = SAMP_TEXTDRAW_COMPAT_MIN_WIDTH;
+  }
+  if (w > viewport_w) {
+    w = viewport_w;
+  }
+  if (h < 18) {
+    h = textdraw_compat_font_height_for_bucket(textdraw_compat_font_bucket(slot)) + 6;
+  }
+  if (h > viewport_h) {
+    h = viewport_h;
+  }
+
+  if ((slot->transmit.flags & 0x08u) != 0u) {
+    x -= w / 2;
+  } else if ((slot->transmit.flags & 0x04u) != 0u) {
+    x -= w;
+  }
+  if (x < viewport_x) {
+    x = viewport_x;
+  }
+  if (x + w > viewport_x + viewport_w) {
+    w = viewport_x + viewport_w - x;
+  }
+
+  if (out_x != NULL) {
+    *out_x = x;
+  }
+  if (out_y != NULL) {
+    *out_y = y;
+  }
+  if (out_w != NULL) {
+    *out_w = w;
+  }
+  if (out_h != NULL) {
+    *out_h = h;
+  }
+  return w > 0 && h > 0;
+}
+
+static int textdraw_compat_hit_test(int x, int y, uint16_t *out_textdraw_id) {
+  int i = 0;
+
+  if (out_textdraw_id != NULL) {
+    *out_textdraw_id = 0xFFFFu;
+  }
+  for (i = (int)SAMP_RAKNET_MAX_TEXTDRAWS - 1; i >= 0; --i) {
+    samp_textdraw_slot_compat *slot = &g_runtime.textdraw_slots[i];
+    int rx = 0;
+    int ry = 0;
+    int rw = 0;
+    int rh = 0;
+
+    if (InterlockedCompareExchange(&slot->active, 0, 0) == 0) {
+      continue;
+    }
+    if (!textdraw_compat_slot_rect(slot, &rx, &ry, &rw, &rh)) {
+      continue;
+    }
+    if (dialog_compat_point_in_rect(x, y, rx, ry, rw, rh)) {
+      if (out_textdraw_id != NULL) {
+        *out_textdraw_id = (uint16_t)i;
+      }
+      return 1;
+    }
+  }
+  return 0;
+}
+
+static int textdraw_compat_submit_click(uint16_t textdraw_id) {
+  int result = -1;
+
+  if (g_runtime.net_mgr.raknet_client != NULL) {
+    result = samp_raknet_client_send_textdraw_click(g_runtime.net_mgr.raknet_client, textdraw_id);
+  }
+  if (result == 0) {
+    InterlockedExchange(&g_runtime.textdraw_select_active, 0);
+    InterlockedExchange(&g_runtime.textdraw_mouse_down, 0);
+    if (!dialog_compat_active()) {
+      dialog_compat_set_mouse_mode(0);
+    }
+  }
+  runtime_tracef("textdraw: click id=%u result=%d", (unsigned)textdraw_id, result);
+  return result;
+}
+
+static int textdraw_compat_handle_mouse(HWND hwnd, UINT msg, LPARAM lparam) {
+  POINT cursor;
+
+  if (InterlockedCompareExchange(&g_runtime.textdraw_select_active, 0, 0) == 0) {
+    return 0;
+  }
+  if (msg != WM_MOUSEMOVE && msg != WM_LBUTTONDOWN && msg != WM_LBUTTONUP && msg != WM_LBUTTONDBLCLK) {
+    return 0;
+  }
+
+  dialog_compat_record_mouse(hwnd, lparam);
+  cursor.x = (short)LOWORD(lparam);
+  cursor.y = (short)HIWORD(lparam);
+
+  if (msg == WM_LBUTTONDOWN || msg == WM_LBUTTONDBLCLK) {
+    InterlockedExchange(&g_runtime.textdraw_mouse_down, 1);
+    return 1;
+  }
+  if (msg == WM_LBUTTONUP && InterlockedExchange(&g_runtime.textdraw_mouse_down, 0) != 0) {
+    uint16_t textdraw_id = 0xFFFFu;
+    if (textdraw_compat_hit_test(cursor.x, cursor.y, &textdraw_id)) {
+      (void)textdraw_compat_submit_click(textdraw_id);
+    }
+    return 1;
+  }
+  return 1;
+}
+
+static void textdraw_compat_draw_rect_outline(void *device, int x, int y, int w, int h, DWORD color) {
+  if (device == NULL || w <= 0 || h <= 0) {
+    return;
+  }
+  dialog_compat_d3d_fill_rect(device, x, y, w, 1, color);
+  dialog_compat_d3d_fill_rect(device, x, y + h - 1, w, 1, color);
+  dialog_compat_d3d_fill_rect(device, x, y, 1, h, color);
+  dialog_compat_d3d_fill_rect(device, x + w - 1, y, 1, h, color);
+}
+
+static void textdraw_compat_draw_preview_placeholder(void *device, const samp_textdraw_slot_compat *slot, int x, int y,
+                                                     int w, int h) {
+  DWORD fill = 0xFF202020u;
+  DWORD border = 0xFF8C8C8Cu;
+
+  if (device == NULL || slot == NULL || w <= 0 || h <= 0) {
+    return;
+  }
+  if ((slot->transmit.box_color & 0x00FFFFFFu) != 0u) {
+    fill = textdraw_compat_abgr_to_argb(slot->transmit.box_color);
+  }
+  if ((slot->transmit.background_color & 0x00FFFFFFu) != 0u) {
+    border = textdraw_compat_abgr_to_argb(slot->transmit.background_color);
+  }
+  dialog_compat_d3d_fill_rect(device, x, y, w, h, fill);
+  textdraw_compat_draw_rect_outline(device, x, y, w, h, border);
+}
+
+static void textdraw_compat_draw_slot(void *device, samp_textdraw_slot_compat *slot) {
+  samp_id3dx_font_compat *font = NULL;
+  RECT rect;
+  char text[SAMP_TEXTDRAW_COMPAT_MAX_TEXT_BYTES];
+  DWORD color = 0xFFFFFFFFu;
+  DWORD flags = DT_NOCLIP | DT_LEFT;
+  int x = 0;
+  int y = 0;
+  int w = 0;
+  int h = 0;
+  int bucket = 0;
+  int draw_text = 0;
+  int use_box = 0;
+
+  if (device == NULL || slot == NULL || InterlockedCompareExchange(&slot->active, 0, 0) == 0) {
+    return;
+  }
+  textdraw_compat_prepare_text(slot->text, text, sizeof(text));
+  if (!textdraw_compat_slot_rect(slot, &x, &y, &w, &h)) {
+    return;
+  }
+
+  use_box = textdraw_compat_has_box(slot);
+  draw_text = text[0] != '\0';
+  if (use_box && textdraw_compat_is_box_marker_text(text)) {
+    draw_text = 0;
+  }
+  if (slot->transmit.style == 4u) {
+    textdraw_compat_draw_preview_placeholder(device, slot, x, y, w, h);
+    return;
+  }
+  if (slot->transmit.style == 5u) {
+    textdraw_compat_draw_preview_placeholder(device, slot, x, y, w, h);
+    return;
+  }
+  if (use_box && slot->transmit.line_width > 0.0f && slot->transmit.line_height > 0.0f &&
+      (slot->transmit.box_color & 0x00FFFFFFu) != 0u) {
+    dialog_compat_d3d_fill_rect(device, x, y, w, h, textdraw_compat_abgr_to_argb(slot->transmit.box_color));
+  }
+  if (!draw_text) {
+    return;
+  }
+
+  bucket = textdraw_compat_font_bucket(slot);
+  font = textdraw_compat_ensure_font(device, bucket);
+  if (font == NULL) {
+    return;
+  }
+
+  color = textdraw_compat_abgr_to_argb(slot->transmit.letter_color);
+  rect.left = x;
+  rect.top = y;
+  rect.right = x + w;
+  rect.bottom = y + h;
+  if ((slot->transmit.flags & 0x08u) != 0u) {
+    flags = DT_NOCLIP | DT_CENTER;
+  } else if ((slot->transmit.flags & 0x04u) != 0u) {
+    flags = DT_NOCLIP | DT_RIGHT;
+  }
+  if (strchr(text, '\n') != NULL) {
+    flags |= DT_WORDBREAK;
+  } else {
+    flags |= DT_SINGLELINE;
+  }
+  if (slot->transmit.outline != 0u || slot->transmit.shadow != 0u) {
+    RECT shadow_rect = rect;
+    DWORD outline_color = textdraw_compat_abgr_to_argb(slot->transmit.background_color);
+    if (outline_color == color) {
+      outline_color = 0xFF000000u;
+    }
+    OffsetRect(&shadow_rect, -1, 0);
+    chat_compat_d3dx_draw_text(font, shadow_rect, text, outline_color, flags);
+    shadow_rect = rect;
+    OffsetRect(&shadow_rect, 1, 0);
+    chat_compat_d3dx_draw_text(font, shadow_rect, text, outline_color, flags);
+    shadow_rect = rect;
+    OffsetRect(&shadow_rect, 0, -1);
+    chat_compat_d3dx_draw_text(font, shadow_rect, text, outline_color, flags);
+    shadow_rect = rect;
+    OffsetRect(&shadow_rect, 0, 1);
+    chat_compat_d3dx_draw_text(font, shadow_rect, text, outline_color, flags);
+    chat_compat_d3dx_draw_text(font, rect, text, color, flags);
+  } else {
+    chat_compat_d3dx_draw_text(font, rect, text, color, flags);
+  }
+}
+
+static int textdraw_compat_draw_d3dx_overlay(void *device) {
+  LONG active_count = InterlockedCompareExchange(&g_runtime.textdraw_active_count, 0, 0);
+  int drawn = 0;
+  int i = 0;
+
+  if (device == NULL || active_count <= 0) {
+    return 0;
+  }
+  for (i = 0; i < (int)SAMP_RAKNET_MAX_TEXTDRAWS; ++i) {
+    if (InterlockedCompareExchange(&g_runtime.textdraw_slots[i].active, 0, 0) != 0) {
+      textdraw_compat_draw_slot(device, &g_runtime.textdraw_slots[i]);
+      ++drawn;
+    }
+  }
+  if (InterlockedCompareExchange(&g_runtime.textdraw_select_active, 0, 0) != 0 && !dialog_compat_active()) {
+    LONG mouse_x = InterlockedCompareExchange(&g_runtime.dialog_mouse_x, 0, 0);
+    LONG mouse_y = InterlockedCompareExchange(&g_runtime.dialog_mouse_y, 0, 0);
+    dialog_compat_d3d_fill_rect(device, (int)mouse_x + 1, (int)mouse_y + 1, 13, 2, 0xFF000000u);
+    dialog_compat_d3d_fill_rect(device, (int)mouse_x + 1, (int)mouse_y + 1, 2, 13, 0xFF000000u);
+    dialog_compat_d3d_fill_rect(device, (int)mouse_x, (int)mouse_y, 13, 2, 0xFFFFFFFFu);
+    dialog_compat_d3d_fill_rect(device, (int)mouse_x, (int)mouse_y, 2, 13, 0xFFFFFFFFu);
+  }
+  if (drawn > 0 && InterlockedCompareExchange(&g_runtime.textdraw_logged, 1, 0) == 0) {
+    runtime_tracef("textdraw_d3dx: drawing enabled active=%ld drawn=%d", (long)active_count, drawn);
+  }
+  return drawn > 0;
+}
+
 static void dialog_compat_draw_button(samp_id3dx_font_compat *font, void *device, int x, int y, int w, int h,
                                       const char *text, int primary) {
   RECT rect;
@@ -2391,6 +3036,7 @@ static int chat_compat_draw_d3dx_overlay(void *device) {
   LONG count = 0;
   LONG input_active = 0;
   LONG dialog_active = 0;
+  LONG textdraw_active = 0;
   int x = 0;
   int y = 0;
   int i = 0;
@@ -2402,7 +3048,8 @@ static int chat_compat_draw_d3dx_overlay(void *device) {
   count = InterlockedCompareExchange(&g_runtime.chat_overlay_line_count, 0, 0);
   input_active = InterlockedCompareExchange(&g_runtime.chat_input_active, 0, 0);
   dialog_active = InterlockedCompareExchange(&g_runtime.dialog_overlay_active, 0, 0);
-  if (count <= 0 && input_active == 0 && dialog_active == 0) {
+  textdraw_active = InterlockedCompareExchange(&g_runtime.textdraw_active_count, 0, 0);
+  if (count <= 0 && input_active == 0 && dialog_active == 0 && textdraw_active <= 0) {
     return 0;
   }
   if (count < 0) {
@@ -2415,6 +3062,9 @@ static int chat_compat_draw_d3dx_overlay(void *device) {
     return 0;
   }
 
+  if (textdraw_active > 0) {
+    (void)textdraw_compat_draw_d3dx_overlay(device);
+  }
   chat_compat_viewport_origin(&x, &y);
   for (i = 0; i < count; ++i) {
     RECT rect;
@@ -2441,8 +3091,8 @@ static int chat_compat_draw_d3dx_overlay(void *device) {
   }
 
   if (InterlockedCompareExchange(&g_runtime.chat_d3d_draw_logged, 1, 0) == 0) {
-    runtime_tracef("chat_d3dx: drawing enabled device=0x%08lx lines=%ld dialog=%ld x=%d y=%d",
-                   (unsigned long)(uintptr_t)device, (long)count, (long)dialog_active, x, y);
+    runtime_tracef("chat_d3dx: drawing enabled device=0x%08lx lines=%ld dialog=%ld textdraws=%ld x=%d y=%d",
+                   (unsigned long)(uintptr_t)device, (long)count, (long)dialog_active, (long)textdraw_active, x, y);
   }
   return 1;
 }
@@ -2467,13 +3117,20 @@ static void chat_compat_try_install_d3d_hook(void) {
   void **vtbl = NULL;
   DWORD old_protect = 0;
   DWORD ignored_protect = 0;
+  LONG net_state = 0;
+  LONG textdraw_active = 0;
+  int dialog_active = 0;
 
   if (!chat_overlay_enabled_compat() || !chat_d3d_enabled_compat() ||
       InterlockedCompareExchange(&g_runtime.chat_d3d_hooked, 0, 0) != 0) {
     return;
   }
-  if (g_runtime.settings.play_online && InterlockedCompareExchange(&g_runtime.preconnect_ready, 0, 0) == 0 &&
-      !chat_d3d_early_enabled_compat() && !dialog_compat_active()) {
+
+  dialog_active = dialog_compat_active();
+  textdraw_active = InterlockedCompareExchange(&g_runtime.textdraw_active_count, 0, 0);
+  net_state = InterlockedCompareExchange(&g_runtime.netgame_state, 0, 0);
+  if (g_runtime.settings.play_online && net_state < SAMP_NETGAME_CONNECTED && !chat_d3d_early_enabled_compat() &&
+      !dialog_active && textdraw_active <= 0) {
     return;
   }
 
@@ -4341,6 +4998,7 @@ static uint32_t refresh_raknet_rpc_snapshot_compat(void) {
   previous_game_rpc_flags = InterlockedExchange(&g_runtime.raknet_game_rpc_flags, (LONG)game_rpc_flags);
   apply_raknet_init_game_settings_compat(&snapshot);
   dialog_compat_update_from_snapshot(&snapshot);
+  textdraw_compat_update_from_snapshot(&snapshot);
   previous_chat_seq = (uint32_t)InterlockedCompareExchange(&g_runtime.chat_client_message_seq, 0, 0);
   if ((snapshot.flags & SAMP_RAKNET_RPC_FLAG_CLIENT_MESSAGE) != 0u && snapshot.client_message_count > 0u) {
     uint32_t latest_seq = previous_chat_seq;
@@ -5568,6 +6226,13 @@ static void launch_prepare_network_compat(void) {
     g_runtime.dialog_overlay_button1[0] = '\0';
     g_runtime.dialog_overlay_button2[0] = '\0';
     g_runtime.dialog_overlay_input[0] = '\0';
+    InterlockedExchange(&g_runtime.textdraw_event_seq, 0);
+    InterlockedExchange(&g_runtime.textdraw_active_count, 0);
+    InterlockedExchange(&g_runtime.textdraw_logged, 0);
+    InterlockedExchange(&g_runtime.textdraw_select_active, 0);
+    InterlockedExchange(&g_runtime.textdraw_mouse_down, 0);
+    g_runtime.textdraw_select_color = 0u;
+    memset(g_runtime.textdraw_slots, 0, sizeof(g_runtime.textdraw_slots));
     InterlockedExchange(&g_runtime.online_session_drift_seen, 0);
     InterlockedExchange(&g_runtime.online_session_last_entry, 0);
     InterlockedExchange(&g_runtime.online_session_last_game_started, 0);

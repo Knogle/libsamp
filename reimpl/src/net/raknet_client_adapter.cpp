@@ -58,6 +58,12 @@ constexpr unsigned int kDialogInfoBytes = 4096U;
 constexpr unsigned int kDialogButtonBytes = 64U;
 constexpr unsigned int kDialogInputBytes = 256U;
 constexpr unsigned int kChatInputBytes = 128U;
+constexpr unsigned int kLegacyTextDrawTransmitBytes = 40U;
+constexpr unsigned int kTextDrawShowMinBytes = 2U + kLegacyTextDrawTransmitBytes;
+constexpr unsigned int kTextDrawEditMinBytes = 2U;
+constexpr unsigned int kOpenMpTextDrawHeaderBytes = 67U;
+constexpr unsigned int kOpenMpTextDrawStringLengthOffset = 65U;
+constexpr unsigned int kOpenMpTextDrawStringOffset = 67U;
 
 struct RpcProbeState {
   RakNet::RakClientInterface *client;
@@ -76,6 +82,7 @@ struct RpcProbeState {
   int saw_camera_pos;
   int saw_camera_look_at;
   int saw_client_message;
+  int saw_textdraw_select;
   int pending_request_class;
   int pending_request_spawn;
   int pending_select_mode_freeroam_click;
@@ -137,6 +144,10 @@ struct RpcProbeState {
   std::int32_t spawn_weapon_ammo[3];
   unsigned int client_message_seq;
   samp_raknet_client_message_probe client_messages[SAMP_RAKNET_CLIENT_MESSAGE_RING];
+  unsigned int textdraw_event_seq;
+  samp_raknet_textdraw_event textdraw_events[SAMP_RAKNET_TEXTDRAW_EVENT_RING];
+  unsigned char textdraw_select_active;
+  unsigned int textdraw_select_color;
   RakNet::RakNetTime class_selection_ready_time;
   RakNet::RakNetTime next_request_spawn_time;
   RakNet::RakNetTime select_mode_click_ready_time;
@@ -300,6 +311,8 @@ const char *rpc_name(unsigned int rpc_id) {
       return "WorldTime";
     case 95:
       return "Pickup";
+    case 105:
+      return "PlayerTextDrawSetString";
     case 107:
       return "SetCheckpoint";
     case 118:
@@ -312,6 +325,8 @@ const char *rpc_name(unsigned int rpc_id) {
       return "ScrShowTextDraw";
     case 135:
       return "ScrHideTextDraw";
+    case 136:
+      return "ScrEditTextDraw";
     case 137:
       return "ServerJoin";
     case 138:
@@ -664,6 +679,330 @@ void filter_chat_text(char *text) {
     }
     ++text;
   }
+}
+
+void sanitize_textdraw_text(char *text) {
+  if (text == nullptr) {
+    return;
+  }
+  while (*text != '\0') {
+    const unsigned char ch = static_cast<unsigned char>(*text);
+    if (ch < ' ' && *text != '\n' && *text != '\r' && *text != '\t') {
+      *text = ' ';
+    }
+    ++text;
+  }
+}
+
+void trim_textdraw_text_tail(char *text) {
+  size_t len = 0U;
+
+  if (text == nullptr) {
+    return;
+  }
+  len = std::strlen(text);
+  while (len > 0U) {
+    const unsigned char ch = static_cast<unsigned char>(text[len - 1U]);
+    if (ch != '\0' && ch != ' ' && ch != '\r' && ch != '\n' && ch != '\t') {
+      break;
+    }
+    text[len - 1U] = '\0';
+    --len;
+  }
+}
+
+bool textdraw_text_has_printable_content(const char *text) {
+  unsigned int printable = 0U;
+  unsigned int controls = 0U;
+  unsigned int high_bytes = 0U;
+
+  if (text == nullptr || text[0] == '\0') {
+    return false;
+  }
+  while (*text != '\0') {
+    const unsigned char ch = static_cast<unsigned char>(*text);
+    if (ch >= ' ' || *text == '\n' || *text == '\r' || *text == '\t') {
+      ++printable;
+      if (ch >= 0x80U) {
+        ++high_bytes;
+      }
+    } else {
+      ++controls;
+    }
+    ++text;
+  }
+  return printable > 0U && controls == 0U && high_bytes * 3U <= printable * 2U;
+}
+
+bool copy_textdraw_plain_tail(const unsigned char *data, unsigned int bytes, unsigned int offset, char *out,
+                              size_t out_size) {
+  unsigned int available = 0U;
+  unsigned int copy_len = 0U;
+
+  if (data == nullptr || out == nullptr || out_size == 0U || offset > bytes) {
+    return false;
+  }
+  out[0] = '\0';
+  available = bytes - offset;
+  if (available == 0U) {
+    return true;
+  }
+
+  if (data[offset] > 0U && data[offset] <= available - 1U) {
+    copy_len = data[offset];
+    if (copy_len >= out_size) {
+      copy_len = static_cast<unsigned int>(out_size - 1U);
+    }
+    std::memcpy(out, data + offset + 1U, copy_len);
+    out[copy_len] = '\0';
+    sanitize_textdraw_text(out);
+    trim_textdraw_text_tail(out);
+    if (textdraw_text_has_printable_content(out)) {
+      return true;
+    }
+    out[0] = '\0';
+  }
+
+  copy_len = available;
+  if (copy_len >= out_size) {
+    copy_len = static_cast<unsigned int>(out_size - 1U);
+  }
+  if (copy_len > 0U) {
+    std::memcpy(out, data + offset, copy_len);
+  }
+  out[copy_len] = '\0';
+  sanitize_textdraw_text(out);
+  trim_textdraw_text_tail(out);
+  return out[0] == '\0' || textdraw_text_has_printable_content(out);
+}
+
+bool copy_textdraw_bytes(const unsigned char *data, unsigned int bytes, unsigned int offset, unsigned int text_len,
+                         char *out, size_t out_size) {
+  unsigned int copy_len = 0U;
+
+  if (data == nullptr || out == nullptr || out_size == 0U || offset > bytes) {
+    return false;
+  }
+  out[0] = '\0';
+  if (text_len > bytes - offset) {
+    return false;
+  }
+  copy_len = text_len;
+  if (copy_len >= out_size) {
+    copy_len = static_cast<unsigned int>(out_size - 1U);
+  }
+  if (copy_len > 0U) {
+    std::memcpy(out, data + offset, copy_len);
+  }
+  out[copy_len] = '\0';
+  sanitize_textdraw_text(out);
+  trim_textdraw_text_tail(out);
+  return out[0] == '\0' || textdraw_text_has_printable_content(out);
+}
+
+bool decode_textdraw_dynstr16_tail(const unsigned char *data, unsigned int bytes, unsigned int length_offset,
+                                   char *out, size_t out_size) {
+  unsigned int text_len = 0U;
+
+  if (data == nullptr || out == nullptr || out_size == 0U || length_offset + 2U > bytes) {
+    return false;
+  }
+  text_len = read_le16(data + length_offset);
+  return copy_textdraw_bytes(data, bytes, length_offset + 2U, text_len, out, out_size);
+}
+
+bool decode_textdraw_compressed_tail(const unsigned char *data, unsigned int bytes, unsigned int offset, char *out,
+                                     size_t out_size) {
+  RakNet::StringCompressor *compressor = RakNet::StringCompressor::Instance();
+
+  if (data == nullptr || out == nullptr || out_size == 0U || offset >= bytes || compressor == nullptr) {
+    return false;
+  }
+  out[0] = '\0';
+  RakNet::BitStream bs(const_cast<unsigned char *>(data), bytes, false);
+  bs.SetReadOffset(static_cast<int>(offset * 8U));
+  if (!compressor->DecodeString(out, static_cast<int>(out_size), &bs)) {
+    return false;
+  }
+  out[out_size - 1U] = '\0';
+  sanitize_textdraw_text(out);
+  trim_textdraw_text_tail(out);
+  return textdraw_text_has_printable_content(out);
+}
+
+void decode_textdraw_tail(const unsigned char *data, unsigned int bytes, unsigned int offset, char *out,
+                          size_t out_size) {
+  if (out == nullptr || out_size == 0U) {
+    return;
+  }
+  out[0] = '\0';
+  if (decode_textdraw_compressed_tail(data, bytes, offset, out, out_size)) {
+    return;
+  }
+  if (!copy_textdraw_plain_tail(data, bytes, offset, out, out_size)) {
+    out[0] = '\0';
+  }
+}
+
+void queue_textdraw_event(unsigned char action, unsigned short textdraw_id,
+                          const samp_raknet_textdraw_transmit *transmit, const char *text);
+
+bool textdraw_openmp_show_payload_plausible(const samp_raknet_textdraw_transmit *transmit, unsigned int bytes,
+                                            unsigned int text_len) {
+  if (transmit == nullptr || bytes < kOpenMpTextDrawHeaderBytes ||
+      kOpenMpTextDrawStringOffset + text_len > bytes) {
+    return false;
+  }
+  return std::isfinite(transmit->letter_width) && std::isfinite(transmit->letter_height) &&
+         std::isfinite(transmit->line_width) && std::isfinite(transmit->line_height) &&
+         std::isfinite(transmit->x) && std::isfinite(transmit->y) && transmit->letter_width >= -20.0f &&
+         transmit->letter_width <= 20.0f && transmit->letter_height >= -20.0f &&
+         transmit->letter_height <= 200.0f && transmit->line_width >= -10000.0f &&
+         transmit->line_width <= 10000.0f && transmit->line_height >= -10000.0f &&
+         transmit->line_height <= 10000.0f && transmit->x >= -5000.0f && transmit->x <= 10000.0f &&
+         transmit->y >= -5000.0f && transmit->y <= 10000.0f && transmit->style <= 5U;
+}
+
+bool decode_textdraw_openmp_show_payload(const unsigned char *data, unsigned int bytes, unsigned short textdraw_id) {
+  samp_raknet_textdraw_transmit transmit;
+  char text[SAMP_RAKNET_TEXTDRAW_TEXT_BYTES];
+  unsigned int text_len = 0U;
+
+  if (data == nullptr || bytes < kOpenMpTextDrawHeaderBytes) {
+    return false;
+  }
+
+  std::memset(&transmit, 0, sizeof(transmit));
+  transmit.flags = data[2U];
+  transmit.letter_width = read_le_float(data + 3U);
+  transmit.letter_height = read_le_float(data + 7U);
+  transmit.letter_color = read_le32(data + 11U);
+  transmit.line_width = read_le_float(data + 15U);
+  transmit.line_height = read_le_float(data + 19U);
+  transmit.box_color = read_le32(data + 23U);
+  transmit.shadow = data[27U];
+  transmit.outline = data[28U];
+  transmit.background_color = read_le32(data + 29U);
+  transmit.style = data[33U];
+  transmit.selectable = data[34U];
+  transmit.x = read_le_float(data + 35U);
+  transmit.y = read_le_float(data + 39U);
+  transmit.preview_model = read_le16(data + 43U);
+  transmit.preview_rotation[0] = read_le_float(data + 45U);
+  transmit.preview_rotation[1] = read_le_float(data + 49U);
+  transmit.preview_rotation[2] = read_le_float(data + 53U);
+  transmit.preview_zoom = read_le_float(data + 57U);
+  transmit.preview_color1 = static_cast<int16_t>(read_le16(data + 61U));
+  transmit.preview_color2 = static_cast<int16_t>(read_le16(data + 63U));
+  text_len = read_le16(data + kOpenMpTextDrawStringLengthOffset);
+
+  if (!textdraw_openmp_show_payload_plausible(&transmit, bytes, text_len)) {
+    return false;
+  }
+
+  std::memset(text, 0, sizeof(text));
+  if (!copy_textdraw_bytes(data, bytes, kOpenMpTextDrawStringOffset, text_len, text, sizeof(text))) {
+    text[0] = '\0';
+  }
+  queue_textdraw_event(SAMP_RAKNET_TEXTDRAW_ACTION_SHOW, textdraw_id, &transmit, text);
+  trace_netf("textdraw-decode: show seq=%u id=%u variant=openmp pos=(%.3f,%.3f) size=(%.3f,%.3f) style=%u flags=0x%02x selectable=%u model=%u zoom=%.3f text_len=%u text='%s'",
+             g_rpc_probe.textdraw_event_seq, static_cast<unsigned int>(textdraw_id),
+             static_cast<double>(transmit.x), static_cast<double>(transmit.y),
+             static_cast<double>(transmit.line_width), static_cast<double>(transmit.line_height),
+             static_cast<unsigned int>(transmit.style), static_cast<unsigned int>(transmit.flags),
+             static_cast<unsigned int>(transmit.selectable), static_cast<unsigned int>(transmit.preview_model),
+             static_cast<double>(transmit.preview_zoom), text_len, text);
+  return true;
+}
+
+void queue_textdraw_event(unsigned char action, unsigned short textdraw_id,
+                          const samp_raknet_textdraw_transmit *transmit, const char *text) {
+  ++g_rpc_probe.textdraw_event_seq;
+  const unsigned int slot = (g_rpc_probe.textdraw_event_seq - 1U) % SAMP_RAKNET_TEXTDRAW_EVENT_RING;
+  samp_raknet_textdraw_event *event = &g_rpc_probe.textdraw_events[slot];
+
+  std::memset(event, 0, sizeof(*event));
+  event->seq = g_rpc_probe.textdraw_event_seq;
+  event->action = action;
+  event->textdraw_id = textdraw_id;
+  if (transmit != nullptr) {
+    std::memcpy(&event->transmit, transmit, sizeof(event->transmit));
+  }
+  if (text != nullptr) {
+    std::memcpy(event->text, text, SAMP_RAKNET_TEXTDRAW_TEXT_BYTES - 1U);
+    event->text[SAMP_RAKNET_TEXTDRAW_TEXT_BYTES - 1U] = '\0';
+    sanitize_textdraw_text(event->text);
+  }
+}
+
+bool decode_textdraw_show_payload(const unsigned char *data, unsigned int bytes) {
+  unsigned short textdraw_id = 0U;
+  samp_raknet_textdraw_transmit transmit;
+  char text[SAMP_RAKNET_TEXTDRAW_TEXT_BYTES];
+
+  if (data == nullptr || bytes < kTextDrawShowMinBytes) {
+    return false;
+  }
+  textdraw_id = read_le16(data);
+  if (textdraw_id >= SAMP_RAKNET_MAX_TEXTDRAWS) {
+    trace_netf("textdraw-decode: show invalid id=%u bytes=%u", static_cast<unsigned int>(textdraw_id), bytes);
+    return false;
+  }
+
+  if (decode_textdraw_openmp_show_payload(data, bytes, textdraw_id)) {
+    return true;
+  }
+
+  std::memset(&transmit, 0, sizeof(transmit));
+  std::memcpy(&transmit, data + 2U, kLegacyTextDrawTransmitBytes);
+  std::memset(text, 0, sizeof(text));
+  decode_textdraw_tail(data, bytes, 2U + kLegacyTextDrawTransmitBytes, text, sizeof(text));
+  queue_textdraw_event(SAMP_RAKNET_TEXTDRAW_ACTION_SHOW, textdraw_id, &transmit, text);
+  trace_netf("textdraw-decode: show seq=%u id=%u variant=legacy pos=(%.3f,%.3f) style=%u flags=0x%02x tail=%u text='%s'",
+             g_rpc_probe.textdraw_event_seq, static_cast<unsigned int>(textdraw_id),
+             static_cast<double>(transmit.x), static_cast<double>(transmit.y),
+             static_cast<unsigned int>(transmit.style), static_cast<unsigned int>(transmit.flags),
+             bytes - (2U + kLegacyTextDrawTransmitBytes), text);
+  return true;
+}
+
+bool decode_textdraw_hide_payload(const unsigned char *data, unsigned int bytes) {
+  unsigned short textdraw_id = 0U;
+
+  if (data == nullptr || bytes < 2U) {
+    return false;
+  }
+  textdraw_id = read_le16(data);
+  if (textdraw_id >= SAMP_RAKNET_MAX_TEXTDRAWS) {
+    trace_netf("textdraw-decode: hide invalid id=%u bytes=%u", static_cast<unsigned int>(textdraw_id), bytes);
+    return false;
+  }
+  queue_textdraw_event(SAMP_RAKNET_TEXTDRAW_ACTION_HIDE, textdraw_id, nullptr, nullptr);
+  trace_netf("textdraw-decode: hide seq=%u id=%u", g_rpc_probe.textdraw_event_seq,
+             static_cast<unsigned int>(textdraw_id));
+  return true;
+}
+
+bool decode_textdraw_edit_payload(const unsigned char *data, unsigned int bytes) {
+  unsigned short textdraw_id = 0U;
+  char text[SAMP_RAKNET_TEXTDRAW_TEXT_BYTES];
+
+  if (data == nullptr || bytes < kTextDrawEditMinBytes) {
+    return false;
+  }
+  textdraw_id = read_le16(data);
+  if (textdraw_id >= SAMP_RAKNET_MAX_TEXTDRAWS) {
+    trace_netf("textdraw-decode: edit invalid id=%u bytes=%u", static_cast<unsigned int>(textdraw_id), bytes);
+    return false;
+  }
+  std::memset(text, 0, sizeof(text));
+  if (!decode_textdraw_dynstr16_tail(data, bytes, 2U, text, sizeof(text))) {
+    decode_textdraw_tail(data, bytes, 2U, text, sizeof(text));
+  }
+  queue_textdraw_event(SAMP_RAKNET_TEXTDRAW_ACTION_EDIT, textdraw_id, nullptr, text);
+  trace_netf("textdraw-decode: edit seq=%u id=%u tail=%u text='%s'", g_rpc_probe.textdraw_event_seq,
+             static_cast<unsigned int>(textdraw_id), bytes - 2U, text);
+  return true;
 }
 
 bool read_dialog_plain_field(const unsigned char *data, unsigned int bytes, unsigned int *offset, char *out,
@@ -1381,9 +1720,28 @@ void rpc_observer(RakNet::RPCParameters *rpc_params, void *extra) {
       }
     }
   } else if (rpc_id == 83U) {
-    trace_netf("rpc-state id=83 select_textdraw active=%u bytes=%u observe_only=1",
-               (rpc_params != nullptr && bytes >= 4U) ? 1U : 0U, bytes);
+    g_rpc_probe.saw_textdraw_select = 1;
+    g_rpc_probe.textdraw_select_active = 1U;
+    g_rpc_probe.textdraw_select_color = (rpc_params != nullptr && bytes >= 4U) ? read_le32(rpc_params->input) : 0xFFFFFFFFU;
+    trace_netf("rpc-state id=83 select_textdraw active=1 color=0x%08x bytes=%u observe_only=1",
+               g_rpc_probe.textdraw_select_color, bytes);
     schedule_select_mode_freeroam_click("select_textdraw");
+  } else if (rpc_id == 134U) {
+    if (rpc_params == nullptr || !decode_textdraw_show_payload(rpc_params->input, bytes)) {
+      trace_netf("rpc-state id=134 textdraw_show decode_failed bytes=%u", bytes);
+    }
+  } else if (rpc_id == 135U) {
+    if (rpc_params == nullptr || !decode_textdraw_hide_payload(rpc_params->input, bytes)) {
+      trace_netf("rpc-state id=135 textdraw_hide decode_failed bytes=%u", bytes);
+    }
+  } else if (rpc_id == 105U) {
+    if (rpc_params == nullptr || !decode_textdraw_edit_payload(rpc_params->input, bytes)) {
+      trace_netf("rpc-state id=105 textdraw_set_string decode_failed bytes=%u", bytes);
+    }
+  } else if (rpc_id == 136U) {
+    if (rpc_params == nullptr || !decode_textdraw_edit_payload(rpc_params->input, bytes)) {
+      trace_netf("rpc-state id=136 textdraw_edit decode_failed bytes=%u", bytes);
+    }
   } else if (rpc_id == 68U) {
     if (rpc_params != nullptr && bytes >= kLegacyPlayerSpawnInfoBytes) {
       read_spawn_info(rpc_params->input, bytes, "ScrSetSpawnInfo");
@@ -1843,6 +2201,32 @@ int samp_raknet_client_send_server_command(void *client, const char *command) {
   return send_chat_rpc_internal(static_cast<RakNet::RakClientInterface *>(client), command, 1);
 }
 
+int samp_raknet_client_send_textdraw_click(void *client, uint16_t textdraw_id) {
+  RakNet::BitStream bs_send;
+  unsigned short id = textdraw_id;
+  int sent = 0;
+
+  if (client == nullptr || client != g_rpc_probe.client) {
+    return -1;
+  }
+  if (textdraw_id >= SAMP_RAKNET_MAX_TEXTDRAWS && textdraw_id != 0xFFFFu) {
+    return -1;
+  }
+
+  bs_send.Write(id);
+  sent = static_cast<RakNet::RakClientInterface *>(client)
+             ->RPC(kRpcClickTextDraw, &bs_send, RakNet::HIGH_PRIORITY, RakNet::RELIABLE, 0, false,
+                   RakNet::UNASSIGNED_NETWORK_ID, nullptr)
+             ? 1
+             : 0;
+  if (sent) {
+    g_rpc_probe.textdraw_select_active = 0U;
+  }
+  trace_netf("rpc-user-out id=83 name=ClickTextDraw textdraw=%u sent=%d",
+             static_cast<unsigned int>(textdraw_id), sent);
+  return sent ? 0 : -2;
+}
+
 int samp_raknet_client_drain_packets(void *client, int max_packets) {
   return drain_packets_internal(client, max_packets, nullptr, 0, nullptr, nullptr, nullptr);
 }
@@ -1898,6 +2282,12 @@ int samp_raknet_client_get_rpc_probe_snapshot(void *client, samp_raknet_rpc_prob
   if (g_rpc_probe.saw_client_message) {
     flags |= SAMP_RAKNET_RPC_FLAG_CLIENT_MESSAGE;
   }
+  if (g_rpc_probe.textdraw_event_seq > 0U) {
+    flags |= SAMP_RAKNET_RPC_FLAG_TEXTDRAW_EVENT;
+  }
+  if (g_rpc_probe.saw_textdraw_select && g_rpc_probe.textdraw_select_active) {
+    flags |= SAMP_RAKNET_RPC_FLAG_TEXTDRAW_SELECT;
+  }
   if (g_rpc_probe.sent_request_class) {
     flags |= SAMP_RAKNET_RPC_FLAG_REQUEST_CLASS_SENT;
   }
@@ -1907,6 +2297,9 @@ int samp_raknet_client_get_rpc_probe_snapshot(void *client, samp_raknet_rpc_prob
 
   out_snapshot->flags = flags;
   out_snapshot->client_message_count = 0U;
+  out_snapshot->textdraw_event_count = 0U;
+  out_snapshot->textdraw_select_active = g_rpc_probe.textdraw_select_active;
+  out_snapshot->textdraw_select_color = g_rpc_probe.textdraw_select_color;
   out_snapshot->init_spawns_available = g_rpc_probe.init_spawns_available;
   out_snapshot->init_local_player_id = g_rpc_probe.init_local_player_id;
   out_snapshot->init_show_player_tags = g_rpc_probe.init_show_player_tags;
@@ -1963,6 +2356,20 @@ int samp_raknet_client_get_rpc_probe_snapshot(void *client, samp_raknet_rpc_prob
       const unsigned int slot = (seq - 1U) % SAMP_RAKNET_CLIENT_MESSAGE_RING;
       if (g_rpc_probe.client_messages[slot].seq == seq) {
         out_snapshot->client_messages[out_snapshot->client_message_count++] = g_rpc_probe.client_messages[slot];
+      }
+    }
+  }
+  std::memset(out_snapshot->textdraw_events, 0, sizeof(out_snapshot->textdraw_events));
+  if (g_rpc_probe.textdraw_event_seq > 0U) {
+    const unsigned int available = g_rpc_probe.textdraw_event_seq < SAMP_RAKNET_TEXTDRAW_EVENT_RING
+                                       ? g_rpc_probe.textdraw_event_seq
+                                       : SAMP_RAKNET_TEXTDRAW_EVENT_RING;
+    const unsigned int first_seq = g_rpc_probe.textdraw_event_seq - available + 1U;
+    for (unsigned int i = 0U; i < available; ++i) {
+      const unsigned int seq = first_seq + i;
+      const unsigned int slot = (seq - 1U) % SAMP_RAKNET_TEXTDRAW_EVENT_RING;
+      if (g_rpc_probe.textdraw_events[slot].seq == seq) {
+        out_snapshot->textdraw_events[out_snapshot->textdraw_event_count++] = g_rpc_probe.textdraw_events[slot];
       }
     }
   }
