@@ -759,6 +759,129 @@ static void capture_transition_state(probe_transition_state *state) {
   state->camera_mode2 = read_u16_or(0x00B6F858u, 0xffffu);
 }
 
+static const char *probe_mem_state_name(DWORD state) {
+  switch (state) {
+    case MEM_COMMIT:
+      return "COMMIT";
+    case MEM_FREE:
+      return "FREE";
+    case MEM_RESERVE:
+      return "RESERVE";
+    default:
+      return "unknown";
+  }
+}
+
+static const char *probe_mem_type_name(DWORD type) {
+  switch (type) {
+    case MEM_IMAGE:
+      return "IMAGE";
+    case MEM_MAPPED:
+      return "MAPPED";
+    case MEM_PRIVATE:
+      return "PRIVATE";
+    default:
+      return "unknown";
+  }
+}
+
+static void probe_log_address_region(const char *label, uintptr_t address) {
+  MEMORY_BASIC_INFORMATION mbi;
+  char module_path[MAX_PATH];
+  DWORD module_len = 0;
+
+  module_path[0] = '\0';
+  memset(&mbi, 0, sizeof(mbi));
+  if (address != 0 && VirtualQuery((LPCVOID)address, &mbi, sizeof(mbi)) == sizeof(mbi)) {
+    if (mbi.AllocationBase != NULL) {
+      module_len = GetModuleFileNameA((HMODULE)mbi.AllocationBase, module_path, sizeof(module_path));
+      if (module_len >= sizeof(module_path)) {
+        module_path[sizeof(module_path) - 1] = '\0';
+      }
+    }
+    probe_log("region: label=%s addr=0x%08lx base=%p alloc=%p size=0x%08lx state=%s protect=0x%08lx type=%s module='%s'",
+              label != NULL ? label : "unknown", (unsigned long)address, mbi.BaseAddress, mbi.AllocationBase,
+              (unsigned long)mbi.RegionSize, probe_mem_state_name(mbi.State), (unsigned long)mbi.Protect,
+              probe_mem_type_name(mbi.Type), module_len != 0 ? module_path : "");
+    return;
+  }
+
+  probe_log("region: label=%s addr=0x%08lx unreadable", label != NULL ? label : "unknown", (unsigned long)address);
+}
+
+static void probe_log_memory_bytes(const char *label, uintptr_t address, size_t before, size_t size) {
+  uintptr_t read_address;
+  BYTE bytes[96];
+  char hex[384];
+  size_t readable_size;
+
+  if (address == 0 || size == 0) {
+    return;
+  }
+
+  read_address = address > before ? address - before : address;
+  if (size > sizeof(bytes)) {
+    size = sizeof(bytes);
+  }
+  readable_size = size;
+  while (readable_size > 0 && !memory_is_readable(read_address, readable_size)) {
+    --readable_size;
+  }
+  if (readable_size == 0) {
+    probe_log("memdump: label=%s addr=0x%08lx read=0x%08lx unreadable", label != NULL ? label : "unknown",
+              (unsigned long)address, (unsigned long)read_address);
+    return;
+  }
+
+  memcpy(bytes, (const void *)read_address, readable_size);
+  bytes_to_hex(bytes, readable_size, hex, sizeof(hex));
+  probe_log("memdump: label=%s addr=0x%08lx read=0x%08lx size=%lu bytes=%s", label != NULL ? label : "unknown",
+            (unsigned long)address, (unsigned long)read_address, (unsigned long)readable_size, hex);
+}
+
+static void probe_log_stack_dwords(uintptr_t sp) {
+  DWORD words[16];
+  char text[512];
+  size_t i;
+  size_t used = 0;
+
+  if (sp == 0 || !memory_is_readable(sp, sizeof(words))) {
+    probe_log("stack: sp=0x%08lx unreadable", (unsigned long)sp);
+    return;
+  }
+
+  memcpy(words, (const void *)sp, sizeof(words));
+  text[0] = '\0';
+  for (i = 0; i < sizeof(words) / sizeof(words[0]) && used + 16 < sizeof(text); ++i) {
+    int written = snprintf(text + used, sizeof(text) - used, "%s%02lu:0x%08lx", i == 0 ? "" : " ", (unsigned long)i,
+                           (unsigned long)words[i]);
+    if (written < 0) {
+      break;
+    }
+    used += (size_t)written;
+  }
+  probe_log("stack: sp=0x%08lx dwords=%s", (unsigned long)sp, text);
+}
+
+static void probe_log_transition_snapshot(const char *reason) {
+  probe_transition_state state;
+
+  capture_transition_state(&state);
+  probe_log("state-snapshot: reason=%s entry=%lu start=%u game_started=%u menu=%u/%u/%u hud=%u time_patch=0x%02x "
+            "script_gate=%02x%02x script_target=0x%08lx graphics_target=0x%08lx gp_storage=0x%08lx "
+            "render2d_storage=0x%08lx hwnd=0x%08lx d3d=0x%08lx d3ddev=0x%08lx ped_table=0x%08lx "
+            "vehicle_table=0x%08lx current_player=%u camera=%u/%u samp=0x%08lx+0x%08lx",
+            reason != NULL ? reason : "unknown", (unsigned long)state.entry_gate, (unsigned)state.start_game,
+            (unsigned)state.game_started, (unsigned)state.menu, (unsigned)state.menu2, (unsigned)state.menu3,
+            (unsigned)state.hud, (unsigned)state.time_patch, (unsigned)state.script_gate0,
+            (unsigned)state.script_gate1, (unsigned long)state.script_call_target,
+            (unsigned long)state.graphics_call_target, (unsigned long)state.game_process_storage,
+            (unsigned long)state.render2d_storage, (unsigned long)state.hwnd, (unsigned long)state.id3d9,
+            (unsigned long)state.id3d9_device, (unsigned long)state.ped_table, (unsigned long)state.vehicle_table,
+            (unsigned)state.current_player, (unsigned)state.camera_mode, (unsigned)state.camera_mode2,
+            (unsigned long)state.samp_base, (unsigned long)state.samp_size);
+}
+
 static void sample_transition_state(const char *reason) {
   probe_transition_state state;
   DWORD now_ms;
@@ -1870,6 +1993,22 @@ static LONG CALLBACK probe_exception_handler(PEXCEPTION_POINTERS info) {
   probe_log("exception: code=0x%08lx fault=%p fault_samp_rva=0x%08lx ip=%p ip_samp_rva=0x%08lx sp=%p bp=%p info0=0x%lx info1=%p",
             (unsigned long)code, fault_address, samp_rva_from_address(fault_address), (void *)ip,
             samp_rva_from_address((void *)ip), (void *)sp, (void *)bp, (unsigned long)info0, (void *)info1);
+#if defined(_M_IX86) || defined(__i386__)
+  if (info->ContextRecord != NULL) {
+    probe_log("registers: eax=0x%08lx ebx=0x%08lx ecx=0x%08lx edx=0x%08lx esi=0x%08lx edi=0x%08lx "
+              "eflags=0x%08lx",
+              (unsigned long)info->ContextRecord->Eax, (unsigned long)info->ContextRecord->Ebx,
+              (unsigned long)info->ContextRecord->Ecx, (unsigned long)info->ContextRecord->Edx,
+              (unsigned long)info->ContextRecord->Esi, (unsigned long)info->ContextRecord->Edi,
+              (unsigned long)info->ContextRecord->EFlags);
+  }
+#endif
+  probe_log_address_region("fault", (uintptr_t)fault_address);
+  probe_log_address_region("ip", ip);
+  probe_log_address_region("sp", sp);
+  probe_log_memory_bytes("ip", ip, 16, 64);
+  probe_log_stack_dwords(sp);
+  probe_log_transition_snapshot("exception");
   return EXCEPTION_CONTINUE_SEARCH;
 }
 

@@ -3942,29 +3942,35 @@ static DWORD preconnect_delay_ms_compat(void) {
 
 static const char *raknet_packet_name(int packet_id) {
   switch (packet_id) {
-    case 10:
-      return "ID_OPEN_CONNECTION_REQUEST";
-    case 11:
-      return "ID_OPEN_CONNECTION_REPLY";
-    case 16:
-      return "ID_CONNECTION_REQUEST_ACCEPTED";
-    case 17:
-      return "ID_CONNECTION_ATTEMPT_FAILED";
-    case 19:
-      return "ID_NO_FREE_INCOMING_CONNECTIONS";
+    case 12:
+      return "ID_AUTH_KEY";
     case 20:
-      return "ID_DISCONNECTION_NOTIFICATION";
-    case 21:
-      return "ID_CONNECTION_LOST";
-    case 22:
-      return "ID_RSA_PUBLIC_KEY_MISMATCH";
-    case 18:
-      return "ID_NEW_INCOMING_CONNECTION";
-    case 23:
-      return "ID_CONNECTION_BANNED";
+      return "ID_RPC";
     case 24:
-      return "ID_INVALID_PASSWORD";
+      return "ID_OPEN_CONNECTION_REQUEST";
     case 25:
+      return "ID_OPEN_CONNECTION_REPLY";
+    case 26:
+      return "ID_OPEN_CONNECTION_COOKIE";
+    case 28:
+      return "ID_RSA_PUBLIC_KEY_MISMATCH";
+    case 29:
+      return "ID_CONNECTION_ATTEMPT_FAILED";
+    case 30:
+      return "ID_NEW_INCOMING_CONNECTION";
+    case 31:
+      return "ID_NO_FREE_INCOMING_CONNECTIONS";
+    case 32:
+      return "ID_DISCONNECTION_NOTIFICATION";
+    case 33:
+      return "ID_CONNECTION_LOST";
+    case 34:
+      return "ID_CONNECTION_REQUEST_ACCEPTED";
+    case 36:
+      return "ID_CONNECTION_BANNED";
+    case 37:
+      return "ID_INVALID_PASSWORD";
+    case 38:
       return "ID_MODIFIED_PACKET";
     default:
       return "UNKNOWN";
@@ -5272,7 +5278,7 @@ static void apply_startgame_flags_compat(void) {
 
   runtime_tracef(
       "startgame_flags: mode=%s state=%ld entry %ld->%ld game_started %u->%u menu %u/%u/%u -> %u/%u/%u startgame %u->%u",
-      "LEGACY_INGAME", (long)net_state, (long)entry_before,
+      "LOAD_KICK", (long)net_state, (long)entry_before,
       (long)read_game_entry_gate_value(), (unsigned)game_started_before, (unsigned)read_game_u8(SAMP_ADDR_GAME_STARTED),
       (unsigned)menu_before, (unsigned)menu2_before, (unsigned)menu3_before, (unsigned)read_game_u8(SAMP_ADDR_MENU),
       (unsigned)read_game_u8(SAMP_ADDR_MENU2), (unsigned)read_game_u8(SAMP_ADDR_MENU3), (unsigned)startgame_before,
@@ -5289,11 +5295,13 @@ static void apply_session_frontend_hold_flags_compat(const char *reason) {
   uint8_t hud_before = read_game_u8(SAMP_ADDR_ENABLE_HUD);
   uint8_t radar_before = read_game_u8(SAMP_ADDR_RADAR_BLANK);
   LONG net_state = InterlockedCompareExchange(&g_runtime.netgame_state, 0, 0);
+  LONG entry_target = 9;
+  uint8_t game_started_target = 0u;
   LONG logged = 0;
   int changed = 0;
 
-  *(volatile LONG *)(uintptr_t)SAMP_ADDR_ENTRY = 9;
-  write_game_u8(SAMP_ADDR_GAME_STARTED, 0u);
+  *(volatile LONG *)(uintptr_t)SAMP_ADDR_ENTRY = entry_target;
+  write_game_u8(SAMP_ADDR_GAME_STARTED, game_started_target);
   write_game_u8(SAMP_ADDR_STARTGAME, 0u);
   write_game_u8(SAMP_ADDR_MENU, 0u);
   write_game_u8(SAMP_ADDR_MENU2, 0u);
@@ -5301,8 +5309,8 @@ static void apply_session_frontend_hold_flags_compat(const char *reason) {
   write_game_u8(SAMP_ADDR_ENABLE_HUD, 0u);
   write_game_u8(SAMP_ADDR_RADAR_BLANK, 1u);
 
-  changed = entry_before != 9 || game_started_before != 0u || startgame_before != 0u || menu_before != 0u ||
-            menu2_before != 0u || menu3_before != 0u || hud_before != 0u || radar_before != 1u;
+  changed = entry_before != entry_target || game_started_before != game_started_target || startgame_before != 0u ||
+            menu_before != 0u || menu2_before != 0u || menu3_before != 0u || hud_before != 0u || radar_before != 1u;
   logged = InterlockedCompareExchange(&g_runtime.mp_session_frontend_hold_logged, 1, 0);
   if (changed || logged == 0) {
     runtime_tracef(
@@ -5325,7 +5333,7 @@ static void maintain_connect_wait_state(void) {
   if (!g_runtime.settings.play_online) {
     return;
   }
-  if (InterlockedCompareExchange(&g_runtime.start_game_called, 0, 0) == 0) {
+  if (InterlockedCompareExchange(&g_runtime.start_game_called, 0, 0) != 0) {
     return;
   }
 
@@ -5637,9 +5645,11 @@ static void maintain_online_session_state(void) {
       InterlockedExchange(&g_runtime.online_session_last_game_started, (LONG)game_started_before);
       runtime_tracef(
           "online_session_drift: state=%ld rpc=0x%08lx observed entry=%ld game_started=%u expected=9/0 "
-          "action=observe_only",
+          "action=correct",
           (long)net_state, (unsigned long)rpc_flags, (long)entry_before, (unsigned)game_started_before);
     }
+    *(volatile LONG *)(uintptr_t)SAMP_ADDR_ENTRY = 9;
+    write_game_u8(SAMP_ADDR_GAME_STARTED, 0u);
   }
 
   if (startgame_before == 0u && menu_before == 0u && menu2_before == 0u && menu3_before == 0u) {
@@ -5835,6 +5845,30 @@ static void mp_bridge_record_script_failure(const char *name, uint16_t opcode) {
   }
 }
 
+static int gta_refresh_streaming_at_compat(const char *reason, float x, float y) {
+  int ok = gta_script_command_compat(0x04E4u, "ff", x, y);
+
+  if (!ok) {
+    mp_bridge_record_script_failure("refresh_streaming_at", 0x04E4u);
+    return 0;
+  }
+  runtime_tracef("mp_session_bridge: refresh_streaming_at reason=%s pos=(%.3f,%.3f)",
+                 reason != NULL ? reason : "unknown", (double)x, (double)y);
+  return 1;
+}
+
+static int gta_restart_if_wasted_at_compat(const char *reason, float x, float y, float z, float angle) {
+  int ok = gta_script_command_compat(0x016Cu, "ffffi", x, y, z, angle, 0);
+
+  if (!ok) {
+    mp_bridge_record_script_failure("restart_if_wasted_at", 0x016Cu);
+    return 0;
+  }
+  runtime_tracef("mp_session_bridge: restart_if_wasted_at reason=%s pos=(%.3f,%.3f,%.3f) angle=%.3f",
+                 reason != NULL ? reason : "unknown", (double)x, (double)y, (double)z, (double)angle);
+  return 1;
+}
+
 static int gta_ped_is_in_vehicle_compat(uintptr_t ped) {
   uint32_t state_flags = 0u;
 
@@ -5871,7 +5905,34 @@ static int gta_entity_direct_position_compat(uintptr_t entity, float x, float y,
   return 1;
 }
 
+static int gta_entity_read_position_compat(uintptr_t entity, float *x, float *y, float *z) {
+  uintptr_t matrix = 0;
+
+  if (x == NULL || y == NULL || z == NULL || entity < 0x10000u || entity >= 0x80000000u) {
+    return 0;
+  }
+
+  matrix = *(uintptr_t *)(entity + SAMP_PED_OFFSET_MATRIX);
+  if (matrix < 0x10000u || matrix >= 0x80000000u) {
+    return 0;
+  }
+
+  memcpy(x, (const void *)(matrix + SAMP_MATRIX_OFFSET_POS), sizeof(*x));
+  memcpy(y, (const void *)(matrix + SAMP_MATRIX_OFFSET_POS + sizeof(float)), sizeof(*y));
+  memcpy(z, (const void *)(matrix + SAMP_MATRIX_OFFSET_POS + (sizeof(float) * 2u)), sizeof(*z));
+  return 1;
+}
+
+static float samp_absf_compat(float value) {
+  return value < 0.0f ? -value : value;
+}
+
 static int gta_entity_teleport_compat(uintptr_t entity, float x, float y, float z) {
+  int method_called = 0;
+  int direct_ok = 0;
+  float actual_x = 0.0f;
+  float actual_y = 0.0f;
+  float actual_z = 0.0f;
 #if defined(__i386__) || defined(_M_IX86)
   uintptr_t vtable = 0;
   uintptr_t method = 0;
@@ -5895,11 +5956,29 @@ static int gta_entity_teleport_compat(uintptr_t entity, float x, float y, float 
                            :
                            : [entity] "r"(entity), [method] "r"(method), [x] "m"(x), [y] "m"(y), [z] "m"(z)
                            : "eax", "ecx", "edx", "memory", "cc");
-      return 1;
+      method_called = 1;
     }
   }
 #endif
-  return gta_entity_direct_position_compat(entity, x, y, z);
+  /*
+   * OLD_02X_REF + PROBE_TRACE + TODO_VERIFY:
+   * CPlayerPed::TeleportTo is the legacy path, but our wrapper cannot assume the vtable call actually committed
+   * the final matrix. Keep the engine-side teleport and verify/fix the matrix directly so server SetPlayerPos
+   * cannot silently leave the actor near the old/0,0,0 location.
+   */
+  direct_ok = gta_entity_direct_position_compat(entity, x, y, z);
+  if (gta_entity_read_position_compat(entity, &actual_x, &actual_y, &actual_z)) {
+    float dx = samp_absf_compat(actual_x - x);
+    float dy = samp_absf_compat(actual_y - y);
+    float dz = samp_absf_compat(actual_z - z);
+    if (dx > 1.0f || dy > 1.0f || dz > 1.0f) {
+      runtime_tracef("mp_session_bridge: teleport matrix mismatch method=%d direct=%d target=(%.3f,%.3f,%.3f) "
+                     "actual=(%.3f,%.3f,%.3f) delta=(%.3f,%.3f,%.3f)",
+                     method_called, direct_ok, (double)x, (double)y, (double)z, (double)actual_x,
+                     (double)actual_y, (double)actual_z, (double)dx, (double)dy, (double)dz);
+    }
+  }
+  return (method_called || direct_ok) ? 1 : 0;
 }
 
 static int gta_preconnect_position_local_player_compat(uintptr_t ped) {
@@ -6145,6 +6224,11 @@ static void apply_preconnect_frontend_compat(void) {
     }
   }
 
+  /*
+   * OBSERVED_037 + PROBE_TRACE:
+   * The original R5 DLL only uses entry=8/game_started=1 as a transient GTA load kick. Once the local ped/pools
+   * exist, pre-connect frontend settles at entry=9/game_started=0 before RakNet traffic starts.
+   */
   *(volatile LONG *)(uintptr_t)SAMP_ADDR_ENTRY = 9;
   write_game_u8(SAMP_ADDR_GAME_STARTED, 0u);
   write_game_u8(SAMP_ADDR_STARTGAME, 0u);
@@ -6366,12 +6450,20 @@ static void apply_multiplayer_session_bridge_compat(void) {
     if (!gta_script_command_compat(0x01B4u, "ii", SAMP_GTA_PLAYER_LOCAL_ID, 0)) {
       mp_bridge_record_script_failure("toggle_player_controllable", 0x01B4u);
     }
+    if (!gta_script_command_compat(0x04D7u, "ii", SAMP_GTA_ACTOR_LOCAL_ID, 1)) {
+      mp_bridge_record_script_failure("lock_actor_class_select", 0x04D7u);
+    }
   }
 
   if (ped != 0u && spawn_ready && InterlockedCompareExchange(&g_runtime.mp_session_spawn_finalized, 1, 0) == 0) {
     const uint8_t no_fade_patch[3] = {0xC2u, 0x08u, 0x00u};
     float health = 100.0f;
 
+    /*
+     * OBSERVED_037 + PROBE_TRACE:
+     * Original 0.3.7-R5 remains at entry=9/game_started=0 through dialog/freeroam selection and spawn. The
+     * entry=8/game_started=1 phase is only the earlier GTA-load kick.
+     */
     *(volatile LONG *)(uintptr_t)SAMP_ADDR_ENTRY = 9;
     write_game_u8(SAMP_ADDR_GAME_STARTED, 0u);
     write_game_u8(SAMP_ADDR_STARTGAME, 0u);
@@ -6398,6 +6490,16 @@ static void apply_multiplayer_session_bridge_compat(void) {
       }
     }
 
+    if (has_spawn_info) {
+      /*
+       * OLD_02X_REF:
+       * CLocalPlayer::Spawn() performs RefreshStreamingAt(spawn.x, spawn.y) and
+       * CPlayerPed::RestartIfWastedAt(spawn.pos, spawn.rot) before model/weapon setup and final TeleportTo(z + 1).
+       */
+      (void)gta_refresh_streaming_at_compat("spawn", target_pos[0], target_pos[1]);
+      (void)gta_restart_if_wasted_at_compat("spawn", target_pos[0], target_pos[1], target_pos[2], target_angle);
+    }
+
     if (!patch_copy(SAMP_ADDR_CAMERA_FADE_PATCH, no_fade_patch, sizeof(no_fade_patch))) {
       mp_bridge_record_script_failure("camera_fade_patch", (uint16_t)SAMP_ADDR_CAMERA_FADE_PATCH);
     }
@@ -6413,6 +6515,9 @@ static void apply_multiplayer_session_bridge_compat(void) {
     if (!gta_script_command_compat(0x01B4u, "ii", SAMP_GTA_PLAYER_LOCAL_ID, 1)) {
       mp_bridge_record_script_failure("toggle_player_controllable", 0x01B4u);
     }
+    if (!gta_script_command_compat(0x04D7u, "ii", SAMP_GTA_ACTOR_LOCAL_ID, 0)) {
+      mp_bridge_record_script_failure("unlock_actor_spawn", 0x04D7u);
+    }
     if (has_spawn_info && g_runtime.raknet_spawn_skin >= 0) {
       if (!gta_script_command_compat(0x0247u, "i", (int)g_runtime.raknet_spawn_skin)) {
         mp_bridge_record_script_failure("request_model", 0x0247u);
@@ -6423,6 +6528,9 @@ static void apply_multiplayer_session_bridge_compat(void) {
       if (!gta_script_command_compat(0x09C7u, "ii", SAMP_GTA_PLAYER_LOCAL_ID, (int)g_runtime.raknet_spawn_skin)) {
         mp_bridge_record_script_failure("set_player_skin", 0x09C7u);
       }
+    }
+    if (has_spawn_info) {
+      (void)gta_entity_teleport_compat(ped, target_pos[0], target_pos[1], target_z);
     }
 
     {
@@ -6670,7 +6778,7 @@ static void launch_start_game_compat(void) {
                    g_runtime.hook_bridge.secondary_installed))) {
     InterlockedExchange(&g_runtime.hooks_installed, 1);
   }
-  apply_connect_wait_flags_compat();
+  apply_startgame_flags_compat();
   runtime_tracef(
       "start_game: hooks_attempted=1 rc=%d game_process=%ld script_installed=%ld installed=%d installed2=%d "
       "configured=%d configured2=%d enabled=%d disp=0x%08lx disp2=0x%08lx",
@@ -6889,22 +6997,22 @@ static void launch_prepare_network_compat(void) {
       }
 
       switch (last_packet_id) {
-        case 17: /* ID_CONNECTION_ATTEMPT_FAILED */
-        case 19: /* ID_NO_FREE_INCOMING_CONNECTIONS */
+        case 29: /* ID_CONNECTION_ATTEMPT_FAILED */
+        case 31: /* ID_NO_FREE_INCOMING_CONNECTIONS */
           InterlockedExchange(&g_runtime.net_mgr_connected, 0);
           InterlockedExchange(&g_runtime.netgame_state, SAMP_NETGAME_WAIT_CONNECT);
           runtime_tracef("network_prepare: RakNet connect not ready -> state=WAIT_CONNECT");
           break;
-        case 20: /* ID_DISCONNECTION_NOTIFICATION */
-        case 21: /* ID_CONNECTION_LOST */
+        case 32: /* ID_DISCONNECTION_NOTIFICATION */
+        case 33: /* ID_CONNECTION_LOST */
           InterlockedExchange(&g_runtime.net_mgr_connected, 0);
           InterlockedExchange(&g_runtime.raknet_join_sent, 0);
           InterlockedExchange(&g_runtime.netgame_state, SAMP_NETGAME_WAIT_CONNECT);
           runtime_tracef("network_prepare: RakNet disconnected -> state=WAIT_CONNECT");
           break;
-        case 23: /* ID_CONNECTION_BANNED */
-        case 24: /* ID_INVALID_PASSWORD */
-        case 25: /* ID_MODIFIED_PACKET */
+        case 36: /* ID_CONNECTION_BANNED */
+        case 37: /* ID_INVALID_PASSWORD */
+        case 38: /* ID_MODIFIED_PACKET */
           InterlockedExchange(&g_runtime.net_mgr_connected, 0);
           InterlockedExchange(&g_runtime.netgame_state, SAMP_NETGAME_FAILED);
           runtime_tracef("network_prepare: RakNet terminal packet -> state=FAILED");

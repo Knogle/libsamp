@@ -185,9 +185,9 @@ bool auto_request_spawn_enabled() {
 bool auto_select_freeroam_enabled() {
   const char *value = std::getenv("SAMPDLL_AUTO_SELECT_FREEROAM");
   if (value == nullptr || value[0] == '\0') {
-    return false;
+    return true;
   }
-  return value[0] == '1' || value[0] == 'y' || value[0] == 'Y' || value[0] == 't' || value[0] == 'T';
+  return value[0] != '0' && value[0] != 'n' && value[0] != 'N' && value[0] != 'f' && value[0] != 'F';
 }
 
 bool debug_dialog_window_enabled() {
@@ -1712,6 +1712,9 @@ void rpc_observer(RakNet::RPCParameters *rpc_params, void *extra) {
       g_rpc_probe.request_spawn_outcome = rpc_params->input[0];
       trace_netf("rpc-state id=129 request_spawn_outcome=%u", static_cast<unsigned int>(g_rpc_probe.request_spawn_outcome));
       if (g_rpc_probe.request_spawn_outcome == 2U || g_rpc_probe.request_spawn_outcome == 1U) {
+        g_rpc_probe.pending_request_spawn = 0;
+        g_rpc_probe.next_request_spawn_time = 0;
+        g_rpc_probe.request_spawn_retry_count = kMaxSpawnRetries;
         trace_netf("rpc-state id=129 spawn allowed outcome=%u waiting_for_local_finalize=1",
                    static_cast<unsigned int>(g_rpc_probe.request_spawn_outcome));
       } else if (!g_rpc_probe.saw_dialog && auto_request_spawn_enabled() &&
@@ -1752,6 +1755,9 @@ void rpc_observer(RakNet::RPCParameters *rpc_params, void *extra) {
       if (g_rpc_probe.sent_select_mode_freeroam_click && g_rpc_probe.request_spawn_outcome == 0U) {
         g_rpc_probe.saw_request_spawn_reply = 1;
         g_rpc_probe.request_spawn_outcome = 2U;
+        g_rpc_probe.pending_request_spawn = 0;
+        g_rpc_probe.next_request_spawn_time = 0;
+        g_rpc_probe.request_spawn_retry_count = kMaxSpawnRetries;
         trace_netf("rpc-state id=68 spawn_ready inferred_from=select_freeroam_textdraw outcome=2");
       }
     } else {
