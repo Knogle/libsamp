@@ -25,10 +25,12 @@
 #define SAMP_RAKNET_SLEEP_TIMER 5
 #define SAMP_RAKNET_CONNECT_RETRY_MS 3000
 #define SAMP_RAKNET_CONNECT_STALE_MS 12000
-#define SAMP_PRECONNECT_DELAY_MS 3000
+#define SAMP_PRECONNECT_DELAY_MS 10000
 #define SAMP_PRECONNECT_MAX_APPLIES 7200
 #define SAMP_PRECONNECT_PED_FALLBACK_APPLIES 720
 #define SAMP_PRECONNECT_WORLD_SETTLE_MS 0u
+#define SAMP_PRECONNECT_WORLD_HOUR 6u
+#define SAMP_PRECONNECT_WORLD_MINUTE 0u
 #define SAMP_PRECONNECT_PLAYER_X -276.7370f
 #define SAMP_PRECONNECT_PLAYER_Y 2242.7578f
 #define SAMP_PRECONNECT_PLAYER_Z 129.6658f
@@ -78,6 +80,33 @@
 #define SAMP_ADDR_CAMERA_FADE_PATCH 0x50AC20u
 #define SAMP_ADDR_HWND 0xC97C1Cu
 #define SAMP_ADDR_ID3D9DEVICE 0xC97C28u
+#define SAMP_ADDR_SELECT_DEVICE_HOOK 0x746219u
+#define SAMP_ADDR_SELECT_DEVICE_RETURN_SINGLE 0x746273u
+#define SAMP_ADDR_SELECT_DEVICE_RETURN_MULTI_HIDE 0x74622Cu
+#define SAMP_ADDR_SELECT_DEVICE_RETURN_MULTI_SHOW 0x746227u
+#define SAMP_SELECT_DEVICE_HOOK_SIZE 6u
+#define SAMP_SELECT_DEVICE_STUB_SIZE 64u
+#define SAMP_ADDR_D3D9_NUM_DISPLAY_MODES 0xC97C40u
+#define SAMP_ADDR_D3D9_DISPLAY_MODES 0xC97C48u
+#define SAMP_ADDR_VIDEO_MODE_LIST_WIDTH_CHECK 0x745B71u
+#define SAMP_ADDR_VIDEO_MODE_LIST_HEIGHT_CHECK 0x745B81u
+#define SAMP_ADDR_VIDEO_MODE_LIST_ASPECT_CHECK 0x745B96u
+#define SAMP_ADDR_VIDEO_MODE_LIST_VRAM_CHECK 0x745BFCu
+#define SAMP_ADDR_DEVICE_DIALOG_WIDTH_CHECK 0x74596Cu
+#define SAMP_ADDR_DEVICE_DIALOG_HEIGHT_CHECK 0x74597Au
+#define SAMP_ADDR_DEVICE_DIALOG_ASPECT_CHECK 0x7459D0u
+#define SAMP_ADDR_DEFAULT_RES_WIDTH_IMM 0x746363u
+#define SAMP_ADDR_DEFAULT_RES_HEIGHT_IMM 0x746368u
+#define SAMP_ADDR_RW_ENGINE_GET_NUM_SUBSYSTEMS 0x7F2C00u
+#define SAMP_ADDR_RW_ENGINE_SET_SUBSYSTEM 0x7F2C90u
+#define SAMP_ADDR_RW_ENGINE_GET_NUM_VIDEO_MODES 0x7F2CC0u
+#define SAMP_ADDR_RW_ENGINE_GET_VIDEO_MODE_INFO 0x7F2CF0u
+#define SAMP_ADDR_FRONTEND_CUR_VIDEO_MODE 0x8D6220u
+#define SAMP_ADDR_FRONTEND_SAVED_VIDEO_MODE 0xBA6820u
+#define SAMP_ADDR_FRONTEND_CUR_ADAPTER 0xC920F4u
+#define SAMP_RW_VIDEOMODE_EXCLUSIVE 0x0001u
+#define SAMP_D3DFMT_R5G6B5 23u
+#define SAMP_D3DFMT_X8R8G8B8 22u
 #define SAMP_ADDR_ENABLE_HUD 0xBA6769u
 #define SAMP_ADDR_RADAR_BLANK 0xBAA3FBu
 #define SAMP_ADDR_WORLD_MINUTE 0xB70152u
@@ -90,6 +119,10 @@
 #define SAMP_ADDR_FIND_PLAYER_PED 0xB7CD98u
 #define SAMP_ADDR_CURRENT_PLAYER 0xB7CD74u
 #define SAMP_ADDR_PROCESS_ONE_COMMAND 0x469EB0u
+#define SAMP_ADDR_STREAMING_REQUEST_MODEL 0x4087E0u
+#define SAMP_ADDR_STREAMING_LOAD_ALL_REQUESTED 0x40EA10u
+#define SAMP_ADDR_STREAMING_LOAD_SCENE 0x40EB70u
+#define SAMP_ADDR_STREAMING_LOAD_SCENE_COLLISION 0x40ED80u
 #define SAMP_ADDR_ANIM_ASSOC_GROUPS_PTR 0xB4EA34u
 #define SAMP_ADDR_RPANIMBLEND_CLUMP_OFFSET 0xB5F878u
 #define SAMP_ADDR_ENTRY_INFO_NODE_POOL_PTR 0xB7448Cu
@@ -170,6 +203,36 @@ typedef enum samp_gta_version {
   SAMP_GTA_VERSION_EU10 = 2
 } samp_gta_version;
 
+typedef struct samp_gta_vector {
+  float x;
+  float y;
+  float z;
+} samp_gta_vector;
+
+typedef struct samp_rw_video_mode {
+  int32_t width;
+  int32_t height;
+  int32_t depth;
+  int32_t flags;
+  int32_t ref_rate;
+  int32_t format;
+} samp_rw_video_mode;
+
+typedef struct samp_display_mode_request {
+  int width;
+  int height;
+  int depth;
+  int adapter;
+} samp_display_mode_request;
+
+typedef struct samp_d3d9_display_mode_compat {
+  uint32_t width;
+  uint32_t height;
+  uint32_t refresh_rate;
+  uint32_t format;
+  int32_t flags;
+} samp_d3d9_display_mode_compat;
+
 typedef void(__cdecl *samp_script_process_fn)(void);
 typedef HANDLE(WINAPI *samp_create_file_a_fn)(LPCSTR, DWORD, DWORD, LPSECURITY_ATTRIBUTES, DWORD, DWORD, HANDLE);
 typedef BOOL(WINAPI *samp_read_file_fn)(HANDLE, LPVOID, DWORD, LPDWORD, LPOVERLAPPED);
@@ -179,6 +242,10 @@ typedef BOOL(WINAPI *samp_close_handle_fn)(HANDLE);
 typedef DWORD(WINAPI *samp_get_file_type_fn)(HANDLE);
 typedef int(WINAPI *samp_show_cursor_fn)(BOOL);
 typedef HRESULT(WINAPI *samp_d3d9_end_scene_fn)(void *);
+typedef int(__cdecl *samp_rw_get_num_subsystems_fn)(void);
+typedef int(__cdecl *samp_rw_set_subsystem_fn)(int);
+typedef int(__cdecl *samp_rw_get_num_video_modes_fn)(void);
+typedef samp_rw_video_mode *(__cdecl *samp_rw_get_video_mode_info_fn)(samp_rw_video_mode *, unsigned int);
 
 typedef struct samp_id3dx_font_compat samp_id3dx_font_compat;
 typedef struct samp_id3dx_font_compat_vtbl {
@@ -313,6 +380,13 @@ typedef struct samp_runtime_state {
   LONG preconnect_ped_stationary_logged;
   LONG preconnect_game_load_kicked;
   LONG preconnect_loaded_state_logged;
+  LONG preconnect_scene_loaded;
+  LONG mp_session_scene_loaded;
+  LONG select_device_hook_attempted;
+  LONG select_device_hook_installed;
+  LONG select_device_video_mode_applied;
+  LONG resolution_unlock_patches_applied;
+  LONG default_resolution_patch_applied;
 
   int endpoint_valid;
   int connect_probe_attempted;
@@ -343,8 +417,10 @@ typedef struct samp_runtime_state {
   DWORD net_mgr_last_connect_attempt_tick;
   void *bootstrap_manager_block;
   uintptr_t game_process_hook_stub;
+  uintptr_t select_device_hook_stub;
   uintptr_t script_hook_original_target;
   uint8_t game_process_hook_saved_code[6];
+  uint8_t select_device_hook_saved_code[SAMP_SELECT_DEVICE_HOOK_SIZE];
   uint8_t game_process_hook_saved_storage[4];
   uint8_t script_hook_saved_disp[4];
   uint8_t script_thread[SAMP_SCRIPT_THREAD_BYTES];
@@ -1936,6 +2012,569 @@ static int patch_write_u32(uintptr_t addr, uint32_t value) {
   return patch_copy(addr, &value, sizeof(value));
 }
 
+static int patch_write_u8(uintptr_t addr, uint8_t value) {
+  return patch_copy(addr, &value, sizeof(value));
+}
+
+static void apply_resolution_unlock_patches_compat(void) {
+  uint8_t jump_short = 0xEBu;
+  int applied = 0;
+
+  if (InterlockedCompareExchange(&g_runtime.resolution_unlock_patches_applied, 1, 0) != 0) {
+    return;
+  }
+
+  applied += patch_nop(SAMP_ADDR_VIDEO_MODE_LIST_WIDTH_CHECK, 6u) ? 1 : 0;
+  applied += patch_nop(SAMP_ADDR_VIDEO_MODE_LIST_HEIGHT_CHECK, 6u) ? 1 : 0;
+  applied += patch_write_u8(SAMP_ADDR_VIDEO_MODE_LIST_ASPECT_CHECK, jump_short) ? 1 : 0;
+  applied += patch_nop(SAMP_ADDR_VIDEO_MODE_LIST_VRAM_CHECK, 2u) ? 1 : 0;
+  applied += patch_nop(SAMP_ADDR_DEVICE_DIALOG_WIDTH_CHECK, 6u) ? 1 : 0;
+  applied += patch_nop(SAMP_ADDR_DEVICE_DIALOG_HEIGHT_CHECK, 6u) ? 1 : 0;
+  applied += patch_write_u8(SAMP_ADDR_DEVICE_DIALOG_ASPECT_CHECK, jump_short) ? 1 : 0;
+
+  runtime_tracef("resolution_unlock: applied=%d/7", applied);
+}
+
+static void apply_default_resolution_patch_compat(const samp_display_mode_request *request) {
+  int width_ok = 0;
+  int height_ok = 0;
+
+  if (request == NULL) {
+    return;
+  }
+  if (request->width < 640 || request->height < 480) {
+    return;
+  }
+  if (InterlockedCompareExchange(&g_runtime.default_resolution_patch_applied, 1, 0) != 0) {
+    return;
+  }
+
+  width_ok = patch_write_u32(SAMP_ADDR_DEFAULT_RES_WIDTH_IMM, (uint32_t)request->width);
+  height_ok = patch_write_u32(SAMP_ADDR_DEFAULT_RES_HEIGHT_IMM, (uint32_t)request->height);
+  runtime_tracef("resolution_unlock: default_res=%dx%d width_patch=%d height_patch=%d", request->width,
+                 request->height, width_ok, height_ok);
+}
+
+static int env_flag_enabled_default_compat(const char *name, int default_enabled) {
+  const char *value = NULL;
+
+  value = getenv(name);
+  if (value == NULL || *value == '\0') {
+    return default_enabled ? 1 : 0;
+  }
+  if (value[0] == '0' || value[0] == 'n' || value[0] == 'N' || value[0] == 'f' || value[0] == 'F') {
+    return 0;
+  }
+  return 1;
+}
+
+static void display_mode_desktop_request_compat(samp_display_mode_request *request) {
+  HDC dc = NULL;
+  int depth = 32;
+  int width = 800;
+  int height = 600;
+
+  if (request == NULL) {
+    return;
+  }
+
+  width = GetSystemMetrics(SM_CXSCREEN);
+  height = GetSystemMetrics(SM_CYSCREEN);
+  dc = GetDC(NULL);
+  if (dc != NULL) {
+    int caps_depth = GetDeviceCaps(dc, BITSPIXEL);
+    if (caps_depth >= 16) {
+      depth = caps_depth;
+    }
+    ReleaseDC(NULL, dc);
+  }
+  if (width < 640) {
+    width = 800;
+  }
+  if (height < 480) {
+    height = 600;
+  }
+
+  request->width = width;
+  request->height = height;
+  request->depth = depth;
+  request->adapter = 0;
+}
+
+static int parse_display_mode_request_compat(const char *text, samp_display_mode_request *request) {
+  const char *cursor = text;
+  char *endptr = NULL;
+  unsigned long values[4] = {0, 0, 0, 0};
+  int count = 0;
+
+  if (text == NULL || *text == '\0' || request == NULL) {
+    return 0;
+  }
+
+  while (*cursor != '\0' && count < 4) {
+    values[count] = strtoul(cursor, &endptr, 10);
+    if (endptr == cursor || values[count] > 8192UL) {
+      return 0;
+    }
+    ++count;
+    cursor = endptr;
+    if (*cursor == 'x' || *cursor == 'X') {
+      ++cursor;
+      continue;
+    }
+    break;
+  }
+
+  if (*cursor != '\0' || count < 2 || values[0] < 640UL || values[1] < 480UL) {
+    return 0;
+  }
+
+  request->width = (int)values[0];
+  request->height = (int)values[1];
+  request->depth = (count >= 3 && values[2] >= 16UL) ? (int)values[2] : request->depth;
+  request->adapter = (count >= 4) ? (int)values[3] : request->adapter;
+  return 1;
+}
+
+static void load_display_mode_request_compat(samp_display_mode_request *request) {
+  const char *env_value = NULL;
+  samp_display_mode_request parsed;
+
+  if (request == NULL) {
+    return;
+  }
+
+  display_mode_desktop_request_compat(request);
+  parsed = *request;
+  env_value = getenv("SAMPDLL_DISPLAY_RESOLUTION");
+  if (env_value != NULL && *env_value != '\0') {
+    if (parse_display_mode_request_compat(env_value, &parsed)) {
+      *request = parsed;
+    } else {
+      runtime_tracef("select_device: ignored invalid SAMPDLL_DISPLAY_RESOLUTION='%s'", env_value);
+    }
+  }
+}
+
+static uint32_t video_mode_score_compat(const samp_rw_video_mode *mode, const samp_display_mode_request *request) {
+  uint32_t score = 0;
+  uint32_t width_delta = 0;
+  uint32_t height_delta = 0;
+
+  if (mode == NULL || request == NULL) {
+    return 0xFFFFFFFFu;
+  }
+
+  width_delta = (mode->width > request->width) ? (uint32_t)(mode->width - request->width)
+                                               : (uint32_t)(request->width - mode->width);
+  height_delta = (mode->height > request->height) ? (uint32_t)(mode->height - request->height)
+                                                  : (uint32_t)(request->height - mode->height);
+  score = width_delta + height_delta;
+  if (mode->depth != request->depth) {
+    score += 100000u;
+  }
+  if (mode->width > request->width || mode->height > request->height) {
+    score += 1000u;
+  }
+  return score;
+}
+
+static int d3d9_display_mode_depth_compat(uint32_t format) {
+  if (format == SAMP_D3DFMT_X8R8G8B8) {
+    return 32;
+  }
+  if (format == SAMP_D3DFMT_R5G6B5) {
+    return 16;
+  }
+  return 0;
+}
+
+static uint32_t d3d9_display_mode_format_for_depth_compat(int depth) {
+  return (depth >= 32) ? SAMP_D3DFMT_X8R8G8B8 : SAMP_D3DFMT_R5G6B5;
+}
+
+static int display_mode_index_is_used_compat(int index, const int *used_indices, int used_count) {
+  int i = 0;
+
+  if (used_indices == NULL || used_count <= 0) {
+    return 0;
+  }
+  for (i = 0; i < used_count; ++i) {
+    if (used_indices[i] == index) {
+      return 1;
+    }
+  }
+  return 0;
+}
+
+static int force_display_mode_slot_compat(const samp_display_mode_request *request, const int *used_indices,
+                                          int used_count) {
+  samp_d3d9_display_mode_compat *modes = NULL;
+  samp_d3d9_display_mode_compat forced;
+  int count = 0;
+  int exact_index = -1;
+  int best_index = -1;
+  uint32_t best_score = 0xFFFFFFFFu;
+  int i = 0;
+
+  if (request == NULL) {
+    return -1;
+  }
+
+  count = *(volatile int32_t *)(uintptr_t)SAMP_ADDR_D3D9_NUM_DISPLAY_MODES;
+  modes = *(samp_d3d9_display_mode_compat **)(uintptr_t)SAMP_ADDR_D3D9_DISPLAY_MODES;
+  if (count <= 0 || count > 4096 || !game_pointer_plausible_compat((uintptr_t)modes)) {
+    runtime_tracef("display_mode_force: skipped count=%d modes=%p target=%dx%dx%d", count, modes, request->width,
+                   request->height, request->depth);
+    return -1;
+  }
+
+  for (i = 0; i < count; ++i) {
+    samp_rw_video_mode score_mode;
+    int depth = d3d9_display_mode_depth_compat(modes[i].format);
+    uint32_t score = 0;
+
+    if ((modes[i].flags & SAMP_RW_VIDEOMODE_EXCLUSIVE) == 0) {
+      continue;
+    }
+    if (modes[i].width < 640u || modes[i].height < 480u) {
+      continue;
+    }
+    if ((int)modes[i].width == request->width && (int)modes[i].height == request->height &&
+        (request->depth <= 0 || depth == request->depth)) {
+      exact_index = i;
+      break;
+    }
+    if (display_mode_index_is_used_compat(i, used_indices, used_count)) {
+      continue;
+    }
+
+    memset(&score_mode, 0, sizeof(score_mode));
+    score_mode.width = (int32_t)modes[i].width;
+    score_mode.height = (int32_t)modes[i].height;
+    score_mode.depth = depth > 0 ? depth : 32;
+    score_mode.flags = modes[i].flags;
+    score = video_mode_score_compat(&score_mode, request);
+    if (best_index < 0 || score < best_score) {
+      best_index = i;
+      best_score = score;
+    }
+  }
+
+  if (exact_index >= 0) {
+    runtime_tracef("display_mode_force: target=%dx%dx%d already present index=%d", request->width, request->height,
+                   request->depth, exact_index);
+    return exact_index;
+  }
+  if (best_index < 0) {
+    runtime_tracef("display_mode_force: no replacement slot for target=%dx%dx%d count=%d", request->width,
+                   request->height, request->depth, count);
+    return -1;
+  }
+
+  forced.width = (uint32_t)request->width;
+  forced.height = (uint32_t)request->height;
+  forced.refresh_rate = 0u;
+  forced.format = d3d9_display_mode_format_for_depth_compat(request->depth);
+  forced.flags = SAMP_RW_VIDEOMODE_EXCLUSIVE;
+  if (!patch_copy((uintptr_t)&modes[best_index], &forced, sizeof(forced))) {
+    runtime_tracef("display_mode_force: patch failed index=%d target=%dx%dx%d", best_index, request->width,
+                   request->height, request->depth);
+    return -1;
+  }
+
+  runtime_tracef("display_mode_force: replaced index=%d target=%dx%dx%d format=%lu old_score=%lu count=%d", best_index,
+                 request->width, request->height, request->depth, (unsigned long)forced.format,
+                 (unsigned long)best_score, count);
+  return best_index;
+}
+
+static void force_startup_display_modes_compat(const samp_display_mode_request *request) {
+  samp_display_mode_request extra;
+  const char *extra_env = NULL;
+  int used_indices[4] = {-1, -1, -1, -1};
+  int used_count = 0;
+  int forced = -1;
+
+  memset(&extra, 0, sizeof(extra));
+  extra.width = 2560;
+  extra.height = 1440;
+  extra.depth = 32;
+  extra.adapter = 0;
+
+  extra_env = getenv("SAMPDLL_EXTRA_RESOLUTION");
+  if (extra_env != NULL && *extra_env != '\0') {
+    samp_display_mode_request parsed = extra;
+    if (parse_display_mode_request_compat(extra_env, &parsed)) {
+      extra = parsed;
+    } else {
+      runtime_tracef("display_mode_force: ignored invalid SAMPDLL_EXTRA_RESOLUTION='%s'", extra_env);
+    }
+  }
+
+  forced = force_display_mode_slot_compat(&extra, used_indices, used_count);
+  if (forced >= 0 && used_count < (int)(sizeof(used_indices) / sizeof(used_indices[0]))) {
+    used_indices[used_count++] = forced;
+  }
+  if (request != NULL && (request->width != extra.width || request->height != extra.height || request->depth != extra.depth)) {
+    forced = force_display_mode_slot_compat(request, used_indices, used_count);
+    if (forced >= 0 && used_count < (int)(sizeof(used_indices) / sizeof(used_indices[0]))) {
+      used_indices[used_count++] = forced;
+    }
+  }
+}
+
+static int find_best_video_mode_compat(const samp_display_mode_request *request, samp_rw_video_mode *best_mode) {
+  samp_rw_get_num_video_modes_fn get_num_video_modes = (samp_rw_get_num_video_modes_fn)(uintptr_t)SAMP_ADDR_RW_ENGINE_GET_NUM_VIDEO_MODES;
+  samp_rw_get_video_mode_info_fn get_video_mode_info =
+      (samp_rw_get_video_mode_info_fn)(uintptr_t)SAMP_ADDR_RW_ENGINE_GET_VIDEO_MODE_INFO;
+  int num_modes = 0;
+  int best_index = -1;
+  uint32_t best_score = 0xFFFFFFFFu;
+  int i = 0;
+
+  if (request == NULL || best_mode == NULL) {
+    return -1;
+  }
+
+  memset(best_mode, 0, sizeof(*best_mode));
+  num_modes = get_num_video_modes();
+  if (num_modes <= 0 || num_modes > 4096) {
+    runtime_tracef("select_device: invalid video mode count=%d", num_modes);
+    return -1;
+  }
+
+  for (i = 0; i < num_modes; ++i) {
+    samp_rw_video_mode mode;
+    uint32_t score = 0;
+
+    memset(&mode, 0, sizeof(mode));
+    if (get_video_mode_info(&mode, (unsigned int)i) == NULL) {
+      continue;
+    }
+    if (mode.width < 640 || mode.height < 480) {
+      continue;
+    }
+    if ((mode.flags & SAMP_RW_VIDEOMODE_EXCLUSIVE) == 0) {
+      continue;
+    }
+
+    score = video_mode_score_compat(&mode, request);
+    if (best_index < 0 || score < best_score) {
+      best_index = i;
+      best_score = score;
+      *best_mode = mode;
+    }
+  }
+
+  runtime_tracef("select_device: modes=%d requested=%dx%dx%d adapter=%d best=%d best_mode=%dx%dx%d flags=0x%x score=%lu",
+                 num_modes, request->width, request->height, request->depth, request->adapter, best_index,
+                 best_mode->width, best_mode->height, best_mode->depth, (unsigned int)best_mode->flags,
+                 (unsigned long)best_score);
+  return best_index;
+}
+
+static int apply_startup_video_mode_compat(int *out_num_subsystems) {
+  samp_rw_get_num_subsystems_fn get_num_subsystems =
+      (samp_rw_get_num_subsystems_fn)(uintptr_t)SAMP_ADDR_RW_ENGINE_GET_NUM_SUBSYSTEMS;
+  samp_rw_set_subsystem_fn set_subsystem = (samp_rw_set_subsystem_fn)(uintptr_t)SAMP_ADDR_RW_ENGINE_SET_SUBSYSTEM;
+  samp_display_mode_request request;
+  samp_rw_video_mode best_mode;
+  int num_subsystems = 0;
+  int best_index = -1;
+
+  if (out_num_subsystems != NULL) {
+    *out_num_subsystems = 0;
+  }
+  num_subsystems = get_num_subsystems();
+  if (out_num_subsystems != NULL) {
+    *out_num_subsystems = num_subsystems;
+  }
+  if (InterlockedCompareExchange(&g_runtime.select_device_video_mode_applied, 1, 0) != 0) {
+    return 1;
+  }
+
+  load_display_mode_request_compat(&request);
+  apply_default_resolution_patch_compat(&request);
+  if (num_subsystems > 0 && request.adapter >= 0 && request.adapter < num_subsystems) {
+    int subsystem_result = set_subsystem(request.adapter);
+    (void)patch_write_u32(SAMP_ADDR_FRONTEND_CUR_ADAPTER, (uint32_t)request.adapter);
+    runtime_tracef("select_device: adapters=%d selected_adapter=%d set_result=%d", num_subsystems, request.adapter,
+                   subsystem_result);
+  } else {
+    runtime_tracef("select_device: adapters=%d requested_adapter=%d not selected", num_subsystems, request.adapter);
+  }
+
+  force_startup_display_modes_compat(&request);
+  best_index = find_best_video_mode_compat(&request, &best_mode);
+  if (best_index < 0) {
+    return 0;
+  }
+
+  (void)patch_write_u32(SAMP_ADDR_FRONTEND_CUR_VIDEO_MODE, (uint32_t)best_index);
+  (void)patch_write_u32(SAMP_ADDR_FRONTEND_SAVED_VIDEO_MODE, (uint32_t)best_index);
+  runtime_tracef("select_device: applied mode_index=%d mode=%dx%dx%d ref=%d format=%d", best_index, best_mode.width,
+                 best_mode.height, best_mode.depth, best_mode.ref_rate, best_mode.format);
+  return 1;
+}
+
+static int __cdecl select_device_on_call_compat(void) {
+  int num_subsystems = 0;
+  int applied = 0;
+  int dialog_enabled = 0;
+  int force_dialog = 0;
+  int result = 0;
+
+  applied = apply_startup_video_mode_compat(&num_subsystems);
+  dialog_enabled = env_flag_enabled_default_compat("SAMPDLL_DEVICE_SELECTION", 1);
+  force_dialog = env_flag_enabled_default_compat("SAMPDLL_DEVICE_SELECTION_FORCE", 0);
+
+  if (dialog_enabled && (num_subsystems > 1 || force_dialog)) {
+    result = 1;
+  } else if (num_subsystems > 1) {
+    result = 2;
+  } else {
+    result = 0;
+  }
+
+  runtime_tracef("select_device: applied=%d adapters=%d dialog=%d force=%d result=%d", applied, num_subsystems,
+                 dialog_enabled, force_dialog, result);
+  return result;
+}
+
+static void write_u32_unaligned_compat(uint8_t *dst, uint32_t value) {
+  if (dst == NULL) {
+    return;
+  }
+  dst[0] = (uint8_t)(value & 0xFFu);
+  dst[1] = (uint8_t)((value >> 8u) & 0xFFu);
+  dst[2] = (uint8_t)((value >> 16u) & 0xFFu);
+  dst[3] = (uint8_t)((value >> 24u) & 0xFFu);
+}
+
+static int build_select_device_stub_compat(uint8_t *code, size_t code_size) {
+  size_t n = 0;
+  size_t single_branch = 0;
+  size_t show_branch = 0;
+  size_t single_label = 0;
+  size_t show_label = 0;
+
+  if (code == NULL || code_size < SAMP_SELECT_DEVICE_STUB_SIZE || sizeof(uintptr_t) != 4u) {
+    return 0;
+  }
+
+  memset(code, 0xCC, code_size);
+  code[n++] = 0x60u; /* pushad */
+  code[n++] = 0xB8u; /* mov eax, select_device_on_call_compat */
+  write_u32_unaligned_compat(&code[n], (uint32_t)(uintptr_t)select_device_on_call_compat);
+  n += 4u;
+  code[n++] = 0xFFu; /* call eax */
+  code[n++] = 0xD0u;
+  code[n++] = 0x83u; /* cmp eax, 1 */
+  code[n++] = 0xF8u;
+  code[n++] = 0x01u;
+  code[n++] = 0x61u; /* popad, flags from cmp are preserved */
+
+  single_branch = n;
+  code[n++] = 0x7Cu; /* jl single */
+  code[n++] = 0x00u;
+  show_branch = n;
+  code[n++] = 0x74u; /* je multi show */
+  code[n++] = 0x00u;
+
+  code[n++] = 0xB8u; /* mov eax, 1; MTA-compatible multi-hide path */
+  write_u32_unaligned_compat(&code[n], 1u);
+  n += 4u;
+  code[n++] = 0x68u; /* push RETURN_MULTI_HIDE */
+  write_u32_unaligned_compat(&code[n], SAMP_ADDR_SELECT_DEVICE_RETURN_MULTI_HIDE);
+  n += 4u;
+  code[n++] = 0xC3u; /* ret */
+
+  single_label = n;
+  code[single_branch + 1u] = (uint8_t)(single_label - (single_branch + 2u));
+  code[n++] = 0x68u; /* push RETURN_SINGLE */
+  write_u32_unaligned_compat(&code[n], SAMP_ADDR_SELECT_DEVICE_RETURN_SINGLE);
+  n += 4u;
+  code[n++] = 0xC3u;
+
+  show_label = n;
+  code[show_branch + 1u] = (uint8_t)(show_label - (show_branch + 2u));
+  code[n++] = 0x68u; /* push RETURN_MULTI_SHOW */
+  write_u32_unaligned_compat(&code[n], SAMP_ADDR_SELECT_DEVICE_RETURN_MULTI_SHOW);
+  n += 4u;
+  code[n++] = 0xC3u;
+
+  return (n <= code_size) ? 1 : 0;
+}
+
+static void install_select_device_hook_compat(void) {
+  uint8_t *stub = NULL;
+  uint8_t patch[SAMP_SELECT_DEVICE_HOOK_SIZE] = {0};
+
+  if (!env_flag_enabled_default_compat("SAMPDLL_SELECT_DEVICE_HOOK", 1)) {
+    runtime_tracef("select_device_hook: disabled by env");
+    return;
+  }
+  if (InterlockedCompareExchange(&g_runtime.select_device_hook_attempted, 1, 0) != 0) {
+    return;
+  }
+  if (sizeof(uintptr_t) != 4u) {
+    runtime_tracef("select_device_hook: skipped because pointer size is %lu", (unsigned long)sizeof(uintptr_t));
+    return;
+  }
+
+  stub = (uint8_t *)VirtualAlloc(NULL, SAMP_SELECT_DEVICE_STUB_SIZE, MEM_COMMIT | MEM_RESERVE, PAGE_EXECUTE_READWRITE);
+  if (stub == NULL) {
+    runtime_tracef("select_device_hook: stub allocation failed gle=%lu", (unsigned long)GetLastError());
+    return;
+  }
+  if (!build_select_device_stub_compat(stub, SAMP_SELECT_DEVICE_STUB_SIZE)) {
+    VirtualFree(stub, 0u, MEM_RELEASE);
+    runtime_tracef("select_device_hook: stub build failed");
+    return;
+  }
+  FlushInstructionCache(GetCurrentProcess(), stub, SAMP_SELECT_DEVICE_STUB_SIZE);
+
+  memcpy(g_runtime.select_device_hook_saved_code, (const void *)(uintptr_t)SAMP_ADDR_SELECT_DEVICE_HOOK,
+         sizeof(g_runtime.select_device_hook_saved_code));
+  g_runtime.select_device_hook_stub = (uintptr_t)stub;
+
+  patch[0] = 0xFFu; /* jmp dword ptr [&g_runtime.select_device_hook_stub] */
+  patch[1] = 0x25u;
+  write_u32_unaligned_compat(&patch[2], (uint32_t)(uintptr_t)&g_runtime.select_device_hook_stub);
+  if (!patch_copy(SAMP_ADDR_SELECT_DEVICE_HOOK, patch, sizeof(patch))) {
+    g_runtime.select_device_hook_stub = 0u;
+    VirtualFree(stub, 0u, MEM_RELEASE);
+    runtime_tracef("select_device_hook: patch failed");
+    return;
+  }
+
+  InterlockedExchange(&g_runtime.select_device_hook_installed, 1);
+  runtime_tracef("select_device_hook: installed hook=0x%lx stub=%p saved=%02x %02x %02x %02x %02x %02x",
+                 (unsigned long)SAMP_ADDR_SELECT_DEVICE_HOOK, stub, g_runtime.select_device_hook_saved_code[0],
+                 g_runtime.select_device_hook_saved_code[1], g_runtime.select_device_hook_saved_code[2],
+                 g_runtime.select_device_hook_saved_code[3], g_runtime.select_device_hook_saved_code[4],
+                 g_runtime.select_device_hook_saved_code[5]);
+}
+
+static void uninstall_select_device_hook_compat(void) {
+  uintptr_t stub = 0u;
+
+  if (!InterlockedCompareExchange(&g_runtime.select_device_hook_installed, 0, 0)) {
+    return;
+  }
+
+  (void)patch_copy(SAMP_ADDR_SELECT_DEVICE_HOOK, g_runtime.select_device_hook_saved_code,
+                   sizeof(g_runtime.select_device_hook_saved_code));
+  InterlockedExchange(&g_runtime.select_device_hook_installed, 0);
+  stub = g_runtime.select_device_hook_stub;
+  g_runtime.select_device_hook_stub = 0u;
+  if (stub != 0u) {
+    VirtualFree((void *)stub, 0u, MEM_RELEASE);
+  }
+  runtime_tracef("select_device_hook: uninstalled");
+}
+
 static int patch_zero_memory(uintptr_t addr, size_t size) {
   DWORD old_protect = 0;
   DWORD old_protect_restore = 0;
@@ -2819,7 +3458,7 @@ static void maintain_online_session_state(void) {
   menu2_before = read_game_u8(SAMP_ADDR_MENU2);
   menu3_before = read_game_u8(SAMP_ADDR_MENU3);
 
-  if (entry_before != 8 || game_started_before != 1u) {
+  if (entry_before != 9 || game_started_before != 0u) {
     LONG drift_seen = InterlockedCompareExchange(&g_runtime.online_session_drift_seen, 0, 0);
     LONG last_entry = InterlockedCompareExchange(&g_runtime.online_session_last_entry, 0, 0);
     LONG last_started = InterlockedCompareExchange(&g_runtime.online_session_last_game_started, 0, 0);
@@ -2828,7 +3467,7 @@ static void maintain_online_session_state(void) {
       InterlockedExchange(&g_runtime.online_session_last_entry, entry_before);
       InterlockedExchange(&g_runtime.online_session_last_game_started, (LONG)game_started_before);
       runtime_tracef(
-          "online_session_drift: state=%ld rpc=0x%08lx observed entry=%ld game_started=%u expected=8/1 "
+          "online_session_drift: state=%ld rpc=0x%08lx observed entry=%ld game_started=%u expected=9/0 "
           "action=observe_only",
           (long)net_state, (unsigned long)rpc_flags, (long)entry_before, (unsigned)game_started_before);
     }
@@ -2954,6 +3593,69 @@ static int gta_script_command_compat(uint16_t opcode, const char *params, ...) {
   va_end(args);
 
   return gta_script_execute_compat();
+}
+
+static void gta_streaming_request_model_compat(int32_t model_id, int32_t flags) {
+  typedef void(__cdecl *gta_streaming_request_model_fn)(int32_t, int32_t);
+  gta_streaming_request_model_fn request_model =
+      (gta_streaming_request_model_fn)(uintptr_t)SAMP_ADDR_STREAMING_REQUEST_MODEL;
+
+  if (model_id < 0) {
+    return;
+  }
+  request_model(model_id, flags);
+}
+
+static void gta_streaming_load_all_requested_compat(int only_priority_requests) {
+  typedef void(__cdecl *gta_streaming_load_all_requested_fn)(int);
+  gta_streaming_load_all_requested_fn load_all =
+      (gta_streaming_load_all_requested_fn)(uintptr_t)SAMP_ADDR_STREAMING_LOAD_ALL_REQUESTED;
+
+  load_all(only_priority_requests ? 1 : 0);
+}
+
+static void gta_streaming_load_scene_collision_compat(const samp_gta_vector *point) {
+  typedef void(__cdecl *gta_streaming_load_scene_collision_fn)(const samp_gta_vector *);
+  gta_streaming_load_scene_collision_fn load_collision =
+      (gta_streaming_load_scene_collision_fn)(uintptr_t)SAMP_ADDR_STREAMING_LOAD_SCENE_COLLISION;
+
+  if (point == NULL) {
+    return;
+  }
+  load_collision(point);
+}
+
+static void gta_streaming_load_scene_compat(const samp_gta_vector *point) {
+  typedef void(__cdecl *gta_streaming_load_scene_fn)(const samp_gta_vector *);
+  gta_streaming_load_scene_fn load_scene =
+      (gta_streaming_load_scene_fn)(uintptr_t)SAMP_ADDR_STREAMING_LOAD_SCENE;
+
+  if (point == NULL) {
+    return;
+  }
+  load_scene(point);
+}
+
+static void gta_prepare_scene_at_compat(const char *reason, float x, float y, float z, int32_t skin_model) {
+  samp_gta_vector point;
+
+  point.x = x;
+  point.y = y;
+  point.z = z;
+
+  if (skin_model >= 0) {
+    gta_streaming_request_model_compat(skin_model, 0x06);
+  }
+  gta_streaming_load_scene_collision_compat(&point);
+  gta_streaming_load_scene_compat(&point);
+  if (skin_model >= 0) {
+    gta_streaming_load_all_requested_compat(0);
+  }
+  (void)gta_script_command_compat(0x04E4u, "ff", x, y);
+
+  runtime_tracef("scene_prepare: reason=%s pos=(%.3f,%.3f,%.3f) skin=%ld entry=%ld game_started=%u",
+                 reason != NULL ? reason : "unknown", (double)x, (double)y, (double)z, (long)skin_model,
+                 (long)read_game_entry_gate_value(), (unsigned)read_game_u8(SAMP_ADDR_GAME_STARTED));
 }
 
 static void mp_bridge_record_script_failure(const char *name, uint16_t opcode) {
@@ -3251,7 +3953,7 @@ static void apply_preconnect_frontend_compat(void) {
     }
   }
 
-  if (ped != 0u && !no_ped_fallback) {
+  if (ped != 0u && !no_ped_fallback && InterlockedCompareExchange(&g_runtime.preconnect_ready, 0, 0) == 0) {
     anim_ready = preconnect_ped_anim_ready_compat(ped, &ped_rw_object, &anim_assoc, &clump_offset);
     if (!anim_ready) {
       preconnect_hold_world_warmup_compat(apply_count, "ped_anim_not_ready");
@@ -3269,6 +3971,9 @@ static void apply_preconnect_frontend_compat(void) {
     }
   } else {
     anim_ready = preconnect_anim_runtime_ready_compat(&anim_assoc, &clump_offset);
+    if (ped != 0u) {
+      ped_rw_object = gta_entity_rw_object_compat(ped);
+    }
   }
 
   *(volatile LONG *)(uintptr_t)SAMP_ADDR_ENTRY = 9;
@@ -3279,6 +3984,8 @@ static void apply_preconnect_frontend_compat(void) {
   write_game_u8(SAMP_ADDR_MENU3, 0u);
   write_game_u8(SAMP_ADDR_ENABLE_HUD, 0u);
   write_game_u8(SAMP_ADDR_RADAR_BLANK, 1u);
+  write_game_u8(SAMP_ADDR_WORLD_HOUR, SAMP_PRECONNECT_WORLD_HOUR);
+  write_game_u8(SAMP_ADDR_WORLD_MINUTE, SAMP_PRECONNECT_WORLD_MINUTE);
 
   if (InterlockedCompareExchange(&g_runtime.preconnect_loaded_state_logged, 1, 0) == 0) {
     runtime_tracef("preconnect_bridge: entered loaded frontend state apply=%ld entry=%ld game_started=%u "
@@ -3286,6 +3993,20 @@ static void apply_preconnect_frontend_compat(void) {
                    (long)apply_count, (long)read_game_entry_gate_value(),
                    (unsigned)read_game_u8(SAMP_ADDR_GAME_STARTED),
                    (unsigned)read_game_u8(SAMP_ADDR_STARTGAME), anim_ready, (unsigned long)ped);
+  }
+
+  if (InterlockedCompareExchange(&g_runtime.preconnect_scene_loaded, 1, 0) == 0) {
+    gta_prepare_scene_at_compat("preconnect", SAMP_PRECONNECT_LOOK_X, SAMP_PRECONNECT_LOOK_Y, SAMP_PRECONNECT_LOOK_Z, -1);
+    *(volatile LONG *)(uintptr_t)SAMP_ADDR_ENTRY = 9;
+    write_game_u8(SAMP_ADDR_GAME_STARTED, 0u);
+    write_game_u8(SAMP_ADDR_STARTGAME, 0u);
+    write_game_u8(SAMP_ADDR_MENU, 0u);
+    write_game_u8(SAMP_ADDR_MENU2, 0u);
+    write_game_u8(SAMP_ADDR_MENU3, 0u);
+    write_game_u8(SAMP_ADDR_ENABLE_HUD, 0u);
+    write_game_u8(SAMP_ADDR_RADAR_BLANK, 1u);
+    write_game_u8(SAMP_ADDR_WORLD_HOUR, SAMP_PRECONNECT_WORLD_HOUR);
+    write_game_u8(SAMP_ADDR_WORLD_MINUTE, SAMP_PRECONNECT_WORLD_MINUTE);
   }
 
   if (ped != 0u && preconnect_move_ped_compat()) {
@@ -3317,14 +4038,15 @@ static void apply_preconnect_frontend_compat(void) {
     runtime_tracef(
         "preconnect_bridge: ready ped=0x%08lx no_ped_fallback=%d entry=%ld game_started=%u player=(%.3f,%.3f,%.3f) "
         "cam=(%.3f,%.3f,%.3f) look=(%.3f,%.3f,%.3f) anim_ready=%d rw=0x%08lx anim_assoc=0x%08lx "
-        "clump_offset=0x%08lx delay_ms=%lu",
+        "clump_offset=0x%08lx delay_ms=%lu time=%u:%02u",
         (unsigned long)ped, no_ped_fallback, (long)read_game_entry_gate_value(),
         (unsigned)read_game_u8(SAMP_ADDR_GAME_STARTED), (double)SAMP_PRECONNECT_PLAYER_X,
         (double)SAMP_PRECONNECT_PLAYER_Y, (double)SAMP_PRECONNECT_PLAYER_Z, (double)SAMP_PRECONNECT_CAMERA_X,
         (double)SAMP_PRECONNECT_CAMERA_Y, (double)SAMP_PRECONNECT_CAMERA_Z, (double)SAMP_PRECONNECT_LOOK_X,
         (double)SAMP_PRECONNECT_LOOK_Y, (double)SAMP_PRECONNECT_LOOK_Z, anim_ready,
         (unsigned long)ped_rw_object, (unsigned long)anim_assoc, (unsigned long)clump_offset,
-        (unsigned long)preconnect_delay_ms_compat());
+        (unsigned long)preconnect_delay_ms_compat(), (unsigned)read_game_u8(SAMP_ADDR_WORLD_HOUR),
+        (unsigned)read_game_u8(SAMP_ADDR_WORLD_MINUTE));
   }
 
   if (InterlockedCompareExchange(&g_runtime.preconnect_started_logged, 1, 0) == 0) {
@@ -3487,6 +4209,22 @@ static void apply_multiplayer_session_bridge_compat(void) {
     write_game_u8(SAMP_ADDR_RADAR_BLANK, 0u);
     memcpy((void *)(ped + SAMP_PED_OFFSET_HEALTH), &health, sizeof(health));
 
+    if (has_spawn_info) {
+      (void)gta_entity_teleport_compat(ped, target_pos[0], target_pos[1], target_z);
+      if (InterlockedCompareExchange(&g_runtime.mp_session_scene_loaded, 1, 0) == 0) {
+        gta_prepare_scene_at_compat("spawn", target_pos[0], target_pos[1], target_z,
+                                    g_runtime.raknet_spawn_skin >= 0 ? g_runtime.raknet_spawn_skin : -1);
+        *(volatile LONG *)(uintptr_t)SAMP_ADDR_ENTRY = 9;
+        write_game_u8(SAMP_ADDR_GAME_STARTED, 0u);
+        write_game_u8(SAMP_ADDR_STARTGAME, 0u);
+        write_game_u8(SAMP_ADDR_MENU, 0u);
+        write_game_u8(SAMP_ADDR_MENU2, 0u);
+        write_game_u8(SAMP_ADDR_MENU3, 0u);
+        write_game_u8(SAMP_ADDR_ENABLE_HUD, 1u);
+        write_game_u8(SAMP_ADDR_RADAR_BLANK, 0u);
+      }
+    }
+
     if (!patch_copy(SAMP_ADDR_CAMERA_FADE_PATCH, no_fade_patch, sizeof(no_fade_patch))) {
       mp_bridge_record_script_failure("camera_fade_patch", (uint16_t)SAMP_ADDR_CAMERA_FADE_PATCH);
     }
@@ -3522,15 +4260,11 @@ static void apply_multiplayer_session_bridge_compat(void) {
                    (unsigned)read_game_u8(SAMP_ADDR_GAME_STARTED));
   }
 
-  if (ped != 0u && (game_rpc_flags & SAMP_RAKNET_RPC_FLAG_PLAYER_POS) != 0u &&
-      (apply_count <= 8 || (apply_count % SAMP_MP_BRIDGE_TELEPORT_PERIOD) == 0)) {
-    if (gta_entity_teleport_compat(ped, target_pos[0], target_pos[1], target_z)) {
-      LONG teleports = InterlockedIncrement(&g_runtime.mp_session_teleport_count);
-      if (teleports <= 8 || (teleports % 20) == 0) {
-        runtime_tracef("mp_session_bridge: teleport #%ld ped=0x%08lx pos=(%.3f,%.3f,%.3f)", (long)teleports,
-                       (unsigned long)ped, (double)target_pos[0], (double)target_pos[1], (double)target_z);
-      }
-    }
+  if (ped != 0u && !spawn_ready && (game_rpc_flags & SAMP_RAKNET_RPC_FLAG_PLAYER_POS) != 0u &&
+      InterlockedCompareExchange(&g_runtime.mp_session_teleport_count, 0, 0) == 0) {
+    InterlockedExchange(&g_runtime.mp_session_teleport_count, -1);
+    runtime_tracef("mp_session_bridge: suppressing pre-spawn player-pos teleport ped=0x%08lx pos=(%.3f,%.3f,%.3f)",
+                   (unsigned long)ped, (double)target_pos[0], (double)target_pos[1], (double)target_z);
   }
 }
 
@@ -3663,6 +4397,8 @@ static int phase_runtime_bootstrap(void) {
                  g_runtime.archive_probe_ok, (unsigned long)g_runtime.archive_probe_size,
                  (unsigned long)g_runtime.archive_probe_type, g_runtime.archive_path);
 
+  apply_resolution_unlock_patches_compat();
+  install_select_device_hook_compat();
   InterlockedExchange(&g_runtime.early_bootstrap_ready, 1);
   g_last_phase = BOOT_PHASE_4_EARLY_BOOTSTRAP;
   return 1;
@@ -3799,6 +4535,8 @@ static void launch_prepare_network_compat(void) {
     InterlockedExchange(&g_runtime.mp_session_teleport_count, 0);
     InterlockedExchange(&g_runtime.mp_session_script_failures, 0);
     InterlockedExchange(&g_runtime.mp_session_frontend_hold_logged, 0);
+    InterlockedExchange(&g_runtime.mp_session_spawn_finalized, 0);
+    InterlockedExchange(&g_runtime.mp_session_scene_loaded, 0);
     g_runtime.raknet_weather = 0u;
     g_runtime.raknet_interior = 0u;
     g_runtime.raknet_camera_look_at_type = 0u;
@@ -4178,6 +4916,7 @@ static void rollback_from_phase(samp_boot_phase phase) {
   }
   uninstall_game_process_hook_compat();
   uninstall_scripts_process_hook_compat();
+  uninstall_select_device_hook_compat();
   samp_hook_bridge_uninstall(&g_runtime.hook_bridge);
   restore_time_passing_patch_compat();
   phase_runtime_modules_shutdown();
@@ -4244,6 +4983,7 @@ static void process_detach(LPVOID reserved) {
   phase_launch_monitor_stop();
   uninstall_game_process_hook_compat();
   uninstall_scripts_process_hook_compat();
+  uninstall_select_device_hook_compat();
   samp_hook_bridge_uninstall(&g_runtime.hook_bridge);
   restore_time_passing_patch_compat();
   phase_runtime_modules_shutdown();

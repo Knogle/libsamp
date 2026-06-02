@@ -163,17 +163,17 @@ void trace_netf(const char *fmt, ...) {
 bool auto_request_spawn_enabled() {
   const char *value = std::getenv("SAMPDLL_AUTO_REQUEST_SPAWN");
   if (value == nullptr || value[0] == '\0') {
-    return true;
+    return false;
   }
-  return !(value[0] == '0' || value[0] == 'n' || value[0] == 'N' || value[0] == 'f' || value[0] == 'F');
+  return value[0] == '1' || value[0] == 'y' || value[0] == 'Y' || value[0] == 't' || value[0] == 'T';
 }
 
 bool auto_select_freeroam_enabled() {
   const char *value = std::getenv("SAMPDLL_AUTO_SELECT_FREEROAM");
   if (value == nullptr || value[0] == '\0') {
-    return true;
+    return false;
   }
-  return !(value[0] == '0' || value[0] == 'n' || value[0] == 'N' || value[0] == 'f' || value[0] == 'F');
+  return value[0] == '1' || value[0] == 'y' || value[0] == 'Y' || value[0] == 't' || value[0] == 'T';
 }
 
 void schedule_request_spawn_if_ready(const char *reason, RakNet::RakNetTime delay_ms) {
@@ -785,7 +785,6 @@ void add_dialog_list_lines(HWND list, const char *info) {
     SendMessageA(list, LB_ADDSTRING, 0, reinterpret_cast<LPARAM>("Spanish"));
     SendMessageA(list, LB_ADDSTRING, 0, reinterpret_cast<LPARAM>("Portuguese"));
   }
-  SendMessageA(list, LB_SETCURSEL, 0, 0);
 }
 
 void queue_dialog_response_from_window(ManualDialogContext *ctx, HWND hwnd, unsigned char button) {
@@ -799,7 +798,9 @@ void queue_dialog_response_from_window(ManualDialogContext *ctx, HWND hwnd, unsi
   if (button != 0U && ctx->list != nullptr) {
     LRESULT sel = SendMessageA(ctx->list, LB_GETCURSEL, 0, 0);
     if (sel == LB_ERR) {
-      sel = 0;
+      trace_netf("dialog-ui: OK ignored for dialog=%u because no list item is selected",
+                 static_cast<unsigned int>(ctx->dialog_id));
+      return;
     }
     listitem = static_cast<std::int16_t>(sel);
     if (SendMessageA(ctx->list, LB_GETTEXT, static_cast<WPARAM>(sel), reinterpret_cast<LPARAM>(input)) == LB_ERR) {
