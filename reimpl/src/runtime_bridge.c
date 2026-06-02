@@ -166,16 +166,32 @@
 #define SAMP_D3D9_CREATE_OFFSCREEN_PLAIN_SURFACE_INDEX 36u
 #define SAMP_D3D9_CLEAR_INDEX 43u
 #define SAMP_D3D9_SET_RENDER_STATE_INDEX 57u
+#define SAMP_D3D9_SET_TEXTURE_INDEX 65u
+#define SAMP_D3D9_SET_TEXTURE_STAGE_STATE_INDEX 67u
+#define SAMP_D3D9_SET_SAMPLER_STATE_INDEX 69u
 #define SAMP_D3D9_DRAW_PRIMITIVE_UP_INDEX 83u
 #define SAMP_D3D9_SET_FVF_INDEX 89u
 #define SAMP_D3DRS_ZENABLE 7u
 #define SAMP_D3DRS_SRCBLEND 19u
 #define SAMP_D3DRS_DESTBLEND 20u
 #define SAMP_D3DRS_ALPHABLENDENABLE 27u
+#define SAMP_D3DSAMP_MAGFILTER 5u
+#define SAMP_D3DSAMP_MINFILTER 6u
+#define SAMP_D3DTEXF_LINEAR 2u
+#define SAMP_D3DTSS_COLOROP 1u
+#define SAMP_D3DTSS_COLORARG1 2u
+#define SAMP_D3DTSS_COLORARG2 3u
+#define SAMP_D3DTSS_ALPHAOP 4u
+#define SAMP_D3DTSS_ALPHAARG1 5u
+#define SAMP_D3DTSS_ALPHAARG2 6u
+#define SAMP_D3DTOP_MODULATE 4u
+#define SAMP_D3DTA_DIFFUSE 0u
+#define SAMP_D3DTA_TEXTURE 2u
 #define SAMP_D3DBLEND_SRCALPHA 5u
 #define SAMP_D3DBLEND_INVSRCALPHA 6u
 #define SAMP_D3DPT_TRIANGLESTRIP 5u
 #define SAMP_D3DFVF_XYZRHW_DIFFUSE 0x00000044u
+#define SAMP_D3DFVF_XYZRHW_DIFFUSE_TEX1 0x00000144u
 #define SAMP_D3DCLEAR_TARGET 0x00000001u
 #define SAMP_D3DFMT_A8R8G8B8 21u
 #define SAMP_D3DPOOL_SCRATCH 3u
@@ -281,6 +297,16 @@ typedef struct samp_d3d9_overlay_vertex_compat {
   DWORD color;
 } samp_d3d9_overlay_vertex_compat;
 
+typedef struct samp_d3d9_textured_vertex_compat {
+  float x;
+  float y;
+  float z;
+  float rhw;
+  DWORD color;
+  float u;
+  float v;
+} samp_d3d9_textured_vertex_compat;
+
 typedef void(__cdecl *samp_script_process_fn)(void);
 typedef HANDLE(WINAPI *samp_create_file_a_fn)(LPCSTR, DWORD, DWORD, LPSECURITY_ATTRIBUTES, DWORD, DWORD, HANDLE);
 typedef BOOL(WINAPI *samp_read_file_fn)(HANDLE, LPVOID, DWORD, LPDWORD, LPOVERLAPPED);
@@ -292,6 +318,9 @@ typedef int(WINAPI *samp_show_cursor_fn)(BOOL);
 typedef HRESULT(WINAPI *samp_d3d9_end_scene_fn)(void *);
 typedef HRESULT(WINAPI *samp_d3d9_clear_fn)(void *, DWORD, const void *, DWORD, DWORD, float, DWORD);
 typedef HRESULT(WINAPI *samp_d3d9_set_render_state_fn)(void *, DWORD, DWORD);
+typedef HRESULT(WINAPI *samp_d3d9_set_texture_fn)(void *, DWORD, void *);
+typedef HRESULT(WINAPI *samp_d3d9_set_texture_stage_state_fn)(void *, DWORD, DWORD, DWORD);
+typedef HRESULT(WINAPI *samp_d3d9_set_sampler_state_fn)(void *, DWORD, DWORD, DWORD);
 typedef HRESULT(WINAPI *samp_d3d9_set_fvf_fn)(void *, DWORD);
 typedef HRESULT(WINAPI *samp_d3d9_draw_primitive_up_fn)(void *, DWORD, unsigned int, const void *, unsigned int);
 typedef HRESULT(WINAPI *samp_d3d9_get_front_buffer_data_fn)(void *, UINT, void *);
@@ -331,6 +360,7 @@ struct samp_id3dx_font_compat {
 typedef HRESULT(WINAPI *samp_d3dx_create_font_a_fn)(void *, INT, UINT, UINT, UINT, BOOL, DWORD, DWORD, DWORD, DWORD,
                                                     LPCSTR, samp_id3dx_font_compat **);
 typedef HRESULT(WINAPI *samp_d3dx_save_surface_to_file_a_fn)(LPCSTR, DWORD, void *, const void *, const RECT *);
+typedef HRESULT(WINAPI *samp_d3dx_create_texture_from_file_a_fn)(void *, LPCSTR, void **);
 
 typedef struct samp_dialog_layout_compat {
   int panel_x;
@@ -553,6 +583,8 @@ typedef struct samp_runtime_state {
   LONG textdraw_d3d_font_fail_logged;
   LONG textdraw_select_active;
   LONG textdraw_mouse_down;
+  LONG loading_screen_logged;
+  LONG loading_screen_fail_logged;
   DWORD textdraw_select_color;
   char dialog_overlay_title[SAMP_RAKNET_DIALOG_TITLE_BYTES];
   char dialog_overlay_info[SAMP_RAKNET_DIALOG_INFO_BYTES];
@@ -566,6 +598,9 @@ typedef struct samp_runtime_state {
   samp_d3dx_save_surface_to_file_a_fn d3dx_save_surface_to_file_a;
   samp_id3dx_font_compat *chat_d3dx_font;
   samp_id3dx_font_compat *textdraw_d3dx_fonts[SAMP_TEXTDRAW_COMPAT_FONT_BUCKETS];
+  samp_d3dx_create_texture_from_file_a_fn d3dx_create_texture_from_file_a;
+  void *loading_screen_texture;
+  void *loading_screen_device;
   void *textdraw_d3d_device;
   samp_textdraw_slot_compat textdraw_slots[SAMP_RAKNET_MAX_TEXTDRAWS];
   char gtaweap3_font_path[MAX_PATH];
@@ -594,6 +629,9 @@ static int textdraw_compat_draw_d3dx_overlay(void *device);
 static int textdraw_compat_handle_mouse(HWND hwnd, UINT msg, LPARAM lparam);
 static int textdraw_compat_submit_click(uint16_t textdraw_id);
 static void textdraw_compat_release_fonts(void);
+static int loading_screen_compat_active(void);
+static int loading_screen_compat_draw_d3dx_overlay(void *device);
+static void loading_screen_compat_release_texture(void);
 static void gta_streaming_request_model_compat(int32_t model_id, int32_t flags);
 static int screenshot_compat_resolve_d3dx_save_surface(void);
 static LRESULT CALLBACK chat_input_wndproc_compat(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam);
@@ -2230,6 +2268,7 @@ static void chat_compat_release_d3dx_font(void) {
   g_runtime.chat_d3dx_font = NULL;
   g_runtime.chat_d3d_device = NULL;
   textdraw_compat_release_fonts();
+  loading_screen_compat_release_texture();
 }
 
 static int chat_compat_resolve_d3dx_create_font(void) {
@@ -2279,6 +2318,31 @@ static int screenshot_compat_resolve_d3dx_save_surface(void) {
     return 0;
   }
   g_runtime.d3dx_save_surface_to_file_a = (samp_d3dx_save_surface_to_file_a_fn)proc;
+  return 1;
+}
+
+static int loading_screen_compat_resolve_d3dx_create_texture(void) {
+  FARPROC proc = NULL;
+
+  if (g_runtime.d3dx_create_texture_from_file_a != NULL) {
+    return 1;
+  }
+  if (g_runtime.d3dx9_module == NULL) {
+    g_runtime.d3dx9_module = LoadLibraryA("d3dx9_25.dll");
+    runtime_tracef("loading_screen: d3dx9_25 load %s", (g_runtime.d3dx9_module != NULL) ? "OK" : "FAILED");
+  }
+  if (g_runtime.d3dx9_module == NULL) {
+    return 0;
+  }
+
+  proc = GetProcAddress(g_runtime.d3dx9_module, "D3DXCreateTextureFromFileA");
+  if (proc == NULL) {
+    if (InterlockedCompareExchange(&g_runtime.loading_screen_fail_logged, 1, 0) == 0) {
+      runtime_tracef("loading_screen: D3DXCreateTextureFromFileA missing");
+    }
+    return 0;
+  }
+  g_runtime.d3dx_create_texture_from_file_a = (samp_d3dx_create_texture_from_file_a_fn)proc;
   return 1;
 }
 
@@ -2595,6 +2659,178 @@ static int dialog_compat_d3d_alpha_rect(void *device, int x, int y, int w, int h
   (void)set_render_state(device, SAMP_D3DRS_DESTBLEND, SAMP_D3DBLEND_INVSRCALPHA);
   (void)set_fvf(device, SAMP_D3DFVF_XYZRHW_DIFFUSE);
   return SUCCEEDED(draw_primitive_up(device, SAMP_D3DPT_TRIANGLESTRIP, 2u, vertices, sizeof(vertices[0])));
+}
+
+static void loading_screen_compat_release_texture(void) {
+  if (g_runtime.loading_screen_texture != NULL) {
+    screenshot_compat_release_unknown(g_runtime.loading_screen_texture);
+  }
+  g_runtime.loading_screen_texture = NULL;
+  g_runtime.loading_screen_device = NULL;
+}
+
+static int loading_screen_compat_active(void) {
+  LONG entry_gate = 0;
+
+  if (!g_runtime.settings.play_online) {
+    return 0;
+  }
+  if (InterlockedCompareExchange(&g_runtime.preconnect_ready, 0, 0) != 0) {
+    return 0;
+  }
+  entry_gate = read_game_entry_gate_value();
+  return entry_gate >= 5 && entry_gate <= 7;
+}
+
+static int loading_screen_compat_ensure_texture(void *device) {
+  char path[MAX_PATH];
+  int written = 0;
+  HRESULT hr = E_FAIL;
+
+  if (device == NULL) {
+    return 0;
+  }
+  if (g_runtime.loading_screen_texture != NULL && g_runtime.loading_screen_device == device) {
+    return 1;
+  }
+  loading_screen_compat_release_texture();
+  if (!loading_screen_compat_resolve_d3dx_create_texture()) {
+    return 0;
+  }
+  if (g_runtime.module_dir[0] == '\0') {
+    return 0;
+  }
+  written = snprintf(path, sizeof(path), "%sloadingscreen.jpg", g_runtime.module_dir);
+  if (written <= 0 || (size_t)written >= sizeof(path)) {
+    return 0;
+  }
+  if (GetFileAttributesA(path) == INVALID_FILE_ATTRIBUTES) {
+    if (InterlockedCompareExchange(&g_runtime.loading_screen_fail_logged, 1, 0) == 0) {
+      runtime_tracef("loading_screen: missing '%s'", path);
+    }
+    return 0;
+  }
+
+  hr = g_runtime.d3dx_create_texture_from_file_a(device, path, &g_runtime.loading_screen_texture);
+  if (FAILED(hr) || g_runtime.loading_screen_texture == NULL) {
+    if (InterlockedCompareExchange(&g_runtime.loading_screen_fail_logged, 1, 0) == 0) {
+      runtime_tracef("loading_screen: texture load failed hr=0x%08lx path='%s'", (unsigned long)hr, path);
+    }
+    g_runtime.loading_screen_texture = NULL;
+    return 0;
+  }
+  g_runtime.loading_screen_device = device;
+  InterlockedExchange(&g_runtime.loading_screen_fail_logged, 0);
+  runtime_tracef("loading_screen: texture loaded '%s'", path);
+  return 1;
+}
+
+static int loading_screen_compat_draw_d3dx_overlay(void *device) {
+  void **vtbl = NULL;
+  samp_d3d9_set_render_state_fn set_render_state = NULL;
+  samp_d3d9_set_texture_fn set_texture = NULL;
+  samp_d3d9_set_texture_stage_state_fn set_texture_stage_state = NULL;
+  samp_d3d9_set_sampler_state_fn set_sampler_state = NULL;
+  samp_d3d9_set_fvf_fn set_fvf = NULL;
+  samp_d3d9_draw_primitive_up_fn draw_primitive_up = NULL;
+  samp_d3d9_textured_vertex_compat vertices[4];
+  HWND hwnd = NULL;
+  RECT client_rect;
+  int width = 800;
+  int height = 600;
+
+  if (!loading_screen_compat_active() || !loading_screen_compat_ensure_texture(device)) {
+    return 0;
+  }
+  if (!memory_is_readable_compat(device, sizeof(void **))) {
+    return 0;
+  }
+  vtbl = *(void ***)device;
+  if (vtbl == NULL || !memory_is_readable_compat(&vtbl[SAMP_D3D9_SET_RENDER_STATE_INDEX], sizeof(void *)) ||
+      !memory_is_readable_compat(&vtbl[SAMP_D3D9_SET_TEXTURE_INDEX], sizeof(void *)) ||
+      !memory_is_readable_compat(&vtbl[SAMP_D3D9_SET_TEXTURE_STAGE_STATE_INDEX], sizeof(void *)) ||
+      !memory_is_readable_compat(&vtbl[SAMP_D3D9_SET_SAMPLER_STATE_INDEX], sizeof(void *)) ||
+      !memory_is_readable_compat(&vtbl[SAMP_D3D9_SET_FVF_INDEX], sizeof(void *)) ||
+      !memory_is_readable_compat(&vtbl[SAMP_D3D9_DRAW_PRIMITIVE_UP_INDEX], sizeof(void *)) ||
+      vtbl[SAMP_D3D9_SET_RENDER_STATE_INDEX] == NULL || vtbl[SAMP_D3D9_SET_TEXTURE_INDEX] == NULL ||
+      vtbl[SAMP_D3D9_SET_TEXTURE_STAGE_STATE_INDEX] == NULL || vtbl[SAMP_D3D9_SET_SAMPLER_STATE_INDEX] == NULL ||
+      vtbl[SAMP_D3D9_SET_FVF_INDEX] == NULL || vtbl[SAMP_D3D9_DRAW_PRIMITIVE_UP_INDEX] == NULL) {
+    return 0;
+  }
+
+  hwnd = read_game_hwnd_compat();
+  if (hwnd != NULL && GetClientRect(hwnd, &client_rect)) {
+    width = client_rect.right - client_rect.left;
+    height = client_rect.bottom - client_rect.top;
+    if (width <= 0) {
+      width = 800;
+    }
+    if (height <= 0) {
+      height = 600;
+    }
+  }
+
+  vertices[0].x = -0.5f;
+  vertices[0].y = (float)height - 0.5f;
+  vertices[0].z = 0.1f;
+  vertices[0].rhw = 1.0f;
+  vertices[0].color = 0xFFFFFFFFu;
+  vertices[0].u = 0.0f;
+  vertices[0].v = 1.0f;
+  vertices[1].x = -0.5f;
+  vertices[1].y = -0.5f;
+  vertices[1].z = 0.1f;
+  vertices[1].rhw = 1.0f;
+  vertices[1].color = 0xFFFFFFFFu;
+  vertices[1].u = 0.0f;
+  vertices[1].v = 0.0f;
+  vertices[2].x = (float)width + 0.5f;
+  vertices[2].y = (float)height - 0.5f;
+  vertices[2].z = 0.1f;
+  vertices[2].rhw = 1.0f;
+  vertices[2].color = 0xFFFFFFFFu;
+  vertices[2].u = 1.0f;
+  vertices[2].v = 1.0f;
+  vertices[3].x = (float)width + 0.5f;
+  vertices[3].y = -0.5f;
+  vertices[3].z = 0.1f;
+  vertices[3].rhw = 1.0f;
+  vertices[3].color = 0xFFFFFFFFu;
+  vertices[3].u = 1.0f;
+  vertices[3].v = 0.0f;
+
+  set_render_state = (samp_d3d9_set_render_state_fn)vtbl[SAMP_D3D9_SET_RENDER_STATE_INDEX];
+  set_texture = (samp_d3d9_set_texture_fn)vtbl[SAMP_D3D9_SET_TEXTURE_INDEX];
+  set_texture_stage_state = (samp_d3d9_set_texture_stage_state_fn)vtbl[SAMP_D3D9_SET_TEXTURE_STAGE_STATE_INDEX];
+  set_sampler_state = (samp_d3d9_set_sampler_state_fn)vtbl[SAMP_D3D9_SET_SAMPLER_STATE_INDEX];
+  set_fvf = (samp_d3d9_set_fvf_fn)vtbl[SAMP_D3D9_SET_FVF_INDEX];
+  draw_primitive_up = (samp_d3d9_draw_primitive_up_fn)vtbl[SAMP_D3D9_DRAW_PRIMITIVE_UP_INDEX];
+
+  /* OLD_02X_REF + INFERRED:
+     saco/spawnscreen.cpp draws a D3D texture as a transformed fullscreen quad.
+     We use the same rendering shape for the 0.3.7 loading image, but gate it by our current preconnect state. */
+  (void)set_render_state(device, SAMP_D3DRS_ZENABLE, 0u);
+  (void)set_render_state(device, SAMP_D3DRS_ALPHABLENDENABLE, 1u);
+  (void)set_render_state(device, SAMP_D3DRS_SRCBLEND, SAMP_D3DBLEND_SRCALPHA);
+  (void)set_render_state(device, SAMP_D3DRS_DESTBLEND, SAMP_D3DBLEND_INVSRCALPHA);
+  (void)set_texture_stage_state(device, 0u, SAMP_D3DTSS_COLOROP, SAMP_D3DTOP_MODULATE);
+  (void)set_texture_stage_state(device, 0u, SAMP_D3DTSS_COLORARG1, SAMP_D3DTA_TEXTURE);
+  (void)set_texture_stage_state(device, 0u, SAMP_D3DTSS_COLORARG2, SAMP_D3DTA_DIFFUSE);
+  (void)set_texture_stage_state(device, 0u, SAMP_D3DTSS_ALPHAOP, SAMP_D3DTOP_MODULATE);
+  (void)set_texture_stage_state(device, 0u, SAMP_D3DTSS_ALPHAARG1, SAMP_D3DTA_TEXTURE);
+  (void)set_texture_stage_state(device, 0u, SAMP_D3DTSS_ALPHAARG2, SAMP_D3DTA_DIFFUSE);
+  (void)set_sampler_state(device, 0u, SAMP_D3DSAMP_MINFILTER, SAMP_D3DTEXF_LINEAR);
+  (void)set_sampler_state(device, 0u, SAMP_D3DSAMP_MAGFILTER, SAMP_D3DTEXF_LINEAR);
+  (void)set_texture(device, 0u, g_runtime.loading_screen_texture);
+  (void)set_fvf(device, SAMP_D3DFVF_XYZRHW_DIFFUSE_TEX1);
+  if (FAILED(draw_primitive_up(device, SAMP_D3DPT_TRIANGLESTRIP, 2u, vertices, sizeof(vertices[0])))) {
+    return 0;
+  }
+  (void)set_texture(device, 0u, NULL);
+  if (InterlockedCompareExchange(&g_runtime.loading_screen_logged, 1, 0) == 0) {
+    runtime_tracef("loading_screen: drawing enabled size=%dx%d", width, height);
+  }
+  return 1;
 }
 
 static DWORD textdraw_compat_abgr_to_argb(uint32_t color) {
@@ -3218,6 +3454,7 @@ static int chat_compat_draw_d3dx_overlay(void *device) {
   LONG input_active = 0;
   LONG dialog_active = 0;
   LONG textdraw_active = 0;
+  int loading_active = 0;
   int x = 0;
   int y = 0;
   int i = 0;
@@ -3230,7 +3467,8 @@ static int chat_compat_draw_d3dx_overlay(void *device) {
   input_active = InterlockedCompareExchange(&g_runtime.chat_input_active, 0, 0);
   dialog_active = InterlockedCompareExchange(&g_runtime.dialog_overlay_active, 0, 0);
   textdraw_active = InterlockedCompareExchange(&g_runtime.textdraw_active_count, 0, 0);
-  if (count <= 0 && input_active == 0 && dialog_active == 0 && textdraw_active <= 0) {
+  loading_active = loading_screen_compat_active();
+  if (count <= 0 && input_active == 0 && dialog_active == 0 && textdraw_active <= 0 && !loading_active) {
     return 0;
   }
   if (count < 0) {
@@ -3243,6 +3481,9 @@ static int chat_compat_draw_d3dx_overlay(void *device) {
     return 0;
   }
 
+  if (loading_active) {
+    (void)loading_screen_compat_draw_d3dx_overlay(device);
+  }
   if (textdraw_active > 0) {
     (void)textdraw_compat_draw_d3dx_overlay(device);
   }
@@ -3321,6 +3562,7 @@ static void chat_compat_try_install_d3d_hook(void) {
   LONG net_state = 0;
   LONG preconnect_ready = 0;
   LONG textdraw_active = 0;
+  int loading_active = 0;
   int dialog_active = 0;
 
   if (!chat_overlay_enabled_compat() || !chat_d3d_enabled_compat() ||
@@ -3329,11 +3571,12 @@ static void chat_compat_try_install_d3d_hook(void) {
   }
 
   dialog_active = dialog_compat_active();
+  loading_active = loading_screen_compat_active();
   preconnect_ready = InterlockedCompareExchange(&g_runtime.preconnect_ready, 0, 0);
   textdraw_active = InterlockedCompareExchange(&g_runtime.textdraw_active_count, 0, 0);
   net_state = InterlockedCompareExchange(&g_runtime.netgame_state, 0, 0);
   if (g_runtime.settings.play_online && net_state < SAMP_NETGAME_CONNECTED && preconnect_ready == 0 &&
-      !chat_d3d_early_enabled_compat() && !dialog_active && textdraw_active <= 0) {
+      !chat_d3d_early_enabled_compat() && !dialog_active && textdraw_active <= 0 && !loading_active) {
     return;
   }
 
