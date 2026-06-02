@@ -3118,6 +3118,7 @@ static void chat_compat_try_install_d3d_hook(void) {
   DWORD old_protect = 0;
   DWORD ignored_protect = 0;
   LONG net_state = 0;
+  LONG preconnect_ready = 0;
   LONG textdraw_active = 0;
   int dialog_active = 0;
 
@@ -3127,10 +3128,11 @@ static void chat_compat_try_install_d3d_hook(void) {
   }
 
   dialog_active = dialog_compat_active();
+  preconnect_ready = InterlockedCompareExchange(&g_runtime.preconnect_ready, 0, 0);
   textdraw_active = InterlockedCompareExchange(&g_runtime.textdraw_active_count, 0, 0);
   net_state = InterlockedCompareExchange(&g_runtime.netgame_state, 0, 0);
-  if (g_runtime.settings.play_online && net_state < SAMP_NETGAME_CONNECTED && !chat_d3d_early_enabled_compat() &&
-      !dialog_active && textdraw_active <= 0) {
+  if (g_runtime.settings.play_online && net_state < SAMP_NETGAME_CONNECTED && preconnect_ready == 0 &&
+      !chat_d3d_early_enabled_compat() && !dialog_active && textdraw_active <= 0) {
     return;
   }
 
