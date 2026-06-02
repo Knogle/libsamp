@@ -29,15 +29,15 @@
 #define SAMP_PRECONNECT_MAX_APPLIES 7200
 #define SAMP_PRECONNECT_PED_FALLBACK_APPLIES 720
 #define SAMP_PRECONNECT_WORLD_SETTLE_MS 0u
-#define SAMP_PRECONNECT_PLAYER_X 1500.0f
-#define SAMP_PRECONNECT_PLAYER_Y -887.0979f
-#define SAMP_PRECONNECT_PLAYER_Z 32.56055f
-#define SAMP_PRECONNECT_CAMERA_X 1497.803f
-#define SAMP_PRECONNECT_CAMERA_Y -887.0979f
-#define SAMP_PRECONNECT_CAMERA_Z 62.56055f
-#define SAMP_PRECONNECT_LOOK_X 1406.65f
-#define SAMP_PRECONNECT_LOOK_Y -795.7716f
-#define SAMP_PRECONNECT_LOOK_Z 82.2771f
+#define SAMP_PRECONNECT_PLAYER_X -276.7370f
+#define SAMP_PRECONNECT_PLAYER_Y 2242.7578f
+#define SAMP_PRECONNECT_PLAYER_Z 129.6658f
+#define SAMP_PRECONNECT_CAMERA_X -476.5340f
+#define SAMP_PRECONNECT_CAMERA_Y 2548.5710f
+#define SAMP_PRECONNECT_CAMERA_Z 178.1568f
+#define SAMP_PRECONNECT_LOOK_X -276.7370f
+#define SAMP_PRECONNECT_LOOK_Y 2242.7578f
+#define SAMP_PRECONNECT_LOOK_Z 129.6658f
 #define SAMP_DEFAULT_NETGAME_VERSION 4057u
 #define SAMP_DEFAULT_CLIENT_MOD 1u
 #define SAMP_DEFAULT_CLIENT_VERSION "0.3.7"
@@ -90,6 +90,14 @@
 #define SAMP_ADDR_FIND_PLAYER_PED 0xB7CD98u
 #define SAMP_ADDR_CURRENT_PLAYER 0xB7CD74u
 #define SAMP_ADDR_PROCESS_ONE_COMMAND 0x469EB0u
+#define SAMP_ADDR_ANIM_ASSOC_GROUPS_PTR 0xB4EA34u
+#define SAMP_ADDR_RPANIMBLEND_CLUMP_OFFSET 0xB5F878u
+#define SAMP_ADDR_ENTRY_INFO_NODE_POOL_PTR 0xB7448Cu
+#define SAMP_ADDR_PLAYERPED_DONT_RESTORE_PLAYER_ANIMS 0x609A4Eu
+#define SAMP_ADDR_PLAYERPED_PROCESS_CONTROL_ANIM_CRASH 0x609C08u
+#define SAMP_ADDR_SCANLIST_ORIGINAL 0xB7D0B8u
+#define SAMP_SCANLIST_SIZE (8u * 20000u)
+#define SAMP_SCANLIST_ORIGINAL_RESET_SIZE (8u * 14400u)
 #define SAMP_SCRIPT_THREAD_BYTES 0xE0u
 #define SAMP_SCRIPT_BUF_BYTES 255u
 #define SAMP_MP_BRIDGE_MAX_APPLIES 3600
@@ -100,9 +108,14 @@
 #define SAMP_PED_OFFSET_ROTATION1 1368u
 #define SAMP_PED_OFFSET_ROTATION2 1372u
 #define SAMP_PED_STATE_IN_VEHICLE 0x100u
+#define SAMP_ENTITY_OFFSET_RW_OBJECT 24u
 #define SAMP_ENTITY_OFFSET_MODEL_INDEX 34u
 #define SAMP_ENTITY_OFFSET_MOVE_SPEED 68u
 #define SAMP_MATRIX_OFFSET_POS 48u
+#define SAMP_POOL_OFFSET_OBJECTS 0u
+#define SAMP_POOL_OFFSET_FLAGS 4u
+#define SAMP_POOL_OFFSET_SIZE 8u
+#define SAMP_POOL_OFFSET_TOP 12u
 #define SAMP_GTA_ACTOR_LOCAL_ID 1
 #define SAMP_GTA_PLAYER_LOCAL_ID 0
 #define SAMP_DEG_TO_RAD 0.01745329251994329577f
@@ -112,6 +125,9 @@
 #define SAMP_CHAT_COMPAT_BASE_Y 145
 #define SAMP_CHAT_COMPAT_LINE_HEIGHT 18
 #define SAMP_CHAT_COMPAT_COLOR_INFO 0xFFECECECu
+#define SAMP_CHAT_INPUT_MAX 128
+#define SAMP_CHAT_INPUT_HISTORY 10
+#define SAMP_CHAT_INPUT_DRAW_BYTES 160
 #define SAMP_D3D9_END_SCENE_INDEX 42u
 #define SAMP_RAKNET_RPC_FLAG_GAME_STATE_MASK                                                                      \
   (SAMP_RAKNET_RPC_FLAG_PLAYER_POS | SAMP_RAKNET_RPC_FLAG_PLAYER_FACING | SAMP_RAKNET_RPC_FLAG_WEATHER |          \
@@ -147,6 +163,12 @@ typedef enum samp_netgame_state {
   SAMP_NETGAME_CONNECTED = 2,
   SAMP_NETGAME_FAILED = 3
 } samp_netgame_state;
+
+typedef enum samp_gta_version {
+  SAMP_GTA_VERSION_UNKNOWN = 0,
+  SAMP_GTA_VERSION_USA10 = 1,
+  SAMP_GTA_VERSION_EU10 = 2
+} samp_gta_version;
 
 typedef void(__cdecl *samp_script_process_fn)(void);
 typedef HANDLE(WINAPI *samp_create_file_a_fn)(LPCSTR, DWORD, DWORD, LPSECURITY_ATTRIBUTES, DWORD, DWORD, HANDLE);
@@ -269,6 +291,15 @@ typedef struct samp_runtime_state {
   LONG chat_d3d_draw_logged;
   LONG chat_d3d_draw_active;
   LONG chat_d3d_font_fail_logged;
+  LONG chat_input_active;
+  LONG chat_input_hooked;
+  LONG chat_input_len;
+  LONG chat_input_history_count;
+  LONG chat_input_history_index;
+  LONG chat_input_send_count;
+  LONG chat_input_command_send_count;
+  LONG chat_input_send_failures;
+  LONG chat_input_hook_logged;
   LONG mp_session_apply_count;
   LONG mp_session_teleport_count;
   LONG mp_session_script_failures;
@@ -276,6 +307,12 @@ typedef struct samp_runtime_state {
   LONG mp_session_frontend_hold_logged;
   LONG time_passing_patch_applied;
   LONG script_process_suppressed_logged;
+  LONG gta_version;
+  LONG preconnect_anim_wait_logged;
+  LONG preconnect_clump_wait_logged;
+  LONG preconnect_ped_stationary_logged;
+  LONG preconnect_game_load_kicked;
+  LONG preconnect_loaded_state_logged;
 
   int endpoint_valid;
   int connect_probe_attempted;
@@ -329,6 +366,11 @@ typedef struct samp_runtime_state {
   HFONT chat_overlay_font;
   DWORD chat_overlay_colors[SAMP_CHAT_COMPAT_MAX_LINES];
   char chat_overlay_lines[SAMP_CHAT_COMPAT_MAX_LINES][SAMP_CHAT_COMPAT_LINE_BYTES];
+  HWND chat_input_hwnd;
+  WNDPROC chat_input_old_wndproc;
+  char chat_input_buffer[SAMP_CHAT_INPUT_MAX + 1];
+  char chat_input_history[SAMP_CHAT_INPUT_HISTORY][SAMP_CHAT_INPUT_MAX + 1];
+  char chat_input_recall_saved[SAMP_CHAT_INPUT_MAX + 1];
   void *chat_d3d_device;
   void **chat_d3d_vtbl;
   samp_d3d9_end_scene_fn chat_end_scene_original;
@@ -349,8 +391,10 @@ typedef struct samp_runtime_state {
 static samp_runtime_state g_runtime;
 static samp_boot_phase g_last_phase = BOOT_PHASE_0_NONE;
 static samp_script_process_fn g_script_process_original = NULL;
+static uint8_t g_scan_list_memory[SAMP_SCANLIST_SIZE];
 static LONG read_game_entry_gate_value(void);
 static HRESULT WINAPI chat_compat_end_scene_hook(void *device);
+static LRESULT CALLBACK chat_input_wndproc_compat(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam);
 static const uint8_t kGameProcessHookJmpCode[6] = {0xFFu, 0x25u, 0xD1u, 0xBEu, 0x53u, 0x00u};
 
 static int runtime_trace_enabled(void) {
@@ -649,6 +693,371 @@ static HWND read_game_hwnd_compat(void) {
   return hwnd;
 }
 
+static int chat_input_enabled_compat(void) {
+  static LONG initialized = 0;
+  static int enabled = 1;
+  const char *value = NULL;
+
+  if (InterlockedCompareExchange(&initialized, 0, 0)) {
+    return enabled;
+  }
+
+  value = getenv("SAMPDLL_CHAT_INPUT");
+  if (value != NULL && *value != '\0' && value[0] == '0') {
+    enabled = 0;
+  }
+  InterlockedExchange(&initialized, 1);
+  return enabled;
+}
+
+static LRESULT chat_input_call_original_compat(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam) {
+  WNDPROC old_proc = g_runtime.chat_input_old_wndproc;
+
+  if (old_proc != NULL && old_proc != chat_input_wndproc_compat) {
+    return CallWindowProcA(old_proc, hwnd, msg, wparam, lparam);
+  }
+  return DefWindowProcA(hwnd, msg, wparam, lparam);
+}
+
+static void chat_input_close_compat(void) {
+  if (InterlockedExchange(&g_runtime.chat_input_active, 0) != 0) {
+    runtime_tracef("chat_input: closed");
+  }
+  InterlockedExchange(&g_runtime.chat_input_len, 0);
+  InterlockedExchange(&g_runtime.chat_input_history_index, -1);
+  g_runtime.chat_input_buffer[0] = '\0';
+  g_runtime.chat_input_recall_saved[0] = '\0';
+}
+
+static void chat_input_open_compat(void) {
+  if (!chat_input_enabled_compat() || !g_runtime.settings.play_online) {
+    return;
+  }
+
+  g_runtime.chat_input_buffer[0] = '\0';
+  g_runtime.chat_input_recall_saved[0] = '\0';
+  InterlockedExchange(&g_runtime.chat_input_len, 0);
+  InterlockedExchange(&g_runtime.chat_input_history_index, -1);
+  if (InterlockedExchange(&g_runtime.chat_input_active, 1) == 0) {
+    runtime_tracef("chat_input: opened");
+  }
+}
+
+static void chat_input_append_char_compat(char ch) {
+  LONG len = InterlockedCompareExchange(&g_runtime.chat_input_len, 0, 0);
+
+  if (len < 0) {
+    len = 0;
+  }
+  if (len >= SAMP_CHAT_INPUT_MAX) {
+    return;
+  }
+
+  g_runtime.chat_input_buffer[len] = ch;
+  g_runtime.chat_input_buffer[len + 1] = '\0';
+  InterlockedExchange(&g_runtime.chat_input_len, len + 1);
+  InterlockedExchange(&g_runtime.chat_input_history_index, -1);
+}
+
+static void chat_input_backspace_compat(void) {
+  LONG len = InterlockedCompareExchange(&g_runtime.chat_input_len, 0, 0);
+
+  if (len <= 0) {
+    return;
+  }
+
+  --len;
+  g_runtime.chat_input_buffer[len] = '\0';
+  InterlockedExchange(&g_runtime.chat_input_len, len);
+  InterlockedExchange(&g_runtime.chat_input_history_index, -1);
+}
+
+static void chat_input_set_buffer_compat(const char *text) {
+  size_t len = 0u;
+
+  if (text == NULL) {
+    text = "";
+  }
+
+  strncpy(g_runtime.chat_input_buffer, text, SAMP_CHAT_INPUT_MAX);
+  g_runtime.chat_input_buffer[SAMP_CHAT_INPUT_MAX] = '\0';
+  len = strlen(g_runtime.chat_input_buffer);
+  if (len > SAMP_CHAT_INPUT_MAX) {
+    len = SAMP_CHAT_INPUT_MAX;
+  }
+  InterlockedExchange(&g_runtime.chat_input_len, (LONG)len);
+}
+
+static void chat_input_add_history_compat(const char *line) {
+  LONG count = InterlockedCompareExchange(&g_runtime.chat_input_history_count, 0, 0);
+  int i = 0;
+
+  if (line == NULL || line[0] == '\0') {
+    return;
+  }
+  if (count > 0 && count <= SAMP_CHAT_INPUT_HISTORY && strcmp(g_runtime.chat_input_history[0], line) == 0) {
+    return;
+  }
+  if (count < 0 || count > SAMP_CHAT_INPUT_HISTORY) {
+    count = SAMP_CHAT_INPUT_HISTORY;
+  }
+  if (count < SAMP_CHAT_INPUT_HISTORY) {
+    ++count;
+  }
+
+  for (i = (int)count - 1; i > 0; --i) {
+    memcpy(g_runtime.chat_input_history[i], g_runtime.chat_input_history[i - 1], SAMP_CHAT_INPUT_MAX + 1);
+  }
+  strncpy(g_runtime.chat_input_history[0], line, SAMP_CHAT_INPUT_MAX);
+  g_runtime.chat_input_history[0][SAMP_CHAT_INPUT_MAX] = '\0';
+  InterlockedExchange(&g_runtime.chat_input_history_count, count);
+}
+
+static void chat_input_recall_up_compat(void) {
+  LONG count = InterlockedCompareExchange(&g_runtime.chat_input_history_count, 0, 0);
+  LONG index = InterlockedCompareExchange(&g_runtime.chat_input_history_index, 0, 0);
+
+  if (count <= 0) {
+    return;
+  }
+  if (count > SAMP_CHAT_INPUT_HISTORY) {
+    count = SAMP_CHAT_INPUT_HISTORY;
+  }
+
+  if (index < 0) {
+    strncpy(g_runtime.chat_input_recall_saved, g_runtime.chat_input_buffer, SAMP_CHAT_INPUT_MAX);
+    g_runtime.chat_input_recall_saved[SAMP_CHAT_INPUT_MAX] = '\0';
+    index = 0;
+  } else if (index + 1 < count) {
+    ++index;
+  }
+
+  chat_input_set_buffer_compat(g_runtime.chat_input_history[index]);
+  InterlockedExchange(&g_runtime.chat_input_history_index, index);
+}
+
+static void chat_input_recall_down_compat(void) {
+  LONG index = InterlockedCompareExchange(&g_runtime.chat_input_history_index, 0, 0);
+
+  if (index < 0) {
+    return;
+  }
+  if (index > 0) {
+    --index;
+    chat_input_set_buffer_compat(g_runtime.chat_input_history[index]);
+    InterlockedExchange(&g_runtime.chat_input_history_index, index);
+    return;
+  }
+
+  chat_input_set_buffer_compat(g_runtime.chat_input_recall_saved);
+  InterlockedExchange(&g_runtime.chat_input_history_index, -1);
+}
+
+static void chat_input_submit_compat(void) {
+  char line[SAMP_CHAT_INPUT_MAX + 1];
+  LONG len = InterlockedCompareExchange(&g_runtime.chat_input_len, 0, 0);
+  int result = -1;
+
+  if (len < 0) {
+    len = 0;
+  }
+  if (len > SAMP_CHAT_INPUT_MAX) {
+    len = SAMP_CHAT_INPUT_MAX;
+  }
+  memcpy(line, g_runtime.chat_input_buffer, (size_t)len);
+  line[len] = '\0';
+
+  chat_input_close_compat();
+  if (line[0] == '\0') {
+    return;
+  }
+
+  chat_input_add_history_compat(line);
+  if (g_runtime.net_mgr.raknet_client == NULL || !samp_raknet_client_is_connected(g_runtime.net_mgr.raknet_client)) {
+    chat_compat_add_message("Chat not connected.");
+    InterlockedIncrement(&g_runtime.chat_input_send_failures);
+    runtime_tracef("chat_input: send skipped not connected text='%s'", line);
+    return;
+  }
+
+  if (line[0] == '/') {
+    result = samp_raknet_client_send_server_command(g_runtime.net_mgr.raknet_client, line);
+    if (result == 0) {
+      InterlockedIncrement(&g_runtime.chat_input_command_send_count);
+    }
+  } else {
+    result = samp_raknet_client_send_chat(g_runtime.net_mgr.raknet_client, line);
+    if (result == 0) {
+      InterlockedIncrement(&g_runtime.chat_input_send_count);
+    }
+  }
+
+  if (result != 0) {
+    InterlockedIncrement(&g_runtime.chat_input_send_failures);
+    chat_compat_add_message("Chat send failed.");
+  }
+  runtime_tracef("chat_input: submitted command=%d len=%ld result=%d text='%s'", line[0] == '/' ? 1 : 0, (long)len,
+                 result, line);
+}
+
+static void chat_input_format_draw_line_compat(char *out_line, size_t out_size) {
+  char caret = '_';
+  DWORD tick = GetTickCount();
+
+  if (out_line == NULL || out_size == 0u) {
+    return;
+  }
+  out_line[0] = '\0';
+  if (InterlockedCompareExchange(&g_runtime.chat_input_active, 0, 0) == 0) {
+    return;
+  }
+
+  if ((tick / 450u) % 2u != 0u) {
+    caret = ' ';
+  }
+  (void)snprintf(out_line, out_size, "> %s%c", g_runtime.chat_input_buffer, caret);
+  out_line[out_size - 1u] = '\0';
+}
+
+static void chat_input_uninstall_wndproc_compat(void) {
+  HWND hwnd = g_runtime.chat_input_hwnd;
+  WNDPROC old_proc = g_runtime.chat_input_old_wndproc;
+
+  if (hwnd != NULL && old_proc != NULL && IsWindow(hwnd) &&
+      (WNDPROC)GetWindowLongPtrA(hwnd, GWLP_WNDPROC) == chat_input_wndproc_compat) {
+    (void)SetWindowLongPtrA(hwnd, GWLP_WNDPROC, (LONG_PTR)old_proc);
+    runtime_tracef("chat_input: wndproc restored hwnd=0x%08lx", (unsigned long)(uintptr_t)hwnd);
+  }
+
+  InterlockedExchange(&g_runtime.chat_input_hooked, 0);
+  g_runtime.chat_input_hwnd = NULL;
+  g_runtime.chat_input_old_wndproc = NULL;
+}
+
+static void chat_input_try_install_wndproc_compat(void) {
+  HWND hwnd = NULL;
+  WNDPROC old_proc = NULL;
+  DWORD error = ERROR_SUCCESS;
+
+  if (!chat_input_enabled_compat() || !g_runtime.settings.play_online) {
+    return;
+  }
+
+  hwnd = read_game_hwnd_compat();
+  if (hwnd == NULL) {
+    return;
+  }
+
+  if (InterlockedCompareExchange(&g_runtime.chat_input_hooked, 0, 0) != 0) {
+    if (g_runtime.chat_input_hwnd == hwnd) {
+      return;
+    }
+    chat_input_uninstall_wndproc_compat();
+  }
+
+  if ((WNDPROC)GetWindowLongPtrA(hwnd, GWLP_WNDPROC) == chat_input_wndproc_compat) {
+    g_runtime.chat_input_hwnd = hwnd;
+    InterlockedExchange(&g_runtime.chat_input_hooked, 1);
+    return;
+  }
+
+  SetLastError(ERROR_SUCCESS);
+  old_proc = (WNDPROC)SetWindowLongPtrA(hwnd, GWLP_WNDPROC, (LONG_PTR)chat_input_wndproc_compat);
+  error = GetLastError();
+  if (old_proc == NULL && error != ERROR_SUCCESS) {
+    if (InterlockedCompareExchange(&g_runtime.chat_input_hook_logged, 1, 0) == 0) {
+      runtime_tracef("chat_input: wndproc install failed hwnd=0x%08lx error=%lu", (unsigned long)(uintptr_t)hwnd,
+                     (unsigned long)error);
+    }
+    return;
+  }
+
+  g_runtime.chat_input_hwnd = hwnd;
+  g_runtime.chat_input_old_wndproc = old_proc;
+  InterlockedExchange(&g_runtime.chat_input_hooked, 1);
+  runtime_tracef("chat_input: wndproc installed hwnd=0x%08lx old=0x%08lx", (unsigned long)(uintptr_t)hwnd,
+                 (unsigned long)(uintptr_t)old_proc);
+}
+
+static LRESULT CALLBACK chat_input_wndproc_compat(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam) {
+  const int active = InterlockedCompareExchange(&g_runtime.chat_input_active, 0, 0) != 0;
+
+  if (!chat_input_enabled_compat() || !g_runtime.settings.play_online) {
+    return chat_input_call_original_compat(hwnd, msg, wparam, lparam);
+  }
+
+  if (msg == WM_CHAR) {
+    if (!active) {
+      if (wparam == 't' || wparam == 'T' || wparam == '`') {
+        chat_input_open_compat();
+        return 0;
+      }
+      return chat_input_call_original_compat(hwnd, msg, wparam, lparam);
+    }
+
+    if (wparam == '\r' || wparam == '\n') {
+      chat_input_submit_compat();
+      return 0;
+    }
+    if (wparam == 27u) {
+      chat_input_close_compat();
+      return 0;
+    }
+    if (wparam == '\b') {
+      chat_input_backspace_compat();
+      return 0;
+    }
+    if (wparam >= 32u && wparam <= 126u) {
+      chat_input_append_char_compat((char)wparam);
+      return 0;
+    }
+    return 0;
+  }
+
+  if (msg == WM_KEYUP) {
+    if (wparam == VK_F6) {
+      if (active) {
+        chat_input_close_compat();
+      } else {
+        chat_input_open_compat();
+      }
+      return 0;
+    }
+    if (active) {
+      if (wparam == VK_ESCAPE) {
+        chat_input_close_compat();
+        return 0;
+      }
+      if (wparam == VK_RETURN) {
+        chat_input_submit_compat();
+        return 0;
+      }
+      if (wparam == VK_UP || wparam == VK_DOWN || wparam == VK_BACK) {
+        return 0;
+      }
+      return 0;
+    }
+  }
+
+  if (msg == WM_KEYDOWN && active) {
+    if (wparam == VK_UP) {
+      chat_input_recall_up_compat();
+      return 0;
+    }
+    if (wparam == VK_DOWN) {
+      chat_input_recall_down_compat();
+      return 0;
+    }
+    if (wparam == VK_ESCAPE || wparam == VK_RETURN || wparam == VK_BACK || wparam == VK_LEFT ||
+        wparam == VK_RIGHT || wparam == VK_HOME || wparam == VK_END) {
+      return 0;
+    }
+    return 0;
+  }
+
+  return chat_input_call_original_compat(hwnd, msg, wparam, lparam);
+}
+
 static void *read_game_d3d_device_compat(void) {
   uintptr_t device_value = (uintptr_t)(*(volatile uint32_t *)(uintptr_t)SAMP_ADDR_ID3D9DEVICE);
   return (void *)device_value;
@@ -792,6 +1201,24 @@ static int preconnect_remove_from_vehicle_compat(void) {
   return enabled;
 }
 
+static int preconnect_move_ped_compat(void) {
+  static LONG initialized = 0;
+  static int enabled = 0;
+  const char *value = NULL;
+
+  if (InterlockedCompareExchange(&initialized, 0, 0)) {
+    return enabled;
+  }
+
+  value = getenv("SAMPDLL_PRECONNECT_MOVE_PED");
+  if (value != NULL && *value != '\0' &&
+      (value[0] == '1' || value[0] == 'y' || value[0] == 'Y' || value[0] == 't' || value[0] == 'T')) {
+    enabled = 1;
+  }
+  InterlockedExchange(&initialized, 1);
+  return enabled;
+}
+
 static int chat_compat_ensure_d3dx_font(void *device) {
   HRESULT hr = 0;
   samp_id3dx_font_compat *font = NULL;
@@ -874,6 +1301,7 @@ static void chat_compat_d3dx_draw_text_outline(samp_id3dx_font_compat *font, REC
 
 static int chat_compat_draw_d3dx_overlay(void *device) {
   LONG count = 0;
+  LONG input_active = 0;
   int x = 0;
   int y = 0;
   int i = 0;
@@ -881,9 +1309,14 @@ static int chat_compat_draw_d3dx_overlay(void *device) {
   if (!chat_overlay_enabled_compat()) {
     return 0;
   }
+  chat_input_try_install_wndproc_compat();
   count = InterlockedCompareExchange(&g_runtime.chat_overlay_line_count, 0, 0);
-  if (count <= 0) {
+  input_active = InterlockedCompareExchange(&g_runtime.chat_input_active, 0, 0);
+  if (count <= 0 && input_active == 0) {
     return 0;
+  }
+  if (count < 0) {
+    count = 0;
   }
   if (count > SAMP_CHAT_COMPAT_MAX_LINES) {
     count = SAMP_CHAT_COMPAT_MAX_LINES;
@@ -902,6 +1335,16 @@ static int chat_compat_draw_d3dx_overlay(void *device) {
     chat_compat_d3dx_draw_text_outline(g_runtime.chat_d3dx_font, rect, g_runtime.chat_overlay_lines[i],
                                        g_runtime.chat_overlay_colors[i] != 0u ? g_runtime.chat_overlay_colors[i]
                                                                               : SAMP_CHAT_COMPAT_COLOR_INFO);
+  }
+  if (input_active != 0) {
+    char input_line[SAMP_CHAT_INPUT_DRAW_BYTES];
+    RECT rect;
+    chat_input_format_draw_line_compat(input_line, sizeof(input_line));
+    rect.left = x;
+    rect.top = y + (count * SAMP_CHAT_COMPAT_LINE_HEIGHT) + 4;
+    rect.right = x + 900;
+    rect.bottom = rect.top + SAMP_CHAT_COMPAT_LINE_HEIGHT + 4;
+    chat_compat_d3dx_draw_text_outline(g_runtime.chat_d3dx_font, rect, input_line, 0xFFFFFFFFu);
   }
 
   if (InterlockedCompareExchange(&g_runtime.chat_d3d_draw_logged, 1, 0) == 0) {
@@ -1001,6 +1444,7 @@ static void chat_compat_uninstall_d3d_hook(void) {
 
 static void chat_compat_draw_overlay(void) {
   LONG count = 0;
+  LONG input_active = 0;
   HWND hwnd = NULL;
   HDC dc = NULL;
   HFONT old_font = NULL;
@@ -1012,14 +1456,19 @@ static void chat_compat_draw_overlay(void) {
     return;
   }
 
+  chat_input_try_install_wndproc_compat();
   chat_compat_try_install_d3d_hook();
   if (chat_d3d_enabled_compat() && InterlockedCompareExchange(&g_runtime.chat_d3d_hooked, 0, 0) != 0) {
     return;
   }
 
   count = InterlockedCompareExchange(&g_runtime.chat_overlay_line_count, 0, 0);
-  if (count <= 0) {
+  input_active = InterlockedCompareExchange(&g_runtime.chat_input_active, 0, 0);
+  if (count <= 0 && input_active == 0) {
     return;
+  }
+  if (count < 0) {
+    count = 0;
   }
   if (count > SAMP_CHAT_COMPAT_MAX_LINES) {
     count = SAMP_CHAT_COMPAT_MAX_LINES;
@@ -1051,6 +1500,11 @@ static void chat_compat_draw_overlay(void) {
                                   g_runtime.chat_overlay_colors[i] != 0u ? g_runtime.chat_overlay_colors[i]
                                                                          : SAMP_CHAT_COMPAT_COLOR_INFO);
   }
+  if (input_active != 0) {
+    char input_line[SAMP_CHAT_INPUT_DRAW_BYTES];
+    chat_input_format_draw_line_compat(input_line, sizeof(input_line));
+    chat_compat_draw_text_outline(dc, x, y + (count * SAMP_CHAT_COMPAT_LINE_HEIGHT) + 4, input_line, 0xFFFFFFFFu);
+  }
 
   if (old_font != NULL) {
     SelectObject(dc, old_font);
@@ -1066,21 +1520,66 @@ static void chat_compat_draw_overlay(void) {
 static LONG WINAPI samp_exception_filter(struct _EXCEPTION_POINTERS *exception_info) {
   unsigned long code = 0;
   unsigned long addr = 0;
+  unsigned long access_kind = 0;
+  unsigned long access_addr = 0;
   LONG phase = g_last_phase;
   LONG entry_mem = read_game_entry_gate_value();
   LONG entry_target = InterlockedCompareExchange(&g_runtime.entry_gate, 0, 0);
   LONG net_state = InterlockedCompareExchange(&g_runtime.netgame_state, 0, 0);
   LONG hooks = InterlockedCompareExchange(&g_runtime.hooks_installed, 0, 0);
   LONG hook_calls = InterlockedCompareExchange(&g_runtime.hook_callback_calls, 0, 0);
+  LONG gta_version = InterlockedCompareExchange(&g_runtime.gta_version, 0, 0);
+  LONG ingame_patches = InterlockedCompareExchange(&g_runtime.ingame_patches_applied, 0, 0);
+  uintptr_t anim_assoc = (uintptr_t)(*(volatile uint32_t *)(uintptr_t)SAMP_ADDR_ANIM_ASSOC_GROUPS_PTR);
+  uint32_t clump_offset = *(volatile uint32_t *)(uintptr_t)SAMP_ADDR_RPANIMBLEND_CLUMP_OFFSET;
+  uintptr_t entry_pool = 0u;
+  uintptr_t entry_pool_objects = 0u;
+  uintptr_t entry_pool_flags = 0u;
+  uint32_t entry_pool_size = 0u;
+  uint32_t entry_pool_top = 0u;
+  uintptr_t context_ip = 0u;
+  uintptr_t context_sp = 0u;
+  uintptr_t delete_arg = 0u;
+
+  if (memory_is_readable_compat((const void *)(uintptr_t)SAMP_ADDR_ENTRY_INFO_NODE_POOL_PTR, sizeof(entry_pool))) {
+    memcpy(&entry_pool, (const void *)(uintptr_t)SAMP_ADDR_ENTRY_INFO_NODE_POOL_PTR, sizeof(entry_pool));
+    if (entry_pool >= 0x10000u &&
+        memory_is_readable_compat((const void *)entry_pool, SAMP_POOL_OFFSET_TOP + sizeof(entry_pool_top))) {
+      memcpy(&entry_pool_objects, (const void *)(entry_pool + SAMP_POOL_OFFSET_OBJECTS), sizeof(entry_pool_objects));
+      memcpy(&entry_pool_flags, (const void *)(entry_pool + SAMP_POOL_OFFSET_FLAGS), sizeof(entry_pool_flags));
+      memcpy(&entry_pool_size, (const void *)(entry_pool + SAMP_POOL_OFFSET_SIZE), sizeof(entry_pool_size));
+      memcpy(&entry_pool_top, (const void *)(entry_pool + SAMP_POOL_OFFSET_TOP), sizeof(entry_pool_top));
+    }
+  }
 
   if (exception_info != NULL && exception_info->ExceptionRecord != NULL) {
     code = (unsigned long)exception_info->ExceptionRecord->ExceptionCode;
     addr = (unsigned long)(uintptr_t)exception_info->ExceptionRecord->ExceptionAddress;
+    if (exception_info->ExceptionRecord->NumberParameters >= 2u) {
+      access_kind = (unsigned long)exception_info->ExceptionRecord->ExceptionInformation[0];
+      access_addr = (unsigned long)exception_info->ExceptionRecord->ExceptionInformation[1];
+    }
   }
+#if defined(__i386__) || defined(_M_IX86)
+  if (exception_info != NULL && exception_info->ContextRecord != NULL) {
+    context_ip = (uintptr_t)exception_info->ContextRecord->Eip;
+    context_sp = (uintptr_t)exception_info->ContextRecord->Esp;
+    if (memory_is_readable_compat((const void *)(context_sp + 4u), sizeof(delete_arg))) {
+      memcpy(&delete_arg, (const void *)(context_sp + 4u), sizeof(delete_arg));
+    }
+  }
+#endif
 
-  runtime_tracef("exception_filter: code=0x%08lx addr=0x%08lx phase=%ld entry=%ld target=%ld net=%ld hooks=%ld callbacks=%ld",
-                 code, addr, (long)phase, (long)entry_mem, (long)entry_target, (long)net_state, (long)hooks,
-                 (long)hook_calls);
+  runtime_tracef("exception_filter: code=0x%08lx addr=0x%08lx access=%lu/0x%08lx phase=%ld entry=%ld target=%ld "
+                 "net=%ld hooks=%ld callbacks=%ld gta_version=%ld ingame_patches=%ld anim_assoc=0x%08lx "
+                 "clump_offset=0x%08lx ip=0x%08lx sp=0x%08lx delete_arg=0x%08lx entry_pool=0x%08lx "
+                 "entry_objects=0x%08lx entry_flags=0x%08lx entry_size=%lu entry_top=%lu",
+                 code, addr, access_kind, access_addr, (long)phase, (long)entry_mem, (long)entry_target,
+                 (long)net_state, (long)hooks, (long)hook_calls, (long)gta_version, (long)ingame_patches,
+                 (unsigned long)anim_assoc, (unsigned long)clump_offset, (unsigned long)context_ip,
+                 (unsigned long)context_sp, (unsigned long)delete_arg, (unsigned long)entry_pool,
+                 (unsigned long)entry_pool_objects, (unsigned long)entry_pool_flags,
+                 (unsigned long)entry_pool_size, (unsigned long)entry_pool_top);
   return EXCEPTION_CONTINUE_SEARCH;
 }
 
@@ -1429,6 +1928,126 @@ static int patch_copy(uintptr_t addr, const void *src, size_t size) {
   return 1;
 }
 
+static int game_pointer_plausible_compat(uintptr_t ptr) {
+  return ptr >= 0x10000u && ptr < 0xF0000000u;
+}
+
+static int patch_write_u32(uintptr_t addr, uint32_t value) {
+  return patch_copy(addr, &value, sizeof(value));
+}
+
+static int patch_zero_memory(uintptr_t addr, size_t size) {
+  DWORD old_protect = 0;
+  DWORD old_protect_restore = 0;
+
+  if (addr == 0u || size == 0u) {
+    return 0;
+  }
+  if (!VirtualProtect((LPVOID)addr, size, PAGE_EXECUTE_READWRITE, &old_protect)) {
+    return 0;
+  }
+  memset((void *)addr, 0, size);
+  FlushInstructionCache(GetCurrentProcess(), (LPCVOID)addr, size);
+  (void)VirtualProtect((LPVOID)addr, size, old_protect, &old_protect_restore);
+  return 1;
+}
+
+static void relocate_scan_list_compat_once(unsigned long *applied, unsigned long *total) {
+  static const uintptr_t kScanReloc1Usa[14] = {0x5DC7AAu, 0x41A85Du, 0x41A864u, 0x408259u, 0x711B32u,
+                                               0x699CF8u, 0x4092ECu, 0x40914Eu, 0x408702u, 0x564220u,
+                                               0x564172u, 0x563845u, 0x84E9C2u, 0x85652Du};
+  static const uintptr_t kScanReloc1Eu[14] = {0x5DC7AAu, 0x41A85Du, 0x41A864u, 0x408261u, 0x711B32u,
+                                              0x699CF8u, 0x4092ECu, 0x40914Eu, 0x408702u, 0x564220u,
+                                              0x564172u, 0x563845u, 0x84EA02u, 0x85656Du};
+  static const uintptr_t kScanReloc2Usa[56] = {
+      0x0040D68Cu, 0x005664D7u, 0x00566586u, 0x00408706u, 0x0056B3B1u, 0x0056AD91u, 0x0056A85Fu,
+      0x005675FAu, 0x0056CD84u, 0x0056CC79u, 0x0056CB51u, 0x0056CA4Au, 0x0056C664u, 0x0056C569u,
+      0x0056C445u, 0x0056C341u, 0x0056BD46u, 0x0056BC53u, 0x0056BE56u, 0x0056A940u, 0x00567735u,
+      0x00546738u, 0x0054BB23u, 0x006E31AAu, 0x0040DC29u, 0x00534A09u, 0x00534D6Bu, 0x00564B59u,
+      0x00564DA9u, 0x0067FF5Du, 0x00568CB9u, 0x00568EFBu, 0x00569F57u, 0x00569537u, 0x00569127u,
+      0x0056B4B5u, 0x0056B594u, 0x0056B2C3u, 0x0056AF74u, 0x0056AE95u, 0x0056BF4Fu, 0x0056ACA3u,
+      0x0056A766u, 0x0056A685u, 0x0070B9BAu, 0x0056479Du, 0x0070ACB2u, 0x006063C7u, 0x00699CFEu,
+      0x0041A861u, 0x0040E061u, 0x0040DF5Eu, 0x0040DDCEu, 0x0040DB0Eu, 0x0040D98Cu, 0x01566855u};
+  static const uintptr_t kScanReloc2Eu[56] = {
+      0x0040D68Cu, 0x005664D7u, 0x00566586u, 0x00408706u, 0x0056B3B1u, 0x0056AD91u, 0x0056A85Fu,
+      0x005675FAu, 0x0056CD84u, 0x0056CC79u, 0x0056CB51u, 0x0056CA4Au, 0x0056C664u, 0x0056C569u,
+      0x0056C445u, 0x0056C341u, 0x0056BD46u, 0x0056BC53u, 0x0056BE56u, 0x0056A940u, 0x00567735u,
+      0x00546738u, 0x0054BB23u, 0x006E31AAu, 0x0040DC29u, 0x00534A09u, 0x00534D6Bu, 0x00564B59u,
+      0x00564DA9u, 0x0067FF5Du, 0x00568CB9u, 0x00568EFBu, 0x00569F57u, 0x00569537u, 0x00569127u,
+      0x0056B4B5u, 0x0056B594u, 0x0056B2C3u, 0x0056AF74u, 0x0056AE95u, 0x0056BF4Fu, 0x0056ACA3u,
+      0x0056A766u, 0x0056A685u, 0x0070B9BAu, 0x0056479Du, 0x0070ACB2u, 0x006063C7u, 0x00699CFEu,
+      0x0041A861u, 0x0040E061u, 0x0040DF5Eu, 0x0040DDCEu, 0x0040DB0Eu, 0x0040D98Cu, 0x01566845u};
+  static const uintptr_t kScanReloc3[11] = {0x004091C5u, 0x00409367u, 0x0040D9C5u, 0x0040DB47u,
+                                            0x0040DC61u, 0x0040DE07u, 0x0040DF97u, 0x0040E09Au,
+                                            0x00534A98u, 0x00534DFAu, 0x0071CDB0u};
+  static const uintptr_t kScanRelocEnd[4] = {0x005634A6u, 0x005638DFu, 0x0056420Fu, 0x00564283u};
+  const uintptr_t *scan_reloc1 = NULL;
+  const uintptr_t *scan_reloc2 = NULL;
+  uintptr_t scan_base = (uintptr_t)&g_scan_list_memory[0];
+  uintptr_t scan_end = scan_base + sizeof(g_scan_list_memory);
+  LONG version = InterlockedCompareExchange(&g_runtime.gta_version, 0, 0);
+  unsigned long local_applied = 0;
+  unsigned long local_total = 0;
+  size_t i = 0;
+
+  if (version == SAMP_GTA_VERSION_USA10) {
+    scan_reloc1 = kScanReloc1Usa;
+    scan_reloc2 = kScanReloc2Usa;
+  } else if (version == SAMP_GTA_VERSION_EU10) {
+    scan_reloc1 = kScanReloc1Eu;
+    scan_reloc2 = kScanReloc2Eu;
+  } else {
+    runtime_tracef("scanlist_patch: skipped unknown gta_version=%ld", (long)version);
+    return;
+  }
+
+  memset(g_scan_list_memory, 0, sizeof(g_scan_list_memory));
+
+  for (i = 0; i < 14u; ++i) {
+    ++local_total;
+    if (patch_write_u32(scan_reloc1[i], (uint32_t)scan_base)) {
+      ++local_applied;
+    }
+  }
+  for (i = 0; i < 56u; ++i) {
+    ++local_total;
+    if (patch_write_u32(scan_reloc2[i] + 3u, (uint32_t)scan_base)) {
+      ++local_applied;
+    }
+  }
+  for (i = 0; i < 11u; ++i) {
+    ++local_total;
+    if (patch_write_u32(kScanReloc3[i] + 3u, (uint32_t)(scan_base + 4u))) {
+      ++local_applied;
+    }
+  }
+  for (i = 0; i < 4u; ++i) {
+    ++local_total;
+    if (patch_write_u32(kScanRelocEnd[i], (uint32_t)scan_end)) {
+      ++local_applied;
+    }
+  }
+
+  ++local_total;
+  if (patch_write_u32(0x40936Au, (uint32_t)(scan_base + 4u))) {
+    ++local_applied;
+  }
+  ++local_total;
+  if (patch_zero_memory(SAMP_ADDR_SCANLIST_ORIGINAL, SAMP_SCANLIST_ORIGINAL_RESET_SIZE)) {
+    ++local_applied;
+  }
+
+  if (applied != NULL) {
+    *applied += local_applied;
+  }
+  if (total != NULL) {
+    *total += local_total;
+  }
+  runtime_tracef("scanlist_patch: version=%ld base=0x%08lx end=0x%08lx applied=%lu/%lu clump_offset=0x%08lx",
+                 (long)version, (unsigned long)scan_base, (unsigned long)scan_end, local_applied, local_total,
+                 (unsigned long)(*(volatile uint32_t *)(uintptr_t)SAMP_ADDR_RPANIMBLEND_CLUMP_OFFSET));
+}
+
 static int install_call_disp_hook_compat(uintptr_t call_disp_addr, void *hook_target, uint8_t saved_disp[4],
                                          uintptr_t *out_original_target) {
   uintptr_t call_opcode_addr = 0;
@@ -1677,6 +2296,7 @@ static void apply_pregame_compat_patches_once(void) {
   }
 
   if (usa_probe == 0x89u) {
+    InterlockedExchange(&g_runtime.gta_version, SAMP_GTA_VERSION_USA10);
     (void)patch_nop(SAMP_ADDR_BYPASS_VIDS_USA10, 6u);
     write_game_u8(SAMP_ADDR_ENTRY, 5u);
     runtime_tracef("pregame_patch: USA10 bypass_videos patched entry %ld->%ld", (long)entry_before,
@@ -1685,6 +2305,7 @@ static void apply_pregame_compat_patches_once(void) {
   }
 
   if (eu_probe == 0xC8u) {
+    InterlockedExchange(&g_runtime.gta_version, SAMP_GTA_VERSION_EU10);
     (void)patch_nop(SAMP_ADDR_BYPASS_VIDS_EU10, 6u);
     write_game_u8(SAMP_ADDR_ENTRY, 5u);
     runtime_tracef("pregame_patch: EU10 bypass_videos patched entry %ld->%ld", (long)entry_before,
@@ -1728,6 +2349,9 @@ static void apply_ingame_compat_patches_once(void) {
   SAMP_APPLY_PATCH(patch_copy(SAMP_ADDR_POPULATION_ADD_PED, no_ped_patch, sizeof(no_ped_patch)));
   SAMP_APPLY_PATCH(patch_nop(SAMP_ADDR_RANDOM_CARS_PROCESS, 5u));
   SAMP_APPLY_PATCH(patch_nop(SAMP_ADDR_WASTED_MESSAGE_PATCH, 5u));
+  SAMP_APPLY_PATCH(patch_nop(SAMP_ADDR_PLAYERPED_DONT_RESTORE_PLAYER_ANIMS, 6u));
+  SAMP_APPLY_PATCH(patch_nop(SAMP_ADDR_PLAYERPED_PROCESS_CONTROL_ANIM_CRASH, 39u));
+  relocate_scan_list_compat_once(&applied, &total);
 
 #undef SAMP_APPLY_PATCH
 
@@ -2456,6 +3080,92 @@ static int preconnect_frontend_connect_allowed_compat(void) {
   return 1;
 }
 
+static uintptr_t gta_entity_rw_object_compat(uintptr_t entity) {
+  if (entity == 0u || !memory_is_readable_compat((const void *)(entity + SAMP_ENTITY_OFFSET_RW_OBJECT),
+                                                 sizeof(uint32_t))) {
+    return 0u;
+  }
+  return (uintptr_t)(*(volatile uint32_t *)(entity + SAMP_ENTITY_OFFSET_RW_OBJECT));
+}
+
+static int rp_anim_blend_clump_offset_ready_compat(uint32_t clump_offset) {
+  return clump_offset != 0u && clump_offset != 0xFFFFFFFFu && clump_offset < 0x1000u;
+}
+
+static int preconnect_anim_runtime_ready_compat(uintptr_t *anim_assoc_out, uint32_t *clump_offset_out) {
+  uintptr_t anim_assoc = (uintptr_t)(*(volatile uint32_t *)(uintptr_t)SAMP_ADDR_ANIM_ASSOC_GROUPS_PTR);
+  uint32_t clump_offset = *(volatile uint32_t *)(uintptr_t)SAMP_ADDR_RPANIMBLEND_CLUMP_OFFSET;
+
+  if (anim_assoc_out != NULL) {
+    *anim_assoc_out = anim_assoc;
+  }
+  if (clump_offset_out != NULL) {
+    *clump_offset_out = clump_offset;
+  }
+
+  return game_pointer_plausible_compat(anim_assoc) && rp_anim_blend_clump_offset_ready_compat(clump_offset);
+}
+
+static int preconnect_ped_anim_ready_compat(uintptr_t ped, uintptr_t *rw_object_out, uintptr_t *anim_assoc_out,
+                                            uint32_t *clump_offset_out) {
+  uintptr_t rw_object = gta_entity_rw_object_compat(ped);
+  int anim_ready = preconnect_anim_runtime_ready_compat(anim_assoc_out, clump_offset_out);
+
+  if (rw_object_out != NULL) {
+    *rw_object_out = rw_object;
+  }
+
+  return anim_ready && game_pointer_plausible_compat(rw_object);
+}
+
+static void preconnect_request_game_load_once_compat(LONG apply_count, const char *reason) {
+  LONG entry_before = read_game_entry_gate_value();
+  uint8_t game_started_before = read_game_u8(SAMP_ADDR_GAME_STARTED);
+  uint8_t startgame_before = read_game_u8(SAMP_ADDR_STARTGAME);
+
+  if (InterlockedCompareExchange(&g_runtime.preconnect_game_load_kicked, 1, 0) == 0) {
+    *(volatile LONG *)(uintptr_t)SAMP_ADDR_ENTRY = 8;
+    write_game_u8(SAMP_ADDR_GAME_STARTED, 1u);
+    write_game_u8(SAMP_ADDR_STARTGAME, 0u);
+    write_game_u8(SAMP_ADDR_MENU, 0u);
+    write_game_u8(SAMP_ADDR_MENU2, 0u);
+    write_game_u8(SAMP_ADDR_MENU3, 0u);
+    write_game_u8(SAMP_ADDR_ENABLE_HUD, 0u);
+    write_game_u8(SAMP_ADDR_RADAR_BLANK, 1u);
+    runtime_tracef("preconnect_bridge: kicked game load reason=%s apply=%ld entry %ld->%ld game_started %u->%u "
+                   "startgame %u->%u",
+                   reason != NULL ? reason : "unknown", (long)apply_count, (long)entry_before,
+                   (long)read_game_entry_gate_value(), (unsigned)game_started_before,
+                   (unsigned)read_game_u8(SAMP_ADDR_GAME_STARTED), (unsigned)startgame_before,
+                   (unsigned)read_game_u8(SAMP_ADDR_STARTGAME));
+    return;
+  }
+
+  write_game_u8(SAMP_ADDR_STARTGAME, 0u);
+  write_game_u8(SAMP_ADDR_MENU, 0u);
+  write_game_u8(SAMP_ADDR_MENU2, 0u);
+  write_game_u8(SAMP_ADDR_MENU3, 0u);
+  write_game_u8(SAMP_ADDR_ENABLE_HUD, 0u);
+  write_game_u8(SAMP_ADDR_RADAR_BLANK, 1u);
+}
+
+static void preconnect_hold_world_warmup_compat(LONG apply_count, const char *reason) {
+  uintptr_t anim_assoc = 0u;
+  uint32_t clump_offset = 0u;
+  int anim_ready = preconnect_anim_runtime_ready_compat(&anim_assoc, &clump_offset);
+
+  preconnect_request_game_load_once_compat(apply_count, reason);
+
+  if (apply_count <= 3 || (apply_count % 120) == 0) {
+    anim_ready = preconnect_anim_runtime_ready_compat(&anim_assoc, &clump_offset);
+    runtime_tracef("preconnect_bridge: warming world reason=%s apply=%ld entry=%ld game_started=%u anim_ready=%d "
+                   "anim_assoc=0x%08lx clump_offset=0x%08lx",
+                   reason != NULL ? reason : "unknown", (long)apply_count, (long)read_game_entry_gate_value(),
+                   (unsigned)read_game_u8(SAMP_ADDR_GAME_STARTED), anim_ready, (unsigned long)anim_assoc,
+                   (unsigned long)clump_offset);
+  }
+}
+
 static void apply_preconnect_frontend_compat(void) {
   LONG apply_count = 0;
   LONG net_state = 0;
@@ -2466,6 +3176,10 @@ static void apply_preconnect_frontend_compat(void) {
   DWORD world_settle_ms = 0;
   int camera_ok = 1;
   int no_ped_fallback = 0;
+  int anim_ready = 0;
+  uintptr_t ped_rw_object = 0u;
+  uintptr_t anim_assoc = 0u;
+  uint32_t clump_offset = 0u;
 
   if (!g_runtime.settings.play_online) {
     return;
@@ -2499,20 +3213,8 @@ static void apply_preconnect_frontend_compat(void) {
                        (long)apply_count, (long)read_game_entry_gate_value(),
                        (unsigned)read_game_u8(SAMP_ADDR_GAME_STARTED));
       }
-    } else if (read_game_entry_gate_value() >= 8) {
-      *(volatile LONG *)(uintptr_t)SAMP_ADDR_ENTRY = 8;
-      write_game_u8(SAMP_ADDR_GAME_STARTED, 1u);
-      write_game_u8(SAMP_ADDR_STARTGAME, 0u);
-      write_game_u8(SAMP_ADDR_MENU, 0u);
-      write_game_u8(SAMP_ADDR_MENU2, 0u);
-      write_game_u8(SAMP_ADDR_MENU3, 0u);
-      write_game_u8(SAMP_ADDR_ENABLE_HUD, 0u);
-      write_game_u8(SAMP_ADDR_RADAR_BLANK, 1u);
-      if (apply_count <= 3 || (apply_count % 120) == 0) {
-        runtime_tracef("preconnect_bridge: warming world without local ped apply=%ld entry=%ld game_started=%u",
-                       (long)apply_count, (long)read_game_entry_gate_value(),
-                       (unsigned)read_game_u8(SAMP_ADDR_GAME_STARTED));
-      }
+    } else if (read_game_entry_gate_value() >= 7) {
+      preconnect_hold_world_warmup_compat(apply_count, "no_local_ped");
       return;
     } else if (apply_count <= 3 || (apply_count % 120) == 0) {
       runtime_tracef("preconnect_bridge: waiting for local ped apply=%ld entry=%ld game_started=%u",
@@ -2537,14 +3239,7 @@ static void apply_preconnect_frontend_compat(void) {
     now = GetTickCount();
     ped_seen_elapsed = now - g_runtime.preconnect_ped_seen_tick;
     if (ped_seen_elapsed < world_settle_ms) {
-      *(volatile LONG *)(uintptr_t)SAMP_ADDR_ENTRY = 8;
-      write_game_u8(SAMP_ADDR_GAME_STARTED, 1u);
-      write_game_u8(SAMP_ADDR_STARTGAME, 0u);
-      write_game_u8(SAMP_ADDR_MENU, 0u);
-      write_game_u8(SAMP_ADDR_MENU2, 0u);
-      write_game_u8(SAMP_ADDR_MENU3, 0u);
-      write_game_u8(SAMP_ADDR_ENABLE_HUD, 0u);
-      write_game_u8(SAMP_ADDR_RADAR_BLANK, 1u);
+      preconnect_hold_world_warmup_compat(apply_count, "settle");
       if (apply_count <= 3 || (apply_count % 120) == 0 ||
           InterlockedCompareExchange(&g_runtime.preconnect_ped_seen_logged, 1, 0) == 0) {
         runtime_tracef("preconnect_bridge: settling world ped=0x%08lx elapsed_ms=%lu/%lu entry=%ld game_started=%u",
@@ -2556,6 +3251,26 @@ static void apply_preconnect_frontend_compat(void) {
     }
   }
 
+  if (ped != 0u && !no_ped_fallback) {
+    anim_ready = preconnect_ped_anim_ready_compat(ped, &ped_rw_object, &anim_assoc, &clump_offset);
+    if (!anim_ready) {
+      preconnect_hold_world_warmup_compat(apply_count, "ped_anim_not_ready");
+      if (InterlockedCompareExchange(&g_runtime.preconnect_anim_wait_logged, 1, 0) == 0) {
+        runtime_tracef("preconnect_bridge: anim gate held ped=0x%08lx rw=0x%08lx anim_assoc=0x%08lx "
+                       "clump_offset=0x%08lx",
+                       (unsigned long)ped, (unsigned long)ped_rw_object, (unsigned long)anim_assoc,
+                       (unsigned long)clump_offset);
+      }
+      if (ped_rw_object == 0u &&
+          InterlockedCompareExchange(&g_runtime.preconnect_clump_wait_logged, 1, 0) == 0) {
+        runtime_tracef("preconnect_bridge: waiting for local ped RenderWare object ped=0x%08lx", (unsigned long)ped);
+      }
+      return;
+    }
+  } else {
+    anim_ready = preconnect_anim_runtime_ready_compat(&anim_assoc, &clump_offset);
+  }
+
   *(volatile LONG *)(uintptr_t)SAMP_ADDR_ENTRY = 9;
   write_game_u8(SAMP_ADDR_GAME_STARTED, 0u);
   write_game_u8(SAMP_ADDR_STARTGAME, 0u);
@@ -2565,10 +3280,22 @@ static void apply_preconnect_frontend_compat(void) {
   write_game_u8(SAMP_ADDR_ENABLE_HUD, 0u);
   write_game_u8(SAMP_ADDR_RADAR_BLANK, 1u);
 
-  if (ped != 0u) {
-    (void)gta_preconnect_position_local_player_compat(ped);
+  if (InterlockedCompareExchange(&g_runtime.preconnect_loaded_state_logged, 1, 0) == 0) {
+    runtime_tracef("preconnect_bridge: entered loaded frontend state apply=%ld entry=%ld game_started=%u "
+                   "startgame=%u anim_ready=%d ped=0x%08lx",
+                   (long)apply_count, (long)read_game_entry_gate_value(),
+                   (unsigned)read_game_u8(SAMP_ADDR_GAME_STARTED),
+                   (unsigned)read_game_u8(SAMP_ADDR_STARTGAME), anim_ready, (unsigned long)ped);
   }
-  if (!gta_script_command_compat(0x04E4u, "ff", SAMP_PRECONNECT_PLAYER_X, SAMP_PRECONNECT_PLAYER_Y)) {
+
+  if (ped != 0u && preconnect_move_ped_compat()) {
+    (void)gta_preconnect_position_local_player_compat(ped);
+  } else if (ped != 0u && InterlockedCompareExchange(&g_runtime.preconnect_ped_stationary_logged, 1, 0) == 0) {
+    runtime_tracef("preconnect_bridge: keeping local ped stationary during camera frontend ped=0x%08lx",
+                   (unsigned long)ped);
+  }
+  if ((apply_count <= 6 || (apply_count % 60) == 0) &&
+      !gta_script_command_compat(0x04E4u, "ff", SAMP_PRECONNECT_LOOK_X, SAMP_PRECONNECT_LOOK_Y)) {
     mp_bridge_record_script_failure("preconnect_refresh_streaming_at", 0x04E4u);
   }
   if (!gta_script_command_compat(0x015Fu, "ffffff", SAMP_PRECONNECT_CAMERA_X, SAMP_PRECONNECT_CAMERA_Y,
@@ -2589,12 +3316,15 @@ static void apply_preconnect_frontend_compat(void) {
   if (camera_ok && InterlockedCompareExchange(&g_runtime.preconnect_ready, 1, 0) == 0) {
     runtime_tracef(
         "preconnect_bridge: ready ped=0x%08lx no_ped_fallback=%d entry=%ld game_started=%u player=(%.3f,%.3f,%.3f) "
-        "cam=(%.3f,%.3f,%.3f) look=(%.3f,%.3f,%.3f) delay_ms=%lu",
+        "cam=(%.3f,%.3f,%.3f) look=(%.3f,%.3f,%.3f) anim_ready=%d rw=0x%08lx anim_assoc=0x%08lx "
+        "clump_offset=0x%08lx delay_ms=%lu",
         (unsigned long)ped, no_ped_fallback, (long)read_game_entry_gate_value(),
         (unsigned)read_game_u8(SAMP_ADDR_GAME_STARTED), (double)SAMP_PRECONNECT_PLAYER_X,
         (double)SAMP_PRECONNECT_PLAYER_Y, (double)SAMP_PRECONNECT_PLAYER_Z, (double)SAMP_PRECONNECT_CAMERA_X,
         (double)SAMP_PRECONNECT_CAMERA_Y, (double)SAMP_PRECONNECT_CAMERA_Z, (double)SAMP_PRECONNECT_LOOK_X,
-        (double)SAMP_PRECONNECT_LOOK_Y, (double)SAMP_PRECONNECT_LOOK_Z, (unsigned long)preconnect_delay_ms_compat());
+        (double)SAMP_PRECONNECT_LOOK_Y, (double)SAMP_PRECONNECT_LOOK_Z, anim_ready,
+        (unsigned long)ped_rw_object, (unsigned long)anim_assoc, (unsigned long)clump_offset,
+        (unsigned long)preconnect_delay_ms_compat());
   }
 
   if (InterlockedCompareExchange(&g_runtime.preconnect_started_logged, 1, 0) == 0) {
@@ -2602,9 +3332,9 @@ static void apply_preconnect_frontend_compat(void) {
   }
   chat_compat_draw_overlay();
   if (apply_count <= 3 || (apply_count % 120) == 0) {
-    runtime_tracef("preconnect_bridge: apply #%ld state=%ld ped=0x%08lx elapsed_ms=%lu camera_ok=%d",
+    runtime_tracef("preconnect_bridge: apply #%ld state=%ld ped=0x%08lx elapsed_ms=%lu camera_ok=%d anim_ready=%d",
                    (long)apply_count, (long)net_state, (unsigned long)ped,
-                   (unsigned long)(now - g_runtime.preconnect_start_tick), camera_ok);
+                   (unsigned long)(now - g_runtime.preconnect_start_tick), camera_ok, anim_ready);
   }
 }
 
@@ -2747,8 +3477,8 @@ static void apply_multiplayer_session_bridge_compat(void) {
     const uint8_t no_fade_patch[3] = {0xC2u, 0x08u, 0x00u};
     float health = 100.0f;
 
-    *(volatile LONG *)(uintptr_t)SAMP_ADDR_ENTRY = 8;
-    write_game_u8(SAMP_ADDR_GAME_STARTED, 1u);
+    *(volatile LONG *)(uintptr_t)SAMP_ADDR_ENTRY = 9;
+    write_game_u8(SAMP_ADDR_GAME_STARTED, 0u);
     write_game_u8(SAMP_ADDR_STARTGAME, 0u);
     write_game_u8(SAMP_ADDR_MENU, 0u);
     write_game_u8(SAMP_ADDR_MENU2, 0u);
@@ -3395,6 +4125,7 @@ static void phase_network_shutdown(void) {
 }
 
 static void phase_runtime_modules_shutdown(void) {
+  chat_input_uninstall_wndproc_compat();
   chat_compat_uninstall_d3d_hook();
   chat_compat_release_d3dx_font();
   if (g_runtime.chat_overlay_font != NULL) {

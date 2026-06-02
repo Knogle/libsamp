@@ -15,6 +15,8 @@ int samp_raknet_client_connect(void *client, const char *host, uint16_t server_p
                                int thread_sleep_timer);
 void samp_raknet_client_disconnect(void *client, unsigned int block_duration, unsigned char ordering_channel);
 int samp_raknet_client_is_connected(void *client);
+int samp_raknet_client_send_chat(void *client, const char *text);
+int samp_raknet_client_send_server_command(void *client, const char *command);
 
 typedef struct samp_raknet_join_profile {
   char nickname[25];
