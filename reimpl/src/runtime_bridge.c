@@ -165,10 +165,22 @@
 #define SAMP_D3D9_GET_FRONT_BUFFER_DATA_INDEX 33u
 #define SAMP_D3D9_CREATE_OFFSCREEN_PLAIN_SURFACE_INDEX 36u
 #define SAMP_D3D9_CLEAR_INDEX 43u
+#define SAMP_D3D9_SET_RENDER_STATE_INDEX 57u
+#define SAMP_D3D9_DRAW_PRIMITIVE_UP_INDEX 83u
+#define SAMP_D3D9_SET_FVF_INDEX 89u
+#define SAMP_D3DRS_ZENABLE 7u
+#define SAMP_D3DRS_SRCBLEND 19u
+#define SAMP_D3DRS_DESTBLEND 20u
+#define SAMP_D3DRS_ALPHABLENDENABLE 27u
+#define SAMP_D3DBLEND_SRCALPHA 5u
+#define SAMP_D3DBLEND_INVSRCALPHA 6u
+#define SAMP_D3DPT_TRIANGLESTRIP 5u
+#define SAMP_D3DFVF_XYZRHW_DIFFUSE 0x00000044u
 #define SAMP_D3DCLEAR_TARGET 0x00000001u
 #define SAMP_D3DFMT_A8R8G8B8 21u
 #define SAMP_D3DPOOL_SCRATCH 3u
 #define SAMP_D3DXIFF_PNG 3u
+#define SAMP_CHAT_INPUT_BOX_COLOR 0x33000000u
 #define SAMP_DIALOG_COMPAT_MAX_VISIBLE_ITEMS 8
 #define SAMP_DIALOG_COMPAT_MAX_ITEM_BYTES 256
 #define SAMP_DIALOG_COMPAT_COLOR_PANEL 0xE0000000u
@@ -261,6 +273,14 @@ typedef struct samp_d3drect_compat {
   LONG y2;
 } samp_d3drect_compat;
 
+typedef struct samp_d3d9_overlay_vertex_compat {
+  float x;
+  float y;
+  float z;
+  float rhw;
+  DWORD color;
+} samp_d3d9_overlay_vertex_compat;
+
 typedef void(__cdecl *samp_script_process_fn)(void);
 typedef HANDLE(WINAPI *samp_create_file_a_fn)(LPCSTR, DWORD, DWORD, LPSECURITY_ATTRIBUTES, DWORD, DWORD, HANDLE);
 typedef BOOL(WINAPI *samp_read_file_fn)(HANDLE, LPVOID, DWORD, LPDWORD, LPOVERLAPPED);
@@ -271,6 +291,9 @@ typedef DWORD(WINAPI *samp_get_file_type_fn)(HANDLE);
 typedef int(WINAPI *samp_show_cursor_fn)(BOOL);
 typedef HRESULT(WINAPI *samp_d3d9_end_scene_fn)(void *);
 typedef HRESULT(WINAPI *samp_d3d9_clear_fn)(void *, DWORD, const void *, DWORD, DWORD, float, DWORD);
+typedef HRESULT(WINAPI *samp_d3d9_set_render_state_fn)(void *, DWORD, DWORD);
+typedef HRESULT(WINAPI *samp_d3d9_set_fvf_fn)(void *, DWORD);
+typedef HRESULT(WINAPI *samp_d3d9_draw_primitive_up_fn)(void *, DWORD, unsigned int, const void *, unsigned int);
 typedef HRESULT(WINAPI *samp_d3d9_get_front_buffer_data_fn)(void *, UINT, void *);
 typedef HRESULT(WINAPI *samp_d3d9_create_offscreen_plain_surface_fn)(void *, UINT, UINT, DWORD, DWORD, void **, void *);
 typedef ULONG(WINAPI *samp_unknown_release_fn)(void *);
@@ -518,6 +541,8 @@ typedef struct samp_runtime_state {
   LONG dialog_mouse_down;
   LONG dialog_mouse_x;
   LONG dialog_mouse_y;
+  LONG dialog_mouse_raw_x;
+  LONG dialog_mouse_raw_y;
   LONG dialog_mouse_logged;
   LONG screenshot_requested;
   LONG screenshot_count;
@@ -1266,10 +1291,14 @@ static void dialog_compat_set_mouse_mode(int enabled) {
     if (hwnd != NULL && GetCursorPos(&cursor) && ScreenToClient(hwnd, &cursor)) {
       InterlockedExchange(&g_runtime.dialog_mouse_x, cursor.x);
       InterlockedExchange(&g_runtime.dialog_mouse_y, cursor.y);
+      InterlockedExchange(&g_runtime.dialog_mouse_raw_x, cursor.x);
+      InterlockedExchange(&g_runtime.dialog_mouse_raw_y, cursor.y);
     } else {
       chat_compat_viewport_rect(&viewport_x, &viewport_y, &viewport_w, &viewport_h);
       InterlockedExchange(&g_runtime.dialog_mouse_x, viewport_x + (viewport_w / 2));
       InterlockedExchange(&g_runtime.dialog_mouse_y, viewport_y + (viewport_h / 2));
+      InterlockedExchange(&g_runtime.dialog_mouse_raw_x, viewport_x + (viewport_w / 2));
+      InterlockedExchange(&g_runtime.dialog_mouse_raw_y, viewport_y + (viewport_h / 2));
     }
 
     ClipCursor(NULL);
@@ -1304,7 +1333,9 @@ static void dialog_compat_set_mouse_mode(int enabled) {
 }
 
 static void dialog_compat_close(void) {
-  dialog_compat_set_mouse_mode(0);
+  if (InterlockedCompareExchange(&g_runtime.textdraw_select_active, 0, 0) == 0) {
+    dialog_compat_set_mouse_mode(0);
+  }
   InterlockedExchange(&g_runtime.dialog_overlay_active, 0);
   InterlockedExchange(&g_runtime.dialog_overlay_input_len, 0);
   g_runtime.dialog_overlay_input[0] = '\0';
@@ -1368,12 +1399,59 @@ static int dialog_compat_point_in_rect(int x, int y, int rx, int ry, int rw, int
 }
 
 static void dialog_compat_record_mouse(HWND hwnd, LPARAM lparam) {
-  POINT cursor;
+  int raw_x = (short)LOWORD(lparam);
+  int raw_y = (short)HIWORD(lparam);
+  int last_x = (int)InterlockedCompareExchange(&g_runtime.dialog_mouse_raw_x, 0, 0);
+  int last_y = (int)InterlockedCompareExchange(&g_runtime.dialog_mouse_raw_y, 0, 0);
+  int virtual_x = (int)InterlockedCompareExchange(&g_runtime.dialog_mouse_x, 0, 0);
+  int virtual_y = (int)InterlockedCompareExchange(&g_runtime.dialog_mouse_y, 0, 0);
+  int viewport_x = 0;
+  int viewport_y = 0;
+  int viewport_w = 0;
+  int viewport_h = 0;
+  int center_x = 0;
+  int center_y = 0;
+  int raw_near_center = 0;
+  int last_near_center = 0;
+  int dx = raw_x - last_x;
+  int dy = raw_y - last_y;
 
-  cursor.x = (short)LOWORD(lparam);
-  cursor.y = (short)HIWORD(lparam);
-  InterlockedExchange(&g_runtime.dialog_mouse_x, cursor.x);
-  InterlockedExchange(&g_runtime.dialog_mouse_y, cursor.y);
+  chat_compat_viewport_rect(&viewport_x, &viewport_y, &viewport_w, &viewport_h);
+  center_x = viewport_x + (viewport_w / 2);
+  center_y = viewport_y + (viewport_h / 2);
+  raw_near_center = abs(raw_x - center_x) <= 3 && abs(raw_y - center_y) <= 3;
+  last_near_center = abs(last_x - center_x) <= 3 && abs(last_y - center_y) <= 3;
+  InterlockedExchange(&g_runtime.dialog_mouse_raw_x, raw_x);
+  InterlockedExchange(&g_runtime.dialog_mouse_raw_y, raw_y);
+
+  /* INFERRED: GTA/Wine recenters the hardware cursor during gameplay.
+     Treat that warp back to screen center as bookkeeping, not user input. */
+  if (raw_near_center && !last_near_center) {
+    if (hwnd != NULL) {
+      SetCursor(LoadCursorA(NULL, IDC_ARROW));
+    }
+    return;
+  }
+  if (dx != 0 || dy != 0) {
+    virtual_x += dx;
+    virtual_y += dy;
+    if (viewport_w > 0) {
+      if (virtual_x < viewport_x) {
+        virtual_x = viewport_x;
+      } else if (virtual_x >= viewport_x + viewport_w) {
+        virtual_x = viewport_x + viewport_w - 1;
+      }
+    }
+    if (viewport_h > 0) {
+      if (virtual_y < viewport_y) {
+        virtual_y = viewport_y;
+      } else if (virtual_y >= viewport_y + viewport_h) {
+        virtual_y = viewport_y + viewport_h - 1;
+      }
+    }
+    InterlockedExchange(&g_runtime.dialog_mouse_x, virtual_x);
+    InterlockedExchange(&g_runtime.dialog_mouse_y, virtual_y);
+  }
   if (hwnd != NULL) {
     SetCursor(LoadCursorA(NULL, IDC_ARROW));
   }
@@ -2422,6 +2500,24 @@ static void chat_compat_d3dx_draw_text_outline(samp_id3dx_font_compat *font, REC
   font->lpVtbl->DrawTextA(font, NULL, text, -1, &rect, DT_NOCLIP | DT_SINGLELINE | DT_LEFT, argb_color);
 }
 
+static int chat_compat_d3dx_measure_text_width(samp_id3dx_font_compat *font, const char *text, int fallback_width) {
+  RECT rect;
+
+  if (font == NULL || font->lpVtbl == NULL || font->lpVtbl->DrawTextA == NULL || text == NULL || text[0] == '\0') {
+    return fallback_width > 0 ? fallback_width : 0;
+  }
+  rect.left = 0;
+  rect.top = 0;
+  rect.right = 4096;
+  rect.bottom = 64;
+  font->lpVtbl->DrawTextA(font, NULL, text, -1, &rect, DT_CALCRECT | DT_NOCLIP | DT_SINGLELINE | DT_LEFT,
+                          0xFFFFFFFFu);
+  if (rect.right > rect.left) {
+    return (int)(rect.right - rect.left);
+  }
+  return fallback_width > 0 ? fallback_width : 0;
+}
+
 static void dialog_compat_d3d_fill_rect(void *device, int x, int y, int w, int h, DWORD argb_color) {
   void **vtbl = NULL;
   samp_d3d9_clear_fn clear_fn = NULL;
@@ -2445,6 +2541,60 @@ static void dialog_compat_d3d_fill_rect(void *device, int x, int y, int w, int h
   rect.y2 = (LONG)(y + h);
   clear_fn = (samp_d3d9_clear_fn)vtbl[SAMP_D3D9_CLEAR_INDEX];
   (void)clear_fn(device, 1u, &rect, SAMP_D3DCLEAR_TARGET, argb_color, 1.0f, 0u);
+}
+
+static int dialog_compat_d3d_alpha_rect(void *device, int x, int y, int w, int h, DWORD argb_color) {
+  void **vtbl = NULL;
+  samp_d3d9_set_render_state_fn set_render_state = NULL;
+  samp_d3d9_set_fvf_fn set_fvf = NULL;
+  samp_d3d9_draw_primitive_up_fn draw_primitive_up = NULL;
+  samp_d3d9_overlay_vertex_compat vertices[4];
+
+  if (device == NULL || w <= 0 || h <= 0 || x < 0 || y < 0) {
+    return 0;
+  }
+  if (!memory_is_readable_compat(device, sizeof(void **))) {
+    return 0;
+  }
+  vtbl = *(void ***)device;
+  if (vtbl == NULL || !memory_is_readable_compat(&vtbl[SAMP_D3D9_SET_RENDER_STATE_INDEX], sizeof(void *)) ||
+      !memory_is_readable_compat(&vtbl[SAMP_D3D9_SET_FVF_INDEX], sizeof(void *)) ||
+      !memory_is_readable_compat(&vtbl[SAMP_D3D9_DRAW_PRIMITIVE_UP_INDEX], sizeof(void *)) ||
+      vtbl[SAMP_D3D9_SET_RENDER_STATE_INDEX] == NULL || vtbl[SAMP_D3D9_SET_FVF_INDEX] == NULL ||
+      vtbl[SAMP_D3D9_DRAW_PRIMITIVE_UP_INDEX] == NULL) {
+    return 0;
+  }
+
+  vertices[0].x = (float)x;
+  vertices[0].y = (float)y;
+  vertices[0].z = 0.0f;
+  vertices[0].rhw = 1.0f;
+  vertices[0].color = argb_color;
+  vertices[1].x = (float)(x + w);
+  vertices[1].y = (float)y;
+  vertices[1].z = 0.0f;
+  vertices[1].rhw = 1.0f;
+  vertices[1].color = argb_color;
+  vertices[2].x = (float)x;
+  vertices[2].y = (float)(y + h);
+  vertices[2].z = 0.0f;
+  vertices[2].rhw = 1.0f;
+  vertices[2].color = argb_color;
+  vertices[3].x = (float)(x + w);
+  vertices[3].y = (float)(y + h);
+  vertices[3].z = 0.0f;
+  vertices[3].rhw = 1.0f;
+  vertices[3].color = argb_color;
+
+  set_render_state = (samp_d3d9_set_render_state_fn)vtbl[SAMP_D3D9_SET_RENDER_STATE_INDEX];
+  set_fvf = (samp_d3d9_set_fvf_fn)vtbl[SAMP_D3D9_SET_FVF_INDEX];
+  draw_primitive_up = (samp_d3d9_draw_primitive_up_fn)vtbl[SAMP_D3D9_DRAW_PRIMITIVE_UP_INDEX];
+  (void)set_render_state(device, SAMP_D3DRS_ZENABLE, 0u);
+  (void)set_render_state(device, SAMP_D3DRS_ALPHABLENDENABLE, 1u);
+  (void)set_render_state(device, SAMP_D3DRS_SRCBLEND, SAMP_D3DBLEND_SRCALPHA);
+  (void)set_render_state(device, SAMP_D3DRS_DESTBLEND, SAMP_D3DBLEND_INVSRCALPHA);
+  (void)set_fvf(device, SAMP_D3DFVF_XYZRHW_DIFFUSE);
+  return SUCCEEDED(draw_primitive_up(device, SAMP_D3DPT_TRIANGLESTRIP, 2u, vertices, sizeof(vertices[0])));
 }
 
 static DWORD textdraw_compat_abgr_to_argb(uint32_t color) {
@@ -2668,6 +2818,9 @@ static int textdraw_compat_hit_test(int x, int y, uint16_t *out_textdraw_id) {
     if (InterlockedCompareExchange(&slot->active, 0, 0) == 0) {
       continue;
     }
+    if (slot->transmit.selectable == 0u) {
+      continue;
+    }
     if (!textdraw_compat_slot_rect(slot, &rx, &ry, &rw, &rh)) {
       continue;
     }
@@ -2734,6 +2887,26 @@ static void textdraw_compat_draw_rect_outline(void *device, int x, int y, int w,
   dialog_compat_d3d_fill_rect(device, x, y + h - 1, w, 1, color);
   dialog_compat_d3d_fill_rect(device, x, y, 1, h, color);
   dialog_compat_d3d_fill_rect(device, x + w - 1, y, 1, h, color);
+}
+
+static void ui_compat_draw_cursor(void *device, int x, int y) {
+  static const uint8_t outline_widths[17] = {1u, 2u, 3u, 4u, 5u, 6u, 7u, 8u, 9u, 10u, 11u, 7u, 7u, 4u, 4u, 2u, 2u};
+  static const uint8_t fill_offsets[17] = {0u, 0u, 1u, 1u, 1u, 1u, 1u, 1u, 1u, 3u, 4u, 3u, 4u, 3u, 4u, 0u, 0u};
+  static const uint8_t fill_widths[17] = {0u, 0u, 1u, 2u, 3u, 4u, 5u, 6u, 7u, 4u, 3u, 3u, 2u, 2u, 1u, 0u, 0u};
+  int row = 0;
+
+  if (device == NULL) {
+    return;
+  }
+  for (row = 0; row < (int)(sizeof(outline_widths) / sizeof(outline_widths[0])); ++row) {
+    if (outline_widths[row] != 0u) {
+      dialog_compat_d3d_fill_rect(device, x, y + (row * 2), outline_widths[row] * 2, 2, 0xFF000000u);
+    }
+    if (fill_widths[row] != 0u) {
+      dialog_compat_d3d_fill_rect(device, x + (fill_offsets[row] * 2), y + (row * 2), fill_widths[row] * 2, 2,
+                                  0xFFFFFFFFu);
+    }
+  }
 }
 
 static void textdraw_compat_draw_preview_placeholder(void *device, const samp_textdraw_slot_compat *slot, int x, int y,
@@ -2858,10 +3031,21 @@ static int textdraw_compat_draw_d3dx_overlay(void *device) {
   if (InterlockedCompareExchange(&g_runtime.textdraw_select_active, 0, 0) != 0 && !dialog_compat_active()) {
     LONG mouse_x = InterlockedCompareExchange(&g_runtime.dialog_mouse_x, 0, 0);
     LONG mouse_y = InterlockedCompareExchange(&g_runtime.dialog_mouse_y, 0, 0);
-    dialog_compat_d3d_fill_rect(device, (int)mouse_x + 1, (int)mouse_y + 1, 13, 2, 0xFF000000u);
-    dialog_compat_d3d_fill_rect(device, (int)mouse_x + 1, (int)mouse_y + 1, 2, 13, 0xFF000000u);
-    dialog_compat_d3d_fill_rect(device, (int)mouse_x, (int)mouse_y, 13, 2, 0xFFFFFFFFu);
-    dialog_compat_d3d_fill_rect(device, (int)mouse_x, (int)mouse_y, 2, 13, 0xFFFFFFFFu);
+    uint16_t hover_id = 0xFFFFu;
+
+    if (textdraw_compat_hit_test((int)mouse_x, (int)mouse_y, &hover_id) && hover_id < SAMP_RAKNET_MAX_TEXTDRAWS) {
+      samp_textdraw_slot_compat *slot = &g_runtime.textdraw_slots[hover_id];
+      int rx = 0;
+      int ry = 0;
+      int rw = 0;
+      int rh = 0;
+
+      if (textdraw_compat_slot_rect(slot, &rx, &ry, &rw, &rh)) {
+        textdraw_compat_draw_rect_outline(device, rx - 2, ry - 2, rw + 4, rh + 4, 0xFF000000u);
+        textdraw_compat_draw_rect_outline(device, rx - 1, ry - 1, rw + 2, rh + 2, 0xFFFFFFFFu);
+      }
+    }
+    ui_compat_draw_cursor(device, (int)mouse_x, (int)mouse_y);
   }
   if (drawn > 0 && InterlockedCompareExchange(&g_runtime.textdraw_logged, 1, 0) == 0) {
     runtime_tracef("textdraw_d3dx: drawing enabled active=%ld drawn=%d", (long)active_count, drawn);
@@ -3023,10 +3207,7 @@ static int dialog_compat_draw_d3dx_overlay(void *device, samp_id3dx_font_compat 
   {
     LONG mouse_x = InterlockedCompareExchange(&g_runtime.dialog_mouse_x, 0, 0);
     LONG mouse_y = InterlockedCompareExchange(&g_runtime.dialog_mouse_y, 0, 0);
-    dialog_compat_d3d_fill_rect(device, (int)mouse_x + 1, (int)mouse_y + 1, 13, 2, 0xFF000000u);
-    dialog_compat_d3d_fill_rect(device, (int)mouse_x + 1, (int)mouse_y + 1, 2, 13, 0xFF000000u);
-    dialog_compat_d3d_fill_rect(device, (int)mouse_x, (int)mouse_y, 13, 2, 0xFFFFFFFFu);
-    dialog_compat_d3d_fill_rect(device, (int)mouse_x, (int)mouse_y, 2, 13, 0xFFFFFFFFu);
+    ui_compat_draw_cursor(device, (int)mouse_x, (int)mouse_y);
   }
 
   return 1;
@@ -3079,9 +3260,29 @@ static int chat_compat_draw_d3dx_overlay(void *device) {
   if (input_active != 0) {
     char input_line[SAMP_CHAT_INPUT_DRAW_BYTES];
     RECT rect;
+    int input_y = y + (count * SAMP_CHAT_COMPAT_LINE_HEIGHT) + 5;
+    int input_w = 0;
+    int box_x = x - 4;
+
     chat_input_format_draw_line_compat(input_line, sizeof(input_line));
+    input_w = chat_compat_d3dx_measure_text_width(g_runtime.chat_d3dx_font, input_line,
+                                                  (int)strlen(input_line) * 8) +
+              12;
+    if (input_w < 28) {
+      input_w = 28;
+    }
+    if (input_w > 900) {
+      input_w = 900;
+    }
+    if (box_x < 0) {
+      box_x = 0;
+    }
+    if (!dialog_compat_d3d_alpha_rect(device, box_x, input_y - 2, input_w, SAMP_CHAT_COMPAT_LINE_HEIGHT + 6,
+                                      SAMP_CHAT_INPUT_BOX_COLOR)) {
+      dialog_compat_d3d_fill_rect(device, box_x, input_y - 2, input_w, SAMP_CHAT_COMPAT_LINE_HEIGHT + 6, 0xFF000000u);
+    }
     rect.left = x;
-    rect.top = y + (count * SAMP_CHAT_COMPAT_LINE_HEIGHT) + 4;
+    rect.top = input_y;
     rect.right = x + 900;
     rect.bottom = rect.top + SAMP_CHAT_COMPAT_LINE_HEIGHT + 4;
     chat_compat_d3dx_draw_text_outline(g_runtime.chat_d3dx_font, rect, input_line, 0xFFFFFFFFu);
@@ -3255,8 +3456,35 @@ static void chat_compat_draw_overlay(void) {
   }
   if (input_active != 0) {
     char input_line[SAMP_CHAT_INPUT_DRAW_BYTES];
+    int input_y = y + (count * SAMP_CHAT_COMPAT_LINE_HEIGHT) + 5;
+    int input_w = 0;
+    RECT input_box;
+    HBRUSH input_brush = NULL;
+    SIZE input_size;
+
     chat_input_format_draw_line_compat(input_line, sizeof(input_line));
-    chat_compat_draw_text_outline(dc, x, y + (count * SAMP_CHAT_COMPAT_LINE_HEIGHT) + 4, input_line, 0xFFFFFFFFu);
+    memset(&input_size, 0, sizeof(input_size));
+    if (GetTextExtentPoint32A(dc, input_line, (int)strlen(input_line), &input_size) && input_size.cx > 0) {
+      input_w = input_size.cx + 12;
+    } else {
+      input_w = (int)strlen(input_line) * 8 + 12;
+    }
+    if (input_w < 28) {
+      input_w = 28;
+    }
+    if (input_w > 900) {
+      input_w = 900;
+    }
+    input_box.left = x - 4;
+    input_box.top = input_y - 2;
+    input_box.right = input_box.left + input_w;
+    input_box.bottom = input_y + SAMP_CHAT_COMPAT_LINE_HEIGHT + 4;
+    input_brush = CreateSolidBrush(RGB(0, 0, 0));
+    if (input_brush != NULL) {
+      FillRect(dc, &input_box, input_brush);
+      DeleteObject(input_brush);
+    }
+    chat_compat_draw_text_outline(dc, x, input_y, input_line, 0xFFFFFFFFu);
   }
 
   if (old_font != NULL) {
