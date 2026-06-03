@@ -97,6 +97,7 @@ struct RpcProbeState {
   RakNet::RakClientInterface *client;
   unsigned char rpc_ids[256];
   unsigned int counts[256];
+  unsigned int dummy_logged[256];
   int registered;
   int saw_init_game;
   int saw_request_class_reply;
@@ -301,124 +302,245 @@ void schedule_select_mode_freeroam_click(const char *reason) {
              static_cast<unsigned int>(kSelectModeClickDelayMs));
 }
 
-const char *rpc_name(unsigned int rpc_id) {
-  switch (rpc_id) {
-    case 11:
-      return "ScrSetPlayerName";
-    case 12:
-      return "ScrSetPlayerPos";
-    case 13:
-      return "ScrSetPlayerPosFindZ";
-    case 14:
-      return "ScrSetPlayerHealth";
-    case 15:
-      return "ScrTogglePlayerControllable";
-    case 16:
-      return "ScrPlaySound";
-    case 17:
-      return "ScrSetWorldBounds";
-    case 18:
-      return "ScrHaveSomeMoney";
-    case 19:
-      return "ScrSetPlayerFacingAngle";
-    case 20:
-      return "ScrResetMoney";
-    case 21:
-      return "ScrResetPlayerWeapons";
-    case 22:
-      return "ScrGivePlayerWeapon";
-    case 25:
-      return "ClientJoin";
-    case 29:
-      return "SetTimeEx";
-    case 32:
-      return "WorldPlayerAdd";
-    case 44:
-      return "ScrCreateObject";
-    case 45:
-      return "ScrSetObjectPos";
-    case 46:
-      return "ScrSetObjectRotation";
-    case 47:
-      return "ScrDestroyObject";
-    case 52:
-      return "Spawn";
-    case 61:
-      return "ScrDialogBox";
-    case 62:
-      return "DialogResponse";
-    case 68:
-      return "ScrSetSpawnInfo";
-    case 69:
-      return "ScrSetPlayerTeam";
-    case 70:
-      return "ScrPutPlayerInVehicle";
-    case 71:
-      return "ScrRemovePlayerFromVehicle";
-    case 72:
-      return "ScrSetPlayerColor";
-    case 75:
-      return "ScrAttachObjectToPlayer";
-    case 83:
-      return "ClickTextDraw/SelectTextDraw";
-    case 93:
-      return "ClientMessage";
-    case 94:
-      return "WorldTime";
-    case 95:
-      return "Pickup";
-    case 99:
-      return "ScrMoveObject";
-    case 105:
-      return "PlayerTextDrawSetString";
-    case 107:
-      return "SetCheckpoint";
-    case 118:
-      return "SetInteriorId";
-    case 122:
-      return "ScrStopObject";
-    case 128:
-      return "RequestClass";
-    case 129:
-      return "RequestSpawn";
-    case 134:
-      return "ScrShowTextDraw";
-    case 135:
-      return "ScrHideTextDraw";
-    case 136:
-      return "ScrEditTextDraw";
-    case 137:
-      return "ServerJoin";
-    case 138:
-      return "ServerQuit";
-    case 139:
-      return "InitGame";
-    case 144:
-      return "ToggleClock";
-    case 152:
-      return "Weather";
-    case 153:
-      return "ScrSetPlayerSkin";
-    case 155:
-      return "UpdateScoresPingsIPs";
-    case 156:
-      return "ScrSetInterior";
-    case 157:
-      return "ScrSetCameraPos";
-    case 158:
-      return "ScrSetCameraLookAt";
-    case 164:
-      return "WorldVehicleAdd";
-    case 165:
-      return "WorldVehicleRemove";
+enum RpcLocalStatus {
+  kRpcLocalUnknown = 0,
+  kRpcLocalOutgoing,
+  kRpcLocalDummy,
+  kRpcLocalDecoded,
+  kRpcLocalImplemented
+};
+
+struct RpcMeta {
+  unsigned int id;
+  const char *name;
+  RpcLocalStatus local_status;
+  const char *source;
+};
+
+// OPENMP_REF + OLD_02X_REF + INFERRED:
+// 0.3.7 server-triggered RPC inventory, cross-checked with local SAMPFUNCS constants and
+// the 0.2x RegisterRPC/RegisterScriptRPC lists. TODO_VERIFY remaining IDs against golden
+// traces from the original 0.3.7-R5 samp.dll before treating them as exact semantics.
+const RpcMeta kRpcMeta[] = {
+    {11U, "ScrSetPlayerName", kRpcLocalDummy, "SAMPFUNCS_037"},
+    {12U, "ScrSetPlayerPos", kRpcLocalImplemented, "PROBE_TRACE"},
+    {13U, "ScrSetPlayerPosFindZ", kRpcLocalDummy, "SAMPFUNCS_037"},
+    {14U, "ScrSetPlayerHealth", kRpcLocalDummy, "SAMPFUNCS_037"},
+    {15U, "ScrTogglePlayerControllable", kRpcLocalDummy, "OLD_02X_REF"},
+    {16U, "ScrPlaySound", kRpcLocalDummy, "OLD_02X_REF"},
+    {17U, "ScrSetWorldBounds", kRpcLocalDummy, "OLD_02X_REF"},
+    {18U, "ScrGivePlayerMoney", kRpcLocalDummy, "OLD_02X_REF"},
+    {19U, "ScrSetPlayerFacingAngle", kRpcLocalImplemented, "PROBE_TRACE"},
+    {20U, "ScrResetPlayerMoney", kRpcLocalDummy, "OLD_02X_REF"},
+    {21U, "ScrResetPlayerWeapons", kRpcLocalDummy, "OLD_02X_REF"},
+    {22U, "ScrGivePlayerWeapon", kRpcLocalDummy, "OLD_02X_REF"},
+    {23U, "OnPlayerClickPlayer", kRpcLocalOutgoing, "OPENMP_REF"},
+    {24U, "ScrSetVehicleParamsEx", kRpcLocalDummy, "SAMPFUNCS_037"},
+    {25U, "ClientJoin", kRpcLocalOutgoing, "OPENMP_REF"},
+    {26U, "EnterVehicle", kRpcLocalOutgoing, "OPENMP_REF"},
+    {27U, "EnterEditObject", kRpcLocalOutgoing, "OPENMP_REF"},
+    {28U, "ScrCancelEdit", kRpcLocalDummy, "SAMPFUNCS_037"},
+    {29U, "ScrSetPlayerTime/SetTimeEx", kRpcLocalImplemented, "PROBE_TRACE"},
+    {30U, "ScrToggleClock", kRpcLocalDummy, "SAMPFUNCS_037"},
+    {31U, "ScriptCash", kRpcLocalOutgoing, "OPENMP_REF"},
+    {32U, "ScrWorldPlayerAdd", kRpcLocalDummy, "OLD_02X_REF"},
+    {33U, "ScrSetPlayerShopName", kRpcLocalDummy, "SAMPFUNCS_037"},
+    {34U, "ScrSetPlayerSkillLevel", kRpcLocalDummy, "SAMPFUNCS_037"},
+    {35U, "ScrSetPlayerDrunkLevel", kRpcLocalDummy, "SAMPFUNCS_037"},
+    {36U, "ScrCreate3DTextLabel", kRpcLocalDummy, "SAMPFUNCS_037"},
+    {37U, "ScrDisableCheckpoint", kRpcLocalDummy, "OLD_02X_REF"},
+    {38U, "ScrSetRaceCheckpoint", kRpcLocalDummy, "OLD_02X_REF"},
+    {39U, "ScrDisableRaceCheckpoint", kRpcLocalDummy, "OLD_02X_REF"},
+    {40U, "ScrGameModeRestart", kRpcLocalDummy, "OLD_02X_REF"},
+    {41U, "ScrPlayAudioStream", kRpcLocalDummy, "SAMPFUNCS_037"},
+    {42U, "ScrStopAudioStream", kRpcLocalDummy, "SAMPFUNCS_037"},
+    {43U, "ScrRemoveBuildingForPlayer", kRpcLocalDummy, "SAMPFUNCS_037"},
+    {44U, "ScrCreateObject", kRpcLocalImplemented, "PROBE_TRACE"},
+    {45U, "ScrSetObjectPos", kRpcLocalImplemented, "PROBE_TRACE"},
+    {46U, "ScrSetObjectRot", kRpcLocalImplemented, "PROBE_TRACE"},
+    {47U, "ScrDestroyObject", kRpcLocalImplemented, "PROBE_TRACE"},
+    {50U, "ServerCommand", kRpcLocalOutgoing, "OPENMP_REF"},
+    {52U, "Spawn", kRpcLocalOutgoing, "OPENMP_REF"},
+    {53U, "Death", kRpcLocalOutgoing, "OPENMP_REF"},
+    {54U, "NPCJoin", kRpcLocalOutgoing, "OPENMP_REF"},
+    {55U, "ScrDeathMessage", kRpcLocalDummy, "OLD_02X_REF"},
+    {56U, "ScrSetPlayerMapIcon", kRpcLocalDummy, "SAMPFUNCS_037"},
+    {57U, "ScrRemoveVehicleComponent", kRpcLocalDummy, "OLD_02X_REF"},
+    {58U, "ScrUpdate3DTextLabel", kRpcLocalDummy, "SAMPFUNCS_037"},
+    {59U, "ScrChatBubble", kRpcLocalDummy, "SAMPFUNCS_037"},
+    {60U, "ScrSomeUpdate", kRpcLocalDummy, "SAMPFUNCS_037"},
+    {61U, "ScrShowDialog", kRpcLocalImplemented, "PROBE_TRACE"},
+    {62U, "DialogResponse", kRpcLocalOutgoing, "OPENMP_REF"},
+    {63U, "ScrDestroyPickup", kRpcLocalDummy, "OLD_02X_REF"},
+    {65U, "ScrLinkVehicleToInterior", kRpcLocalDummy, "OLD_02X_REF"},
+    {66U, "ScrSetPlayerArmour", kRpcLocalDummy, "OLD_02X_REF"},
+    {67U, "ScrSetPlayerArmedWeapon", kRpcLocalDummy, "SAMPFUNCS_037"},
+    {68U, "ScrSetSpawnInfo", kRpcLocalImplemented, "PROBE_TRACE"},
+    {69U, "ScrSetPlayerTeam", kRpcLocalDummy, "OLD_02X_REF"},
+    {70U, "ScrPutPlayerInVehicle", kRpcLocalDummy, "OLD_02X_REF"},
+    {71U, "ScrRemovePlayerFromVehicle", kRpcLocalDummy, "OLD_02X_REF"},
+    {72U, "ScrSetPlayerColor", kRpcLocalDummy, "OLD_02X_REF"},
+    {73U, "ScrDisplayGameText", kRpcLocalDummy, "OLD_02X_REF"},
+    {74U, "ScrForceClassSelection", kRpcLocalDummy, "OLD_02X_REF"},
+    {75U, "ScrAttachObjectToPlayer", kRpcLocalDecoded, "PROBE_TRACE"},
+    {76U, "ScrInitMenu", kRpcLocalDummy, "OLD_02X_REF"},
+    {77U, "ScrShowMenu", kRpcLocalDummy, "OLD_02X_REF"},
+    {78U, "ScrHideMenu", kRpcLocalDummy, "OLD_02X_REF"},
+    {79U, "ScrCreateExplosion", kRpcLocalDummy, "OLD_02X_REF"},
+    {80U, "ScrShowPlayerNameTagForPlayer", kRpcLocalDummy, "SAMPFUNCS_037"},
+    {81U, "ScrAttachCameraToObject", kRpcLocalDummy, "SAMPFUNCS_037"},
+    {82U, "ScrInterpolateCamera", kRpcLocalDummy, "SAMPFUNCS_037"},
+    {83U, "ClickTextDraw/SelectTextDraw", kRpcLocalImplemented, "PROBE_TRACE"},
+    {84U, "ScrSetObjectMaterial", kRpcLocalDummy, "SAMPFUNCS_037"},
+    {85U, "ScrGangZoneStopFlash", kRpcLocalDummy, "SAMPFUNCS_037"},
+    {86U, "ScrApplyAnimation", kRpcLocalDummy, "OLD_02X_REF"},
+    {87U, "ScrClearAnimations", kRpcLocalDummy, "OLD_02X_REF"},
+    {88U, "ScrSetPlayerSpecialAction", kRpcLocalDummy, "OLD_02X_REF"},
+    {89U, "ScrSetPlayerFightingStyle", kRpcLocalDummy, "SAMPFUNCS_037"},
+    {90U, "ScrSetPlayerVelocity", kRpcLocalDummy, "SAMPFUNCS_037"},
+    {91U, "ScrSetVehicleVelocity", kRpcLocalDummy, "SAMPFUNCS_037"},
+    {93U, "ScrClientMessage", kRpcLocalImplemented, "PROBE_TRACE"},
+    {94U, "ScrSetWorldTime", kRpcLocalImplemented, "PROBE_TRACE"},
+    {95U, "ScrCreatePickup", kRpcLocalDummy, "OLD_02X_REF"},
+    {96U, "ScmEvent", kRpcLocalOutgoing, "OPENMP_REF"},
+    {97U, "WeaponPickupDestroy", kRpcLocalOutgoing, "OPENMP_REF"},
+    {99U, "ScrMoveObject", kRpcLocalImplemented, "PROBE_TRACE"},
+    {101U, "Chat", kRpcLocalOutgoing, "OPENMP_REF"},
+    {102U, "ServerNetStats", kRpcLocalOutgoing, "OPENMP_REF"},
+    {103U, "ClientCheck", kRpcLocalOutgoing, "OPENMP_REF"},
+    {104U, "ScrEnableStuntBonusForPlayer", kRpcLocalDummy, "OLD_02X_REF"},
+    {105U, "ScrTextDrawSetString", kRpcLocalImplemented, "PROBE_TRACE"},
+    {106U, "DamageVehicle", kRpcLocalOutgoing, "OPENMP_REF"},
+    {107U, "ScrSetCheckpoint", kRpcLocalDummy, "OLD_02X_REF"},
+    {108U, "ScrGangZoneCreate", kRpcLocalDummy, "OLD_02X_REF"},
+    {112U, "ScrPlayCrimeReport", kRpcLocalDummy, "SAMPFUNCS_037"},
+    {113U, "ScrSetPlayerAttachedObject", kRpcLocalDummy, "SAMPFUNCS_037"},
+    {115U, "GiveTakeDamage", kRpcLocalOutgoing, "OPENMP_REF"},
+    {116U, "EditAttachedObject", kRpcLocalOutgoing, "OPENMP_REF"},
+    {117U, "EditObject", kRpcLocalOutgoing, "OPENMP_REF"},
+    {118U, "SetInteriorId", kRpcLocalOutgoing, "OPENMP_REF"},
+    {119U, "MapMarker", kRpcLocalOutgoing, "OPENMP_REF"},
+    {120U, "ScrGangZoneDestroy", kRpcLocalDummy, "OLD_02X_REF"},
+    {121U, "ScrGangZoneFlash", kRpcLocalDummy, "OLD_02X_REF"},
+    {122U, "ScrStopObject", kRpcLocalImplemented, "PROBE_TRACE"},
+    {123U, "ScrSetNumberPlate", kRpcLocalDummy, "OLD_02X_REF"},
+    {124U, "ScrTogglePlayerSpectating", kRpcLocalDummy, "OLD_02X_REF"},
+    {126U, "ScrPlayerSpectatePlayer", kRpcLocalDummy, "OLD_02X_REF"},
+    {127U, "ScrPlayerSpectateVehicle", kRpcLocalDummy, "OLD_02X_REF"},
+    {128U, "RequestClass", kRpcLocalImplemented, "OPENMP_REF"},
+    {129U, "RequestSpawn", kRpcLocalImplemented, "OPENMP_REF"},
+    {131U, "PickedUpPickup", kRpcLocalOutgoing, "OPENMP_REF"},
+    {132U, "MenuSelect", kRpcLocalOutgoing, "OPENMP_REF"},
+    {133U, "ScrSetPlayerWantedLevel", kRpcLocalDummy, "OLD_02X_REF"},
+    {134U, "ScrShowTextDraw", kRpcLocalImplemented, "PROBE_TRACE"},
+    {135U, "ScrHideTextDraw", kRpcLocalImplemented, "PROBE_TRACE"},
+    {136U, "ScrEditTextDraw/VehicleDestroyed", kRpcLocalImplemented, "PROBE_TRACE"},
+    {137U, "ScrServerJoin", kRpcLocalDummy, "OLD_02X_REF"},
+    {138U, "ScrServerQuit", kRpcLocalDummy, "OLD_02X_REF"},
+    {139U, "ScrInitGame", kRpcLocalImplemented, "PROBE_TRACE"},
+    {140U, "MenuQuit", kRpcLocalOutgoing, "OPENMP_REF"},
+    {144U, "ToggleClock/ScrRemovePlayerMapIcon", kRpcLocalImplemented, "PROBE_TRACE"},
+    {145U, "ScrSetPlayerAmmo", kRpcLocalDummy, "SAMPFUNCS_037"},
+    {146U, "ScrSetGravity", kRpcLocalDummy, "OLD_02X_REF"},
+    {147U, "ScrSetVehicleHealth", kRpcLocalDummy, "OLD_02X_REF"},
+    {148U, "ScrAttachTrailerToVehicle", kRpcLocalDummy, "OLD_02X_REF"},
+    {149U, "ScrDetachTrailerFromVehicle", kRpcLocalDummy, "OLD_02X_REF"},
+    {152U, "ScrSetWeather", kRpcLocalImplemented, "PROBE_TRACE"},
+    {153U, "ScrSetPlayerSkin", kRpcLocalDummy, "OLD_02X_REF"},
+    {154U, "ExitVehicle", kRpcLocalOutgoing, "OPENMP_REF"},
+    {155U, "UpdateScoresPingsIPs", kRpcLocalDummy, "OLD_02X_REF"},
+    {156U, "ScrSetPlayerInterior", kRpcLocalImplemented, "PROBE_TRACE"},
+    {157U, "ScrSetPlayerCameraPos", kRpcLocalImplemented, "PROBE_TRACE"},
+    {158U, "ScrSetPlayerCameraLookAt", kRpcLocalImplemented, "PROBE_TRACE"},
+    {159U, "ScrSetVehiclePos", kRpcLocalDummy, "OLD_02X_REF"},
+    {160U, "ScrSetVehicleZAngle", kRpcLocalDummy, "OLD_02X_REF"},
+    {161U, "ScrSetVehicleParamsForPlayer", kRpcLocalDummy, "OLD_02X_REF"},
+    {162U, "ScrSetCameraBehindPlayer", kRpcLocalDummy, "OLD_02X_REF"},
+    {163U, "ScrWorldPlayerRemove", kRpcLocalDummy, "SAMPFUNCS_037"},
+    {164U, "ScrWorldVehicleAdd", kRpcLocalImplemented, "PROBE_TRACE"},
+    {165U, "ScrWorldVehicleRemove", kRpcLocalImplemented, "PROBE_TRACE"},
+    {166U, "ScrWorldPlayerDeath", kRpcLocalDummy, "SAMPFUNCS_037"},
+};
+
+const RpcMeta *rpc_meta(unsigned int rpc_id) {
+  for (unsigned int i = 0U; i < (sizeof(kRpcMeta) / sizeof(kRpcMeta[0])); ++i) {
+    if (kRpcMeta[i].id == rpc_id) {
+      return &kRpcMeta[i];
+    }
+  }
+  return nullptr;
+}
+
+const char *rpc_local_status_name(RpcLocalStatus status) {
+  switch (status) {
+    case kRpcLocalOutgoing:
+      return "outgoing";
+    case kRpcLocalDummy:
+      return "dummy";
+    case kRpcLocalDecoded:
+      return "decoded";
+    case kRpcLocalImplemented:
+      return "implemented";
+    case kRpcLocalUnknown:
     default:
       return "unknown";
   }
 }
 
+RpcLocalStatus rpc_local_status(unsigned int rpc_id) {
+  const RpcMeta *meta = rpc_meta(rpc_id);
+  return meta != nullptr ? meta->local_status : kRpcLocalUnknown;
+}
+
+const char *rpc_name(unsigned int rpc_id) {
+  const RpcMeta *meta = rpc_meta(rpc_id);
+  return meta != nullptr ? meta->name : "unknown";
+}
+
+const char *rpc_source(unsigned int rpc_id) {
+  const RpcMeta *meta = rpc_meta(rpc_id);
+  return meta != nullptr ? meta->source : "TODO_VERIFY";
+}
+
+bool rpc_should_log_dummy(unsigned int rpc_id) {
+  const RpcLocalStatus status = rpc_local_status(rpc_id);
+  return status == kRpcLocalUnknown || status == kRpcLocalOutgoing || status == kRpcLocalDummy;
+}
+
+unsigned int rpc_known_meta_count() {
+  return static_cast<unsigned int>(sizeof(kRpcMeta) / sizeof(kRpcMeta[0]));
+}
+
+unsigned int rpc_dummy_meta_count() {
+  unsigned int count = 0U;
+  for (unsigned int i = 0U; i < (sizeof(kRpcMeta) / sizeof(kRpcMeta[0])); ++i) {
+    if (kRpcMeta[i].local_status == kRpcLocalDummy) {
+      ++count;
+    }
+  }
+  return count;
+}
+
+void observe_rpc_dummy(unsigned int rpc_id, unsigned int bytes) {
+  if (rpc_id >= 256U || !rpc_should_log_dummy(rpc_id)) {
+    return;
+  }
+
+  const unsigned int count = g_rpc_probe.counts[rpc_id];
+  if (g_rpc_probe.dummy_logged[rpc_id] != 0U && (count % 64U) != 0U) {
+    return;
+  }
+
+  g_rpc_probe.dummy_logged[rpc_id] = 1U;
+  trace_netf("rpc-dummy id=%u name=%s local=%s source=%s count=%u bytes=%u action=log_only TODO_VERIFY=1",
+             rpc_id, rpc_name(rpc_id), rpc_local_status_name(rpc_local_status(rpc_id)), rpc_source(rpc_id),
+             count, bytes);
+}
+
 void reset_rpc_probe_runtime(RakNet::RakClientInterface *client) {
   g_rpc_probe.client = client;
   std::memset(g_rpc_probe.counts, 0, sizeof(g_rpc_probe.counts));
+  std::memset(g_rpc_probe.dummy_logged, 0, sizeof(g_rpc_probe.dummy_logged));
   g_rpc_probe.saw_init_game = 0;
   g_rpc_probe.saw_request_class_reply = 0;
   g_rpc_probe.saw_request_spawn_reply = 0;
@@ -2153,13 +2275,16 @@ void rpc_observer(RakNet::RPCParameters *rpc_params, void *extra) {
     }
   }
 
-  trace_netf("rpc-in id=%u name=%s count=%u bits=%u bytes=%u sender=0x%08x:%u idx=%u first=%s", rpc_id,
-             rpc_name(rpc_id), (rpc_id < 256U) ? g_rpc_probe.counts[rpc_id] : 0U,
+  trace_netf("rpc-in id=%u name=%s local=%s source=%s count=%u bits=%u bytes=%u sender=0x%08x:%u idx=%u first=%s",
+             rpc_id, rpc_name(rpc_id), rpc_local_status_name(rpc_local_status(rpc_id)), rpc_source(rpc_id),
+             (rpc_id < 256U) ? g_rpc_probe.counts[rpc_id] : 0U,
              rpc_params != nullptr ? rpc_params->numberOfBitsOfData : 0U, bytes,
              rpc_params != nullptr ? rpc_params->sender.binaryAddress : 0U,
              rpc_params != nullptr ? rpc_params->sender.port : 0U,
              rpc_params != nullptr ? static_cast<unsigned int>(rpc_params->senderIndex) : 0U,
              prefix_bytes > 0U ? prefix : "-");
+
+  observe_rpc_dummy(rpc_id, bytes);
 
   if (rpc_id == 93U) {
     if (rpc_params != nullptr && bytes >= 8U) {
@@ -2422,7 +2547,8 @@ void register_rpc_probe_handlers(RakNet::RakClientInterface *rak_client) {
   }
 
   g_rpc_probe.registered = 1;
-  trace_netf("rpc-probe registered ids=1..%u", kRpcRegisterMax);
+  trace_netf("rpc-probe registered ids=1..%u known=%u dummy=%u mode=catch_all_log_only_for_unimplemented",
+             kRpcRegisterMax, rpc_known_meta_count(), rpc_dummy_meta_count());
 }
 
 unsigned char get_packet_id(const RakNet::Packet *packet) {
