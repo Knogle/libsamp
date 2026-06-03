@@ -72,3 +72,20 @@ int samp_raknet_client_get_rpc_probe_snapshot(void *client, samp_raknet_rpc_prob
   memset(out_snapshot, 0, sizeof(*out_snapshot));
   return -1;
 }
+
+int samp_raknet_client_send_spawn_notification(void *client) {
+  (void)client;
+  return -1;
+}
+
+int samp_raknet_client_send_spawn_notification_for_seq(void *client, uint32_t spawn_info_seq) {
+  (void)client;
+  (void)spawn_info_seq;
+  return -1;
+}
+
+int samp_raknet_client_send_onfoot_sync(void *client, const samp_raknet_onfoot_sync *sync) {
+  (void)client;
+  (void)sync;
+  return -1;
+}

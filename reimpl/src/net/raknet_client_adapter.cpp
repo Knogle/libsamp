@@ -28,6 +28,7 @@ extern char AuthKeyTable[512][2][128];
 
 namespace {
 constexpr unsigned char kPacketIdInvalid = 0xFFu;
+constexpr unsigned char kPacketPlayerSync = 207u;
 constexpr RakNet::RPCID kRpcClientJoin = static_cast<RakNet::RPCID>(25u);
 constexpr RakNet::RPCID kRpcDialogResponse = static_cast<RakNet::RPCID>(62u);
 constexpr RakNet::RPCID kRpcSpawn = static_cast<RakNet::RPCID>(52u);
@@ -64,6 +65,27 @@ constexpr unsigned int kTextDrawEditMinBytes = 2U;
 constexpr unsigned int kOpenMpTextDrawHeaderBytes = 67U;
 constexpr unsigned int kOpenMpTextDrawStringLengthOffset = 65U;
 constexpr unsigned int kOpenMpTextDrawStringOffset = 67U;
+constexpr unsigned int kOpenMpObjectCreateAttachVehicleOffset = 35U;
+constexpr unsigned int kOpenMpObjectCreateAttachObjectOffset = 37U;
+constexpr unsigned int kOpenMpObjectCreateMaterialCountOffset = 39U;
+constexpr unsigned int kOpenMpObjectCreateAttachDataBytes = 25U;
+constexpr unsigned int kOpenMpObjectCreateMinBytes = kOpenMpObjectCreateMaterialCountOffset + 1U;
+constexpr unsigned int kOpenMpObjectSetPosMinBytes = 2U + 3U * 4U;
+constexpr unsigned int kOpenMpObjectSetRotMinBytes = 2U + 3U * 4U;
+constexpr unsigned int kOpenMpObjectDestroyMinBytes = 2U;
+constexpr unsigned int kOpenMpObjectMoveMinBytes = 2U + 10U * 4U;
+constexpr unsigned int kOpenMpObjectStopMinBytes = 2U;
+constexpr unsigned short kOpenMpInvalidObjectId = 0xFFFFU;
+constexpr unsigned short kOpenMpInvalidVehicleId = 0xFFFFU;
+constexpr unsigned int kOpenMpVehicleAddBytes = 63U;
+constexpr unsigned int kOpenMpVehicleModOffset = 40U;
+constexpr unsigned int kOpenMpVehiclePaintjobOffset = 54U;
+constexpr unsigned int kOpenMpVehicleBodyColor1Offset = 55U;
+constexpr unsigned int kOpenMpVehicleBodyColor2Offset = 59U;
+constexpr unsigned int kOpenMpVehicleRemoveMinBytes = 2U;
+constexpr int kSampVehicleModelMin = 400;
+constexpr int kSampVehicleModelMax = 611;
+static_assert(sizeof(samp_raknet_onfoot_sync) == 68U, "SA-MP 0.3.7 on-foot sync payload must be 68 bytes");
 
 struct RpcProbeState {
   RakNet::RakClientInterface *client;
@@ -83,6 +105,8 @@ struct RpcProbeState {
   int saw_camera_look_at;
   int saw_client_message;
   int saw_textdraw_select;
+  int saw_object_event;
+  int saw_vehicle_event;
   int pending_request_class;
   int pending_request_spawn;
   int pending_select_mode_freeroam_click;
@@ -93,6 +117,7 @@ struct RpcProbeState {
   unsigned int request_spawn_send_count;
   unsigned int request_spawn_retry_count;
   int sent_spawn_notify;
+  unsigned int sent_spawn_notify_seq;
   int manual_spawn_shift_down;
   unsigned short last_dialog_id;
   unsigned char last_dialog_style;
@@ -139,6 +164,7 @@ struct RpcProbeState {
   float camera_look_at[3];
   unsigned char camera_look_at_type;
   unsigned char spawn_team;
+  unsigned int spawn_info_seq;
   std::int32_t spawn_skin;
   float spawn_pos[3];
   float spawn_rotation;
@@ -150,6 +176,10 @@ struct RpcProbeState {
   samp_raknet_textdraw_event textdraw_events[SAMP_RAKNET_TEXTDRAW_EVENT_RING];
   unsigned char textdraw_select_active;
   unsigned int textdraw_select_color;
+  unsigned int object_event_seq;
+  samp_raknet_object_event object_events[SAMP_RAKNET_OBJECT_EVENT_RING];
+  unsigned int vehicle_event_seq;
+  samp_raknet_vehicle_event vehicle_events[SAMP_RAKNET_VEHICLE_EVENT_RING];
   RakNet::RakNetTime class_selection_ready_time;
   RakNet::RakNetTime next_request_spawn_time;
   RakNet::RakNetTime select_mode_click_ready_time;
@@ -289,6 +319,14 @@ const char *rpc_name(unsigned int rpc_id) {
       return "ClientJoin";
     case 32:
       return "WorldPlayerAdd";
+    case 44:
+      return "ScrCreateObject";
+    case 45:
+      return "ScrSetObjectPos";
+    case 46:
+      return "ScrSetObjectRotation";
+    case 47:
+      return "ScrDestroyObject";
     case 52:
       return "Spawn";
     case 61:
@@ -305,6 +343,8 @@ const char *rpc_name(unsigned int rpc_id) {
       return "ScrRemovePlayerFromVehicle";
     case 72:
       return "ScrSetPlayerColor";
+    case 75:
+      return "ScrAttachObjectToPlayer";
     case 83:
       return "ClickTextDraw/SelectTextDraw";
     case 93:
@@ -313,12 +353,16 @@ const char *rpc_name(unsigned int rpc_id) {
       return "WorldTime";
     case 95:
       return "Pickup";
+    case 99:
+      return "ScrMoveObject";
     case 105:
       return "PlayerTextDrawSetString";
     case 107:
       return "SetCheckpoint";
     case 118:
       return "SetInteriorId";
+    case 122:
+      return "ScrStopObject";
     case 128:
       return "RequestClass";
     case 129:
@@ -371,6 +415,9 @@ void reset_rpc_probe_runtime(RakNet::RakClientInterface *client) {
   g_rpc_probe.saw_camera_pos = 0;
   g_rpc_probe.saw_camera_look_at = 0;
   g_rpc_probe.saw_client_message = 0;
+  g_rpc_probe.saw_textdraw_select = 0;
+  g_rpc_probe.saw_object_event = 0;
+  g_rpc_probe.saw_vehicle_event = 0;
   g_rpc_probe.pending_request_class = 0;
   g_rpc_probe.pending_request_spawn = 0;
   g_rpc_probe.pending_select_mode_freeroam_click = 0;
@@ -381,6 +428,7 @@ void reset_rpc_probe_runtime(RakNet::RakClientInterface *client) {
   g_rpc_probe.request_spawn_send_count = 0;
   g_rpc_probe.request_spawn_retry_count = 0;
   g_rpc_probe.sent_spawn_notify = 0;
+  g_rpc_probe.sent_spawn_notify_seq = 0U;
   g_rpc_probe.manual_spawn_shift_down = 0;
   g_rpc_probe.last_dialog_id = 0;
   g_rpc_probe.last_dialog_style = 0;
@@ -427,6 +475,7 @@ void reset_rpc_probe_runtime(RakNet::RakClientInterface *client) {
   std::memset(g_rpc_probe.camera_look_at, 0, sizeof(g_rpc_probe.camera_look_at));
   g_rpc_probe.camera_look_at_type = 0;
   g_rpc_probe.spawn_team = 0;
+  g_rpc_probe.spawn_info_seq = 0U;
   g_rpc_probe.spawn_skin = 0;
   std::memset(g_rpc_probe.spawn_pos, 0, sizeof(g_rpc_probe.spawn_pos));
   g_rpc_probe.spawn_rotation = 0.0f;
@@ -434,6 +483,14 @@ void reset_rpc_probe_runtime(RakNet::RakClientInterface *client) {
   std::memset(g_rpc_probe.spawn_weapon_ammo, 0, sizeof(g_rpc_probe.spawn_weapon_ammo));
   g_rpc_probe.client_message_seq = 0;
   std::memset(g_rpc_probe.client_messages, 0, sizeof(g_rpc_probe.client_messages));
+  g_rpc_probe.textdraw_event_seq = 0U;
+  std::memset(g_rpc_probe.textdraw_events, 0, sizeof(g_rpc_probe.textdraw_events));
+  g_rpc_probe.textdraw_select_active = 0U;
+  g_rpc_probe.textdraw_select_color = 0U;
+  g_rpc_probe.object_event_seq = 0U;
+  std::memset(g_rpc_probe.object_events, 0, sizeof(g_rpc_probe.object_events));
+  g_rpc_probe.vehicle_event_seq = 0U;
+  std::memset(g_rpc_probe.vehicle_events, 0, sizeof(g_rpc_probe.vehicle_events));
   g_rpc_probe.class_selection_ready_time = 0;
   g_rpc_probe.next_request_spawn_time = 0;
   g_rpc_probe.select_mode_click_ready_time = 0;
@@ -533,15 +590,370 @@ void read_spawn_info(const unsigned char *data, unsigned int bytes, const char *
     g_rpc_probe.spawn_weapon_ammo[i] = ammo[i];
   }
   g_rpc_probe.saw_spawn_info = 1;
+  ++g_rpc_probe.spawn_info_seq;
+  if (g_rpc_probe.spawn_info_seq == 0U) {
+    g_rpc_probe.spawn_info_seq = 1U;
+  }
 
-  trace_netf("rpc-state spawn_info source=%s bytes=%u extra=%u team=%u skin=%d pos=%.3f %.3f %.3f rot=%.3f weapons=%d/%d/%d ammo=%d/%d/%d",
-             source != nullptr ? source : "unknown", bytes, static_cast<unsigned int>(extra),
+  trace_netf("rpc-state spawn_info source=%s seq=%u bytes=%u extra=%u team=%u skin=%d pos=%.3f %.3f %.3f rot=%.3f weapons=%d/%d/%d ammo=%d/%d/%d",
+             source != nullptr ? source : "unknown", static_cast<unsigned int>(g_rpc_probe.spawn_info_seq), bytes,
+             static_cast<unsigned int>(extra),
              static_cast<unsigned int>(g_rpc_probe.spawn_team), static_cast<int>(g_rpc_probe.spawn_skin),
              static_cast<double>(g_rpc_probe.spawn_pos[0]), static_cast<double>(g_rpc_probe.spawn_pos[1]),
              static_cast<double>(g_rpc_probe.spawn_pos[2]), static_cast<double>(g_rpc_probe.spawn_rotation),
              static_cast<int>(g_rpc_probe.spawn_weapons[0]), static_cast<int>(g_rpc_probe.spawn_weapons[1]),
              static_cast<int>(g_rpc_probe.spawn_weapons[2]), static_cast<int>(g_rpc_probe.spawn_weapon_ammo[0]),
              static_cast<int>(g_rpc_probe.spawn_weapon_ammo[1]), static_cast<int>(g_rpc_probe.spawn_weapon_ammo[2]));
+}
+
+bool object_id_valid(unsigned int object_id) {
+  return object_id < SAMP_RAKNET_MAX_OBJECTS;
+}
+
+bool object_model_plausible(std::int32_t model) {
+  return model >= 0 && model <= 20000;
+}
+
+bool object_vec_plausible(const float vec[3]) {
+  return vec != nullptr && std::isfinite(vec[0]) && std::isfinite(vec[1]) && std::isfinite(vec[2]) &&
+         vec[0] > -30000.0f && vec[0] < 30000.0f && vec[1] > -30000.0f && vec[1] < 30000.0f &&
+         vec[2] > -5000.0f && vec[2] < 20000.0f;
+}
+
+bool object_rot_plausible(const float vec[3]) {
+  return vec != nullptr && std::isfinite(vec[0]) && std::isfinite(vec[1]) && std::isfinite(vec[2]) &&
+         vec[0] > -10000.0f && vec[0] < 10000.0f && vec[1] > -10000.0f && vec[1] < 10000.0f &&
+         vec[2] > -10000.0f && vec[2] < 10000.0f;
+}
+
+samp_raknet_object_event *queue_object_event(unsigned char action, unsigned short object_id) {
+  ++g_rpc_probe.object_event_seq;
+  if (g_rpc_probe.object_event_seq == 0U) {
+    g_rpc_probe.object_event_seq = 1U;
+  }
+  const unsigned int slot = (g_rpc_probe.object_event_seq - 1U) % SAMP_RAKNET_OBJECT_EVENT_RING;
+  samp_raknet_object_event *event = &g_rpc_probe.object_events[slot];
+
+  std::memset(event, 0, sizeof(*event));
+  event->seq = g_rpc_probe.object_event_seq;
+  event->action = action;
+  event->object_id = object_id;
+  g_rpc_probe.saw_object_event = 1;
+  return event;
+}
+
+bool decode_object_create_payload(const unsigned char *data, unsigned int bytes) {
+  unsigned short object_id = 0U;
+  unsigned short attach_vehicle_id = kOpenMpInvalidVehicleId;
+  unsigned short attach_object_id = kOpenMpInvalidObjectId;
+  unsigned int material_count_offset = kOpenMpObjectCreateMaterialCountOffset;
+  unsigned int materials_count = 0U;
+  std::int32_t model = 0;
+  float draw_distance = 0.0f;
+  float pos[3] = {0.0f, 0.0f, 0.0f};
+  float rot[3] = {0.0f, 0.0f, 0.0f};
+  samp_raknet_object_event *event = nullptr;
+  const bool has_attachment = data != nullptr && bytes >= kOpenMpObjectCreateMinBytes &&
+                              (read_le16(data + kOpenMpObjectCreateAttachVehicleOffset) != kOpenMpInvalidVehicleId ||
+                               read_le16(data + kOpenMpObjectCreateAttachObjectOffset) != kOpenMpInvalidObjectId);
+
+  if (data == nullptr || bytes < kOpenMpObjectCreateMinBytes) {
+    return false;
+  }
+  object_id = read_le16(data);
+  model = read_le_i32(data + 2U);
+  read_vec3(data + 6U, pos);
+  read_vec3(data + 18U, rot);
+  draw_distance = read_le_float(data + 30U);
+  attach_vehicle_id = read_le16(data + kOpenMpObjectCreateAttachVehicleOffset);
+  attach_object_id = read_le16(data + kOpenMpObjectCreateAttachObjectOffset);
+  if (has_attachment) {
+    material_count_offset += kOpenMpObjectCreateAttachDataBytes;
+    if (bytes < material_count_offset + 1U) {
+      trace_netf("object-decode: create invalid_attachment_payload id=%u bytes=%u material_offset=%u attach_vehicle=%u attach_object=%u",
+                 static_cast<unsigned int>(object_id), bytes, material_count_offset,
+                 static_cast<unsigned int>(attach_vehicle_id), static_cast<unsigned int>(attach_object_id));
+      return false;
+    }
+  }
+  materials_count = static_cast<unsigned int>(data[material_count_offset]);
+  if (!object_id_valid(object_id) || !object_model_plausible(model) || !object_vec_plausible(pos) ||
+      !object_rot_plausible(rot) || !std::isfinite(draw_distance) || draw_distance < 0.0f ||
+      draw_distance > 10000.0f) {
+    trace_netf("object-decode: create invalid id=%u model=%d bytes=%u draw=%.3f pos=%.3f %.3f %.3f rot=%.3f %.3f %.3f",
+               static_cast<unsigned int>(object_id), static_cast<int>(model), bytes,
+               static_cast<double>(draw_distance), static_cast<double>(pos[0]), static_cast<double>(pos[1]),
+               static_cast<double>(pos[2]),
+               static_cast<double>(rot[0]), static_cast<double>(rot[1]), static_cast<double>(rot[2]));
+    return false;
+  }
+
+  event = queue_object_event(SAMP_RAKNET_OBJECT_ACTION_CREATE, object_id);
+  event->model = model;
+  std::memcpy(event->pos, pos, sizeof(event->pos));
+  std::memcpy(event->rot, rot, sizeof(event->rot));
+  event->has_pos = 1U;
+  event->has_attachment = has_attachment ? 1U : 0U;
+  event->materials_count = static_cast<unsigned char>(materials_count);
+  trace_netf("object-decode: create seq=%u id=%u model=%d draw=%.3f attach=%u materials=%u pos=%.3f %.3f %.3f rot=%.3f %.3f %.3f",
+             event->seq, static_cast<unsigned int>(object_id), static_cast<int>(model),
+             static_cast<double>(draw_distance), has_attachment ? 1U : 0U, materials_count,
+             static_cast<double>(pos[0]), static_cast<double>(pos[1]), static_cast<double>(pos[2]),
+             static_cast<double>(rot[0]), static_cast<double>(rot[1]), static_cast<double>(rot[2]));
+  return true;
+}
+
+bool decode_object_set_pos_payload(const unsigned char *data, unsigned int bytes) {
+  unsigned short object_id = 0U;
+  float pos[3] = {0.0f, 0.0f, 0.0f};
+  samp_raknet_object_event *event = nullptr;
+
+  if (data == nullptr || bytes < kOpenMpObjectSetPosMinBytes) {
+    return false;
+  }
+  object_id = read_le16(data);
+  read_vec3(data + 2U, pos);
+  if (!object_id_valid(object_id) || !object_vec_plausible(pos)) {
+    trace_netf("object-decode: set_pos invalid id=%u bytes=%u pos=%.3f %.3f %.3f",
+               static_cast<unsigned int>(object_id), bytes, static_cast<double>(pos[0]),
+               static_cast<double>(pos[1]), static_cast<double>(pos[2]));
+    return false;
+  }
+
+  event = queue_object_event(SAMP_RAKNET_OBJECT_ACTION_SET_POS, object_id);
+  std::memcpy(event->pos, pos, sizeof(event->pos));
+  event->has_pos = 1U;
+  trace_netf("object-decode: set_pos seq=%u id=%u pos=%.3f %.3f %.3f", event->seq,
+             static_cast<unsigned int>(object_id), static_cast<double>(pos[0]), static_cast<double>(pos[1]),
+             static_cast<double>(pos[2]));
+  return true;
+}
+
+bool decode_object_set_rot_payload(const unsigned char *data, unsigned int bytes) {
+  unsigned short object_id = 0U;
+  float rot[3] = {0.0f, 0.0f, 0.0f};
+  samp_raknet_object_event *event = nullptr;
+
+  if (data == nullptr || bytes < kOpenMpObjectSetRotMinBytes) {
+    return false;
+  }
+  object_id = read_le16(data);
+  read_vec3(data + 2U, rot);
+  if (!object_id_valid(object_id) || !object_rot_plausible(rot)) {
+    trace_netf("object-decode: set_rot invalid id=%u bytes=%u rot=%.3f %.3f %.3f",
+               static_cast<unsigned int>(object_id), bytes, static_cast<double>(rot[0]),
+               static_cast<double>(rot[1]), static_cast<double>(rot[2]));
+    return false;
+  }
+
+  event = queue_object_event(SAMP_RAKNET_OBJECT_ACTION_SET_ROT, object_id);
+  std::memcpy(event->rot, rot, sizeof(event->rot));
+  trace_netf("object-decode: set_rot seq=%u id=%u rot=%.3f %.3f %.3f", event->seq,
+             static_cast<unsigned int>(object_id), static_cast<double>(rot[0]), static_cast<double>(rot[1]),
+             static_cast<double>(rot[2]));
+  return true;
+}
+
+bool decode_object_destroy_payload(const unsigned char *data, unsigned int bytes) {
+  unsigned short object_id = 0U;
+  samp_raknet_object_event *event = nullptr;
+
+  if (data == nullptr || bytes < kOpenMpObjectDestroyMinBytes) {
+    return false;
+  }
+  object_id = read_le16(data);
+  if (!object_id_valid(object_id)) {
+    trace_netf("object-decode: destroy invalid id=%u bytes=%u", static_cast<unsigned int>(object_id), bytes);
+    return false;
+  }
+
+  event = queue_object_event(SAMP_RAKNET_OBJECT_ACTION_DESTROY, object_id);
+  trace_netf("object-decode: destroy seq=%u id=%u", event->seq, static_cast<unsigned int>(object_id));
+  return true;
+}
+
+bool decode_object_move_payload(const unsigned char *data, unsigned int bytes) {
+  unsigned short object_id = 0U;
+  float from[3] = {0.0f, 0.0f, 0.0f};
+  float to[3] = {0.0f, 0.0f, 0.0f};
+  float target_rot[3] = {0.0f, 0.0f, 0.0f};
+  float speed = 0.0f;
+  samp_raknet_object_event *event = nullptr;
+
+  if (data == nullptr || bytes < kOpenMpObjectMoveMinBytes) {
+    return false;
+  }
+  object_id = read_le16(data);
+  read_vec3(data + 2U, from);
+  read_vec3(data + 14U, to);
+  speed = read_le_float(data + 26U);
+  read_vec3(data + 30U, target_rot);
+  if (!object_id_valid(object_id) || !object_vec_plausible(from) || !object_vec_plausible(to) ||
+      !object_rot_plausible(target_rot) || !std::isfinite(speed) || speed < 0.0f || speed > 10000.0f) {
+    trace_netf("object-decode: move invalid id=%u bytes=%u from=%.3f %.3f %.3f to=%.3f %.3f %.3f speed=%.3f rot=%.3f %.3f %.3f",
+               static_cast<unsigned int>(object_id), bytes, static_cast<double>(from[0]),
+               static_cast<double>(from[1]), static_cast<double>(from[2]), static_cast<double>(to[0]),
+               static_cast<double>(to[1]), static_cast<double>(to[2]), static_cast<double>(speed),
+               static_cast<double>(target_rot[0]), static_cast<double>(target_rot[1]),
+               static_cast<double>(target_rot[2]));
+    return false;
+  }
+
+  event = queue_object_event(SAMP_RAKNET_OBJECT_ACTION_MOVE, object_id);
+  std::memcpy(event->move_from, from, sizeof(event->move_from));
+  std::memcpy(event->move_to, to, sizeof(event->move_to));
+  std::memcpy(event->rot, target_rot, sizeof(event->rot));
+  event->move_speed = speed;
+  event->has_pos = 1U;
+  trace_netf("object-decode: move seq=%u id=%u from=%.3f %.3f %.3f to=%.3f %.3f %.3f speed=%.3f rot=%.3f %.3f %.3f",
+             event->seq, static_cast<unsigned int>(object_id), static_cast<double>(from[0]),
+             static_cast<double>(from[1]), static_cast<double>(from[2]), static_cast<double>(to[0]),
+             static_cast<double>(to[1]), static_cast<double>(to[2]), static_cast<double>(speed),
+             static_cast<double>(target_rot[0]), static_cast<double>(target_rot[1]),
+             static_cast<double>(target_rot[2]));
+  return true;
+}
+
+bool decode_object_stop_payload(const unsigned char *data, unsigned int bytes) {
+  unsigned short object_id = 0U;
+  samp_raknet_object_event *event = nullptr;
+
+  if (data == nullptr || bytes < kOpenMpObjectStopMinBytes) {
+    return false;
+  }
+  object_id = read_le16(data);
+  if (!object_id_valid(object_id)) {
+    trace_netf("object-decode: stop invalid id=%u bytes=%u", static_cast<unsigned int>(object_id), bytes);
+    return false;
+  }
+
+  event = queue_object_event(SAMP_RAKNET_OBJECT_ACTION_STOP, object_id);
+  trace_netf("object-decode: stop seq=%u id=%u", event->seq, static_cast<unsigned int>(object_id));
+  return true;
+}
+
+bool vehicle_id_valid(unsigned int vehicle_id) {
+  return vehicle_id < SAMP_RAKNET_MAX_VEHICLES;
+}
+
+bool vehicle_model_valid(std::int32_t model) {
+  return model >= kSampVehicleModelMin && model <= kSampVehicleModelMax;
+}
+
+bool vehicle_vec_plausible(const float vec[3]) {
+  return vec != nullptr && std::isfinite(vec[0]) && std::isfinite(vec[1]) && std::isfinite(vec[2]) &&
+         vec[0] > -30000.0f && vec[0] < 30000.0f && vec[1] > -30000.0f && vec[1] < 30000.0f &&
+         vec[2] > -5000.0f && vec[2] < 20000.0f;
+}
+
+bool vehicle_rotation_plausible(float rotation) {
+  return std::isfinite(rotation) && rotation > -720.0f && rotation < 720.0f;
+}
+
+bool vehicle_health_plausible(float health) {
+  return std::isfinite(health) && health >= 0.0f && health <= 10000.0f;
+}
+
+samp_raknet_vehicle_event *queue_vehicle_event(unsigned char action, unsigned short vehicle_id) {
+  ++g_rpc_probe.vehicle_event_seq;
+  if (g_rpc_probe.vehicle_event_seq == 0U) {
+    g_rpc_probe.vehicle_event_seq = 1U;
+  }
+  const unsigned int slot = (g_rpc_probe.vehicle_event_seq - 1U) % SAMP_RAKNET_VEHICLE_EVENT_RING;
+  samp_raknet_vehicle_event *event = &g_rpc_probe.vehicle_events[slot];
+
+  std::memset(event, 0, sizeof(*event));
+  event->seq = g_rpc_probe.vehicle_event_seq;
+  event->action = action;
+  event->vehicle_id = vehicle_id;
+  g_rpc_probe.saw_vehicle_event = 1;
+  return event;
+}
+
+bool decode_vehicle_add_payload(const unsigned char *data, unsigned int bytes) {
+  unsigned short vehicle_id = 0U;
+  std::int32_t model = 0;
+  float pos[3] = {0.0f, 0.0f, 0.0f};
+  float rotation = 0.0f;
+  float health = 0.0f;
+  unsigned int mods_nonzero = 0U;
+  samp_raknet_vehicle_event *event = nullptr;
+
+  if (data == nullptr || bytes < kOpenMpVehicleAddBytes) {
+    trace_netf("vehicle-decode: create unsupported_payload bytes=%u expected_openmp_bytes=%u",
+               bytes, kOpenMpVehicleAddBytes);
+    return false;
+  }
+
+  /* OPENMP_REF:
+   * Shared/NetCode/vehicle.hpp StreamInVehicle RPC 164 writes this 63-byte 0.3.7 payload.
+   * OLD_02X_REF is older and shorter; do not reinterpret that as a vehicle here.
+   */
+  vehicle_id = read_le16(data);
+  model = read_le_i32(data + 2U);
+  read_vec3(data + 6U, pos);
+  rotation = read_le_float(data + 18U);
+  health = read_le_float(data + 24U);
+  if (!vehicle_id_valid(vehicle_id) || !vehicle_model_valid(model) || !vehicle_vec_plausible(pos) ||
+      !vehicle_rotation_plausible(rotation) || !vehicle_health_plausible(health)) {
+    trace_netf("vehicle-decode: create invalid id=%u model=%d bytes=%u pos=%.3f %.3f %.3f rot=%.3f health=%.3f",
+               static_cast<unsigned int>(vehicle_id), static_cast<int>(model), bytes,
+               static_cast<double>(pos[0]), static_cast<double>(pos[1]), static_cast<double>(pos[2]),
+               static_cast<double>(rotation), static_cast<double>(health));
+    return false;
+  }
+
+  event = queue_vehicle_event(SAMP_RAKNET_VEHICLE_ACTION_CREATE, vehicle_id);
+  event->model = model;
+  std::memcpy(event->pos, pos, sizeof(event->pos));
+  event->rotation = rotation;
+  event->color1 = data[22U];
+  event->color2 = data[23U];
+  event->health = health;
+  event->interior = data[28U];
+  event->door_damage = read_le32(data + 29U);
+  event->panel_damage = read_le32(data + 33U);
+  event->light_damage = data[37U];
+  event->tyre_damage = data[38U];
+  event->siren = data[39U];
+  std::memcpy(event->mods, data + kOpenMpVehicleModOffset, sizeof(event->mods));
+  event->paintjob = data[kOpenMpVehiclePaintjobOffset];
+  event->body_color1 = read_le_i32(data + kOpenMpVehicleBodyColor1Offset);
+  event->body_color2 = read_le_i32(data + kOpenMpVehicleBodyColor2Offset);
+
+  for (unsigned int i = 0U; i < SAMP_RAKNET_VEHICLE_MOD_SLOTS; ++i) {
+    if (event->mods[i] != 0U) {
+      ++mods_nonzero;
+    }
+  }
+
+  trace_netf("vehicle-decode: create seq=%u id=%u model=%d pos=%.3f %.3f %.3f rot=%.3f colors=%u/%u health=%.3f interior=%u siren=%u mods=%u paintjob=%u body=%d/%d",
+             event->seq, static_cast<unsigned int>(vehicle_id), static_cast<int>(model),
+             static_cast<double>(pos[0]), static_cast<double>(pos[1]), static_cast<double>(pos[2]),
+             static_cast<double>(rotation), static_cast<unsigned int>(event->color1),
+             static_cast<unsigned int>(event->color2), static_cast<double>(health),
+             static_cast<unsigned int>(event->interior), static_cast<unsigned int>(event->siren), mods_nonzero,
+             static_cast<unsigned int>(event->paintjob), static_cast<int>(event->body_color1),
+             static_cast<int>(event->body_color2));
+  return true;
+}
+
+bool decode_vehicle_remove_payload(const unsigned char *data, unsigned int bytes) {
+  unsigned short vehicle_id = 0U;
+  samp_raknet_vehicle_event *event = nullptr;
+
+  if (data == nullptr || bytes < kOpenMpVehicleRemoveMinBytes) {
+    return false;
+  }
+  vehicle_id = read_le16(data);
+  if (!vehicle_id_valid(vehicle_id)) {
+    trace_netf("vehicle-decode: destroy invalid id=%u bytes=%u", static_cast<unsigned int>(vehicle_id), bytes);
+    return false;
+  }
+
+  event = queue_vehicle_event(SAMP_RAKNET_VEHICLE_ACTION_DESTROY, vehicle_id);
+  trace_netf("vehicle-decode: destroy seq=%u id=%u", event->seq, static_cast<unsigned int>(vehicle_id));
+  return true;
 }
 
 bool decode_init_game_payload(const unsigned char *data, unsigned int bytes) {
@@ -1503,19 +1915,33 @@ void show_manual_dialog_window(void) {
 }
 #endif
 
-void send_spawn_notification(RakNet::RakClientInterface *rak_client) {
+int send_spawn_notification_with_seq(RakNet::RakClientInterface *rak_client, unsigned int spawn_info_seq) {
   RakNet::BitStream bs_send;
 
-  if (rak_client == nullptr || g_rpc_probe.sent_spawn_notify) {
-    return;
+  if (rak_client == nullptr) {
+    return -1;
+  }
+  if (spawn_info_seq == 0U && g_rpc_probe.sent_spawn_notify) {
+    return 0;
+  }
+  if (spawn_info_seq != 0U && g_rpc_probe.sent_spawn_notify_seq == spawn_info_seq) {
+    return 0;
   }
 
   const int sent = rak_client->RPC(kRpcSpawn, &bs_send, RakNet::HIGH_PRIORITY, RakNet::RELIABLE_SEQUENCED, 0, false,
                                   RakNet::UNASSIGNED_NETWORK_ID, nullptr)
                        ? 1
                        : 0;
-  g_rpc_probe.sent_spawn_notify = 1;
-  trace_netf("rpc-auto-out id=52 name=SpawnNotify sent=%d", sent);
+  if (sent != 0) {
+    g_rpc_probe.sent_spawn_notify = 1;
+    g_rpc_probe.sent_spawn_notify_seq = spawn_info_seq;
+  }
+  trace_netf("rpc-auto-out id=52 name=SpawnNotify seq=%u sent=%d", spawn_info_seq, sent);
+  return sent != 0 ? 0 : -2;
+}
+
+void send_spawn_notification(RakNet::RakClientInterface *rak_client) {
+  (void)send_spawn_notification_with_seq(rak_client, 0U);
 }
 
 void service_rpc_probe_actions(RakNet::RakClientInterface *rak_client) {
@@ -1799,6 +2225,40 @@ void rpc_observer(RakNet::RPCParameters *rpc_params, void *extra) {
   } else if (rpc_id == 136U) {
     if (rpc_params == nullptr || !decode_textdraw_edit_payload(rpc_params->input, bytes)) {
       trace_netf("rpc-state id=136 textdraw_edit decode_failed bytes=%u", bytes);
+    }
+  } else if (rpc_id == 44U) {
+    if (rpc_params == nullptr || !decode_object_create_payload(rpc_params->input, bytes)) {
+      trace_netf("rpc-state id=44 object_create decode_failed bytes=%u", bytes);
+    }
+  } else if (rpc_id == 45U) {
+    if (rpc_params == nullptr || !decode_object_set_pos_payload(rpc_params->input, bytes)) {
+      trace_netf("rpc-state id=45 object_set_pos decode_failed bytes=%u", bytes);
+    }
+  } else if (rpc_id == 46U) {
+    if (rpc_params == nullptr || !decode_object_set_rot_payload(rpc_params->input, bytes)) {
+      trace_netf("rpc-state id=46 object_set_rot decode_failed bytes=%u", bytes);
+    }
+  } else if (rpc_id == 47U) {
+    if (rpc_params == nullptr || !decode_object_destroy_payload(rpc_params->input, bytes)) {
+      trace_netf("rpc-state id=47 object_destroy decode_failed bytes=%u", bytes);
+    }
+  } else if (rpc_id == 75U) {
+    trace_netf("rpc-state id=75 object_attach unsupported_yet=1 bytes=%u observe_only=1", bytes);
+  } else if (rpc_id == 99U) {
+    if (rpc_params == nullptr || !decode_object_move_payload(rpc_params->input, bytes)) {
+      trace_netf("rpc-state id=99 object_move decode_failed bytes=%u", bytes);
+    }
+  } else if (rpc_id == 122U) {
+    if (rpc_params == nullptr || !decode_object_stop_payload(rpc_params->input, bytes)) {
+      trace_netf("rpc-state id=122 object_stop decode_failed bytes=%u", bytes);
+    }
+  } else if (rpc_id == 164U) {
+    if (rpc_params == nullptr || !decode_vehicle_add_payload(rpc_params->input, bytes)) {
+      trace_netf("rpc-state id=164 vehicle_add decode_failed bytes=%u", bytes);
+    }
+  } else if (rpc_id == 165U) {
+    if (rpc_params == nullptr || !decode_vehicle_remove_payload(rpc_params->input, bytes)) {
+      trace_netf("rpc-state id=165 vehicle_remove decode_failed bytes=%u", bytes);
     }
   } else if (rpc_id == 68U) {
     if (rpc_params != nullptr && bytes >= kLegacyPlayerSpawnInfoBytes) {
@@ -2297,6 +2757,32 @@ int samp_raknet_client_send_textdraw_click(void *client, uint16_t textdraw_id) {
   return sent ? 0 : -2;
 }
 
+int samp_raknet_client_send_onfoot_sync(void *client, const samp_raknet_onfoot_sync *sync) {
+  RakNet::BitStream bs_send;
+  int sent = 0;
+
+  if (client == nullptr || client != g_rpc_probe.client || sync == nullptr) {
+    return -1;
+  }
+
+  /*
+   * OPENMP_REF + OLD_02X_REF + INFERRED:
+   * Client -> server player sync is packet 207 followed by the 0.3.7 on-foot payload. open.mp's read path
+   * consumes the packet id before PlayerFootSync::read(); SAMPFUNCS documents the 68-byte 0.3.7 payload layout.
+   */
+  bs_send.Write(kPacketPlayerSync);
+  bs_send.Write(reinterpret_cast<const char *>(sync), static_cast<int>(sizeof(*sync)));
+  sent = static_cast<RakNet::RakClientInterface *>(client)
+             ->Send(&bs_send, RakNet::HIGH_PRIORITY, RakNet::UNRELIABLE_SEQUENCED, 0)
+             ? 1
+             : 0;
+  trace_netf("packet-user-out id=%u name=PlayerFootSync sent=%d pos=%.3f %.3f %.3f health=%u weapon=%u",
+             static_cast<unsigned int>(kPacketPlayerSync), sent, static_cast<double>(sync->position[0]),
+             static_cast<double>(sync->position[1]), static_cast<double>(sync->position[2]),
+             static_cast<unsigned int>(sync->health), static_cast<unsigned int>(sync->current_weapon));
+  return sent ? 0 : -2;
+}
+
 int samp_raknet_client_drain_packets(void *client, int max_packets) {
   return drain_packets_internal(client, max_packets, nullptr, 0, nullptr, nullptr, nullptr);
 }
@@ -2358,6 +2844,12 @@ int samp_raknet_client_get_rpc_probe_snapshot(void *client, samp_raknet_rpc_prob
   if (g_rpc_probe.saw_textdraw_select && g_rpc_probe.textdraw_select_active) {
     flags |= SAMP_RAKNET_RPC_FLAG_TEXTDRAW_SELECT;
   }
+  if (g_rpc_probe.object_event_seq > 0U) {
+    flags |= SAMP_RAKNET_RPC_FLAG_OBJECT_EVENT;
+  }
+  if (g_rpc_probe.vehicle_event_seq > 0U) {
+    flags |= SAMP_RAKNET_RPC_FLAG_VEHICLE_EVENT;
+  }
   if (g_rpc_probe.sent_request_class) {
     flags |= SAMP_RAKNET_RPC_FLAG_REQUEST_CLASS_SENT;
   }
@@ -2368,6 +2860,8 @@ int samp_raknet_client_get_rpc_probe_snapshot(void *client, samp_raknet_rpc_prob
   out_snapshot->flags = flags;
   out_snapshot->client_message_count = 0U;
   out_snapshot->textdraw_event_count = 0U;
+  out_snapshot->object_event_count = 0U;
+  out_snapshot->vehicle_event_count = 0U;
   out_snapshot->textdraw_select_active = g_rpc_probe.textdraw_select_active;
   out_snapshot->textdraw_select_color = g_rpc_probe.textdraw_select_color;
   out_snapshot->init_spawns_available = g_rpc_probe.init_spawns_available;
@@ -2412,6 +2906,7 @@ int samp_raknet_client_get_rpc_probe_snapshot(void *client, samp_raknet_rpc_prob
   std::memcpy(out_snapshot->camera_look_at, g_rpc_probe.camera_look_at, sizeof(out_snapshot->camera_look_at));
   out_snapshot->camera_look_at_type = g_rpc_probe.camera_look_at_type;
   out_snapshot->spawn_team = g_rpc_probe.spawn_team;
+  out_snapshot->spawn_info_seq = g_rpc_probe.spawn_info_seq;
   out_snapshot->spawn_skin = g_rpc_probe.spawn_skin;
   std::memcpy(out_snapshot->spawn_pos, g_rpc_probe.spawn_pos, sizeof(out_snapshot->spawn_pos));
   out_snapshot->spawn_rotation = g_rpc_probe.spawn_rotation;
@@ -2445,6 +2940,34 @@ int samp_raknet_client_get_rpc_probe_snapshot(void *client, samp_raknet_rpc_prob
       }
     }
   }
+  std::memset(out_snapshot->object_events, 0, sizeof(out_snapshot->object_events));
+  if (g_rpc_probe.object_event_seq > 0U) {
+    const unsigned int available = g_rpc_probe.object_event_seq < SAMP_RAKNET_OBJECT_EVENT_RING
+                                       ? g_rpc_probe.object_event_seq
+                                       : SAMP_RAKNET_OBJECT_EVENT_RING;
+    const unsigned int first_seq = g_rpc_probe.object_event_seq - available + 1U;
+    for (unsigned int i = 0U; i < available; ++i) {
+      const unsigned int seq = first_seq + i;
+      const unsigned int slot = (seq - 1U) % SAMP_RAKNET_OBJECT_EVENT_RING;
+      if (g_rpc_probe.object_events[slot].seq == seq) {
+        out_snapshot->object_events[out_snapshot->object_event_count++] = g_rpc_probe.object_events[slot];
+      }
+    }
+  }
+  std::memset(out_snapshot->vehicle_events, 0, sizeof(out_snapshot->vehicle_events));
+  if (g_rpc_probe.vehicle_event_seq > 0U) {
+    const unsigned int available = g_rpc_probe.vehicle_event_seq < SAMP_RAKNET_VEHICLE_EVENT_RING
+                                       ? g_rpc_probe.vehicle_event_seq
+                                       : SAMP_RAKNET_VEHICLE_EVENT_RING;
+    const unsigned int first_seq = g_rpc_probe.vehicle_event_seq - available + 1U;
+    for (unsigned int i = 0U; i < available; ++i) {
+      const unsigned int seq = first_seq + i;
+      const unsigned int slot = (seq - 1U) % SAMP_RAKNET_VEHICLE_EVENT_RING;
+      if (g_rpc_probe.vehicle_events[slot].seq == seq) {
+        out_snapshot->vehicle_events[out_snapshot->vehicle_event_count++] = g_rpc_probe.vehicle_events[slot];
+      }
+    }
+  }
   return 0;
 }
 
@@ -2453,8 +2976,16 @@ int samp_raknet_client_send_spawn_notification(void *client) {
     return -1;
   }
 
-  send_spawn_notification(static_cast<RakNet::RakClientInterface *>(client));
-  return 0;
+  return send_spawn_notification_with_seq(static_cast<RakNet::RakClientInterface *>(client), 0U);
+}
+
+int samp_raknet_client_send_spawn_notification_for_seq(void *client, uint32_t spawn_info_seq) {
+  if (client == nullptr || client != g_rpc_probe.client) {
+    return -1;
+  }
+
+  return send_spawn_notification_with_seq(static_cast<RakNet::RakClientInterface *>(client),
+                                          static_cast<unsigned int>(spawn_info_seq));
 }
 
 int samp_raknet_client_queue_dialog_response(void *client, uint16_t dialog_id, uint8_t button, int16_t listitem,
