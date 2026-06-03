@@ -106,6 +106,9 @@ struct RpcProbeState {
   int saw_player_pos;
   int saw_player_facing;
   int saw_weather;
+  int saw_world_time;
+  int saw_set_time_ex;
+  int saw_toggle_clock;
   int saw_interior;
   int saw_camera_pos;
   int saw_camera_look_at;
@@ -165,6 +168,9 @@ struct RpcProbeState {
   unsigned int player_pos_seq;
   unsigned int player_facing_seq;
   unsigned char weather;
+  unsigned char world_time_hour;
+  unsigned char world_time_minute;
+  unsigned char clock_enabled;
   unsigned char interior;
   float camera_pos[3];
   float camera_look_at[3];
@@ -323,6 +329,8 @@ const char *rpc_name(unsigned int rpc_id) {
       return "ScrGivePlayerWeapon";
     case 25:
       return "ClientJoin";
+    case 29:
+      return "SetTimeEx";
     case 32:
       return "WorldPlayerAdd";
     case 44:
@@ -385,6 +393,8 @@ const char *rpc_name(unsigned int rpc_id) {
       return "ServerQuit";
     case 139:
       return "InitGame";
+    case 144:
+      return "ToggleClock";
     case 152:
       return "Weather";
     case 153:
@@ -417,6 +427,9 @@ void reset_rpc_probe_runtime(RakNet::RakClientInterface *client) {
   g_rpc_probe.saw_player_pos = 0;
   g_rpc_probe.saw_player_facing = 0;
   g_rpc_probe.saw_weather = 0;
+  g_rpc_probe.saw_world_time = 0;
+  g_rpc_probe.saw_set_time_ex = 0;
+  g_rpc_probe.saw_toggle_clock = 0;
   g_rpc_probe.saw_interior = 0;
   g_rpc_probe.saw_camera_pos = 0;
   g_rpc_probe.saw_camera_look_at = 0;
@@ -476,6 +489,9 @@ void reset_rpc_probe_runtime(RakNet::RakClientInterface *client) {
   g_rpc_probe.player_pos_seq = 0U;
   g_rpc_probe.player_facing_seq = 0U;
   g_rpc_probe.weather = 0;
+  g_rpc_probe.world_time_hour = 12U;
+  g_rpc_probe.world_time_minute = 0U;
+  g_rpc_probe.clock_enabled = 0U;
   g_rpc_probe.interior = 0;
   std::memset(g_rpc_probe.camera_pos, 0, sizeof(g_rpc_probe.camera_pos));
   std::memset(g_rpc_probe.camera_look_at, 0, sizeof(g_rpc_probe.camera_look_at));
@@ -2332,6 +2348,40 @@ void rpc_observer(RakNet::RPCParameters *rpc_params, void *extra) {
       g_rpc_probe.weather = rpc_params->input[0];
       trace_netf("rpc-state id=152 weather=%u observe_only=1", static_cast<unsigned int>(g_rpc_probe.weather));
     }
+  } else if (rpc_id == 94U) {
+    if (rpc_params != nullptr && bytes >= 1U) {
+      const unsigned char hour = rpc_params->input[0];
+      if (hour < 24U) {
+        g_rpc_probe.saw_world_time = 1;
+        g_rpc_probe.world_time_hour = hour;
+        trace_netf("rpc-state id=94 world_time=%u observe_only=1", static_cast<unsigned int>(hour));
+      } else {
+        trace_netf("rpc-state id=94 invalid_world_time=%u bytes=%u observe_only=1",
+                   static_cast<unsigned int>(hour), bytes);
+      }
+    }
+  } else if (rpc_id == 29U) {
+    if (rpc_params != nullptr && bytes >= 2U) {
+      const unsigned char hour = rpc_params->input[0];
+      const unsigned char minute = rpc_params->input[1];
+      if (hour < 24U && minute < 60U) {
+        g_rpc_probe.saw_set_time_ex = 1;
+        g_rpc_probe.world_time_hour = hour;
+        g_rpc_probe.world_time_minute = minute;
+        trace_netf("rpc-state id=29 set_time_ex=%u:%02u observe_only=1", static_cast<unsigned int>(hour),
+                   static_cast<unsigned int>(minute));
+      } else {
+        trace_netf("rpc-state id=29 invalid_set_time_ex=%u:%u bytes=%u observe_only=1",
+                   static_cast<unsigned int>(hour), static_cast<unsigned int>(minute), bytes);
+      }
+    }
+  } else if (rpc_id == 144U) {
+    if (rpc_params != nullptr && bytes >= 1U) {
+      g_rpc_probe.saw_toggle_clock = 1;
+      g_rpc_probe.clock_enabled = rpc_params->input[0] != 0U ? 1U : 0U;
+      trace_netf("rpc-state id=144 toggle_clock=%u observe_only=1",
+                 static_cast<unsigned int>(g_rpc_probe.clock_enabled));
+    }
   } else if (rpc_id == 156U) {
     if (rpc_params != nullptr && bytes >= 1U) {
       g_rpc_probe.saw_interior = 1;
@@ -2851,6 +2901,15 @@ int samp_raknet_client_get_rpc_probe_snapshot(void *client, samp_raknet_rpc_prob
   if (g_rpc_probe.saw_weather) {
     flags |= SAMP_RAKNET_RPC_FLAG_WEATHER;
   }
+  if (g_rpc_probe.saw_world_time) {
+    flags |= SAMP_RAKNET_RPC_FLAG_WORLD_TIME;
+  }
+  if (g_rpc_probe.saw_set_time_ex) {
+    flags |= SAMP_RAKNET_RPC_FLAG_SET_TIME_EX;
+  }
+  if (g_rpc_probe.saw_toggle_clock) {
+    flags |= SAMP_RAKNET_RPC_FLAG_TOGGLE_CLOCK;
+  }
   if (g_rpc_probe.saw_interior) {
     flags |= SAMP_RAKNET_RPC_FLAG_INTERIOR;
   }
@@ -2926,6 +2985,9 @@ int samp_raknet_client_get_rpc_probe_snapshot(void *client, samp_raknet_rpc_prob
   out_snapshot->player_pos_seq = g_rpc_probe.player_pos_seq;
   out_snapshot->player_facing_seq = g_rpc_probe.player_facing_seq;
   out_snapshot->weather = g_rpc_probe.weather;
+  out_snapshot->world_time_hour = g_rpc_probe.world_time_hour;
+  out_snapshot->world_time_minute = g_rpc_probe.world_time_minute;
+  out_snapshot->clock_enabled = g_rpc_probe.clock_enabled;
   out_snapshot->interior = g_rpc_probe.interior;
   std::memcpy(out_snapshot->camera_pos, g_rpc_probe.camera_pos, sizeof(out_snapshot->camera_pos));
   std::memcpy(out_snapshot->camera_look_at, g_rpc_probe.camera_look_at, sizeof(out_snapshot->camera_look_at));

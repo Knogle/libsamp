@@ -145,11 +145,14 @@
 #define SAMP_MP_BRIDGE_MAX_APPLIES 3600
 #define SAMP_MP_BRIDGE_TELEPORT_PERIOD 15
 #define SAMP_ONFOOT_SYNC_INTERVAL_MS 250u
+#define SAMP_LOCAL_STREAM_REFRESH_INTERVAL_MS 750u
+#define SAMP_LOCAL_STREAM_REFRESH_DISTANCE 80.0f
 #define SAMP_PED_OFFSET_MATRIX 20u
 #define SAMP_PED_OFFSET_STATE_FLAGS 1132u
 #define SAMP_PED_OFFSET_HEALTH 1344u
 #define SAMP_PED_OFFSET_ROTATION1 1368u
 #define SAMP_PED_OFFSET_ROTATION2 1372u
+#define SAMP_PED_OFFSET_VEHICLE 1420u
 #define SAMP_PED_STATE_IN_VEHICLE 0x100u
 #define SAMP_VEHICLE_SCANNER_DISTANCE 200.0f
 #define SAMP_VEHICLE_OFFSET_DRIVER 1120u
@@ -245,6 +248,7 @@
 #define SAMP_GTA_MODEL_INFO_COUNT 20000u
 #define SAMP_RAKNET_RPC_FLAG_GAME_STATE_MASK                                                                      \
   (SAMP_RAKNET_RPC_FLAG_PLAYER_POS | SAMP_RAKNET_RPC_FLAG_PLAYER_FACING | SAMP_RAKNET_RPC_FLAG_WEATHER |          \
+   SAMP_RAKNET_RPC_FLAG_WORLD_TIME | SAMP_RAKNET_RPC_FLAG_SET_TIME_EX | SAMP_RAKNET_RPC_FLAG_TOGGLE_CLOCK |        \
    SAMP_RAKNET_RPC_FLAG_INTERIOR | SAMP_RAKNET_RPC_FLAG_CAMERA_POS | SAMP_RAKNET_RPC_FLAG_CAMERA_LOOK_AT)
 
 /* Emitted in logs so test runs can be matched to the deployed DLL. */
@@ -569,6 +573,8 @@ typedef struct samp_runtime_state {
   LONG preconnect_loaded_state_logged;
   LONG preconnect_scene_loaded;
   LONG mp_session_scene_loaded;
+  LONG raknet_time_apply_logged;
+  LONG local_stream_refresh_logged;
   LONG select_device_hook_attempted;
   LONG select_device_hook_installed;
   LONG select_device_video_mode_applied;
@@ -588,6 +594,11 @@ typedef struct samp_runtime_state {
   DWORD preconnect_ped_seen_tick;
   uint8_t time_passing_saved_byte;
   uint8_t raknet_weather;
+  uint8_t raknet_world_hour;
+  uint8_t raknet_world_minute;
+  uint8_t raknet_world_time_valid;
+  uint8_t raknet_clock_enabled;
+  uint8_t raknet_hold_time;
   uint8_t raknet_interior;
   uint8_t raknet_spawn_team;
   uint8_t raknet_camera_look_at_type;
@@ -603,6 +614,7 @@ typedef struct samp_runtime_state {
   DWORD script_gate_old_protect;
   DWORD net_mgr_last_connect_attempt_tick;
   DWORD onfoot_sync_last_tick;
+  DWORD local_stream_refresh_last_tick;
   void *bootstrap_manager_block;
   uintptr_t game_process_hook_stub;
   uintptr_t select_device_hook_stub;
@@ -614,6 +626,7 @@ typedef struct samp_runtime_state {
   uint8_t script_thread[SAMP_SCRIPT_THREAD_BYTES];
   uint8_t script_buf[SAMP_SCRIPT_BUF_BYTES];
   float raknet_player_pos[3];
+  float local_stream_refresh_pos[3];
   float raknet_player_facing_angle;
   LONG raknet_player_pos_seq;
   LONG raknet_player_facing_seq;
@@ -6377,6 +6390,36 @@ static void restore_time_passing_patch_compat(void) {
   InterlockedExchange(&g_runtime.time_passing_patch_applied, 0);
 }
 
+static int valid_world_time_compat(uint8_t hour, uint8_t minute) {
+  return hour < 24u && minute < 60u;
+}
+
+static void apply_network_time_weather_compat(const char *reason) {
+  DWORD weather_value = (DWORD)g_runtime.raknet_weather;
+  int time_valid = valid_world_time_compat(g_runtime.raknet_world_hour, g_runtime.raknet_world_minute) &&
+                   g_runtime.raknet_world_time_valid != 0u;
+
+  /*
+   * OLD_02X_REF + PROBE_TRACE + INFERRED:
+   * CNetGame::Process() keeps weather fixed every tick and re-applies world time while HoldTime is active.
+   * 0.3.7-R5 traces from open.mp show WorldTime(id=94), SetTimeEx(id=29) and ToggleClock(id=144); apply only
+   * bounds-checked values so the observed invalid InitGame time byte cannot corrupt GTA's clock state.
+   */
+  if (time_valid) {
+    write_game_u8(SAMP_ADDR_WORLD_HOUR, g_runtime.raknet_world_hour);
+    write_game_u8(SAMP_ADDR_WORLD_MINUTE, g_runtime.raknet_world_minute);
+  }
+  *(volatile DWORD *)(uintptr_t)SAMP_ADDR_WEATHER_A = weather_value;
+  *(volatile DWORD *)(uintptr_t)SAMP_ADDR_WEATHER_B = weather_value;
+
+  if (InterlockedCompareExchange(&g_runtime.raknet_time_apply_logged, 1, 0) == 0) {
+    runtime_tracef("time_weather_apply: reason=%s time_valid=%d time=%u:%02u clock=%u hold=%u weather=%u",
+                   reason != NULL ? reason : "unknown", time_valid, (unsigned)g_runtime.raknet_world_hour,
+                   (unsigned)g_runtime.raknet_world_minute, (unsigned)g_runtime.raknet_clock_enabled,
+                   (unsigned)g_runtime.raknet_hold_time, (unsigned)g_runtime.raknet_weather);
+  }
+}
+
 static void apply_connect_wait_flags_compat(void) {
   LONG entry_before = read_game_entry_gate_value();
   uint8_t game_started_before = read_game_u8(SAMP_ADDR_GAME_STARTED);
@@ -6568,8 +6611,15 @@ static void apply_raknet_init_game_settings_compat(const samp_raknet_rpc_probe_s
   strncpy(g_runtime.raknet_init_hostname, snapshot->init_hostname, sizeof(g_runtime.raknet_init_hostname) - 1u);
   g_runtime.raknet_init_hostname[sizeof(g_runtime.raknet_init_hostname) - 1u] = '\0';
 
-  write_game_u8(SAMP_ADDR_WORLD_HOUR, snapshot->init_world_time);
-  write_game_u8(SAMP_ADDR_WORLD_MINUTE, 0u);
+  if (snapshot->init_world_time < 24u) {
+    g_runtime.raknet_world_hour = snapshot->init_world_time;
+    g_runtime.raknet_world_minute = 0u;
+    g_runtime.raknet_world_time_valid = 1u;
+    write_game_u8(SAMP_ADDR_WORLD_HOUR, snapshot->init_world_time);
+    write_game_u8(SAMP_ADDR_WORLD_MINUTE, 0u);
+  } else {
+    runtime_tracef("init_game_apply: ignoring invalid init_world_time=%u", (unsigned)snapshot->init_world_time);
+  }
   weather_value = (DWORD)snapshot->init_weather;
   *(volatile DWORD *)(uintptr_t)SAMP_ADDR_WEATHER_A = weather_value;
   *(volatile DWORD *)(uintptr_t)SAMP_ADDR_WEATHER_B = weather_value;
@@ -6679,6 +6729,16 @@ static uint32_t refresh_raknet_rpc_snapshot_compat(void) {
   if ((snapshot.flags & SAMP_RAKNET_RPC_FLAG_WEATHER) != 0u) {
     g_runtime.raknet_weather = snapshot.weather;
   }
+  if ((snapshot.flags & (SAMP_RAKNET_RPC_FLAG_WORLD_TIME | SAMP_RAKNET_RPC_FLAG_SET_TIME_EX)) != 0u &&
+      valid_world_time_compat(snapshot.world_time_hour, snapshot.world_time_minute)) {
+    g_runtime.raknet_world_hour = snapshot.world_time_hour;
+    g_runtime.raknet_world_minute = snapshot.world_time_minute;
+    g_runtime.raknet_world_time_valid = 1u;
+  }
+  if ((snapshot.flags & SAMP_RAKNET_RPC_FLAG_TOGGLE_CLOCK) != 0u) {
+    g_runtime.raknet_clock_enabled = snapshot.clock_enabled != 0u ? 1u : 0u;
+    g_runtime.raknet_hold_time = snapshot.clock_enabled != 0u ? 0u : 1u;
+  }
   if ((snapshot.flags & SAMP_RAKNET_RPC_FLAG_INTERIOR) != 0u) {
     g_runtime.raknet_interior = snapshot.interior;
   }
@@ -6781,6 +6841,7 @@ static void maintain_online_session_state(void) {
   if (((uint32_t)rpc_flags & SAMP_RAKNET_RPC_FLAG_INIT_GAME) == 0u) {
     return;
   }
+  apply_network_time_weather_compat("online_session");
 
   spawn_outcome = InterlockedCompareExchange(&g_runtime.raknet_request_spawn_outcome, 0, 0);
   spawn_ready = (((uint32_t)rpc_flags & SAMP_RAKNET_RPC_FLAG_REQUEST_SPAWN_REPLY) != 0u) &&
@@ -6796,6 +6857,8 @@ static void maintain_online_session_state(void) {
   menu_before = read_game_u8(SAMP_ADDR_MENU);
   menu2_before = read_game_u8(SAMP_ADDR_MENU2);
   menu3_before = read_game_u8(SAMP_ADDR_MENU3);
+  write_game_u8(SAMP_ADDR_ENABLE_HUD, 1u);
+  write_game_u8(SAMP_ADDR_RADAR_BLANK, 0u);
 
   if (entry_before != 9 || game_started_before != 0u) {
     LONG drift_seen = InterlockedCompareExchange(&g_runtime.online_session_drift_seen, 0, 0);
@@ -7142,6 +7205,83 @@ static int gta_entity_read_move_speed_compat(uintptr_t entity, float out_speed[3
     return 0;
   }
   return 1;
+}
+
+static int valid_world_position_compat(float x, float y, float z) {
+  return isfinite(x) && isfinite(y) && isfinite(z) && x > -20000.0f && x < 20000.0f && y > -20000.0f &&
+         y < 20000.0f && z > -1000.0f && z < 200000.0f;
+}
+
+static uintptr_t gta_local_stream_entity_compat(uintptr_t ped) {
+  uintptr_t vehicle = 0u;
+
+  if (ped < 0x10000u || ped >= 0x80000000u) {
+    return 0u;
+  }
+  if (gta_ped_is_in_vehicle_compat(ped) &&
+      memory_is_readable_compat((const void *)(ped + SAMP_PED_OFFSET_VEHICLE), sizeof(vehicle))) {
+    memcpy(&vehicle, (const void *)(ped + SAMP_PED_OFFSET_VEHICLE), sizeof(vehicle));
+    if (vehicle >= 0x10000u && vehicle < 0x80000000u) {
+      return vehicle;
+    }
+  }
+  return ped;
+}
+
+static void refresh_local_streaming_from_entity_compat(uintptr_t ped) {
+  uintptr_t entity = 0u;
+  DWORD now = 0u;
+  DWORD last = 0u;
+  float x = 0.0f;
+  float y = 0.0f;
+  float z = 0.0f;
+  float dx = 0.0f;
+  float dy = 0.0f;
+  float dz = 0.0f;
+  float dist_sq = 0.0f;
+  const float min_dist_sq = SAMP_LOCAL_STREAM_REFRESH_DISTANCE * SAMP_LOCAL_STREAM_REFRESH_DISTANCE;
+  int ok = 0;
+
+  entity = gta_local_stream_entity_compat(ped);
+  if (entity == 0u || !gta_entity_read_position_compat(entity, &x, &y, &z) || !valid_world_position_compat(x, y, z)) {
+    return;
+  }
+
+  now = GetTickCount();
+  last = g_runtime.local_stream_refresh_last_tick;
+  if (last != 0u && (DWORD)(now - last) < SAMP_LOCAL_STREAM_REFRESH_INTERVAL_MS) {
+    return;
+  }
+
+  dx = x - g_runtime.local_stream_refresh_pos[0];
+  dy = y - g_runtime.local_stream_refresh_pos[1];
+  dz = z - g_runtime.local_stream_refresh_pos[2];
+  dist_sq = (dx * dx) + (dy * dy) + (dz * dz);
+  if (last != 0u && dist_sq < min_dist_sq) {
+    return;
+  }
+
+  g_runtime.local_stream_refresh_last_tick = now;
+  g_runtime.local_stream_refresh_pos[0] = x;
+  g_runtime.local_stream_refresh_pos[1] = y;
+  g_runtime.local_stream_refresh_pos[2] = z;
+
+  /*
+   * OLD_02X_REF + GTA_REVERSED_REF + INFERRED:
+   * Legacy spawn/teleport paths call RefreshStreamingAt. While driving, no server SetPlayerPos RPC may arrive for
+   * every local movement, so keep GTA's streamer warm from the local vehicle/ped position without forcing movement.
+   */
+  ok = gta_script_command_compat(0x04E4u, "ff", x, y);
+  if (!ok) {
+    mp_bridge_record_script_failure("local_refresh_streaming_at", 0x04E4u);
+    return;
+  }
+  if (InterlockedCompareExchange(&g_runtime.local_stream_refresh_logged, 1, 0) == 0) {
+    runtime_tracef("local_stream_refresh: entity=0x%08lx pos=(%.3f,%.3f,%.3f) interval_ms=%lu distance=%.1f",
+                   (unsigned long)entity, (double)x, (double)y, (double)z,
+                   (unsigned long)SAMP_LOCAL_STREAM_REFRESH_INTERVAL_MS,
+                   (double)SAMP_LOCAL_STREAM_REFRESH_DISTANCE);
+  }
 }
 
 static float samp_absf_compat(float value) {
@@ -7710,10 +7850,7 @@ static void apply_multiplayer_session_bridge_compat(void) {
     target_z = g_runtime.raknet_player_pos[2];
   }
 
-  if ((game_rpc_flags & SAMP_RAKNET_RPC_FLAG_WEATHER) != 0u) {
-    *(volatile DWORD *)(uintptr_t)SAMP_ADDR_WEATHER_A = (DWORD)g_runtime.raknet_weather;
-    *(volatile DWORD *)(uintptr_t)SAMP_ADDR_WEATHER_B = (DWORD)g_runtime.raknet_weather;
-  }
+  apply_network_time_weather_compat("mp_session_bridge");
 
   if (apply_count <= 6 || (apply_count % 60) == 0) {
     runtime_tracef(
@@ -7886,6 +8023,7 @@ static void apply_multiplayer_session_bridge_compat(void) {
     InterlockedExchange(&g_runtime.mp_session_applied_player_facing_seq,
                         InterlockedCompareExchange(&g_runtime.raknet_player_facing_seq, 0, 0));
     InterlockedExchange(&g_runtime.mp_session_teleport_count, 0);
+    g_runtime.local_stream_refresh_last_tick = 0u;
 
     runtime_tracef("mp_session_bridge: spawn_finalize seq=%ld previous=%ld outcome=%ld info=%d team=%u skin=%ld "
                    "pos=(%.3f,%.3f,%.3f) rot=%.3f entry=%ld game_started=%u",
@@ -7921,6 +8059,7 @@ static void apply_multiplayer_session_bridge_compat(void) {
          */
         g_runtime.vehicle_create_hold_until_tick = GetTickCount() + SAMP_VEHICLE_COMPAT_POST_TELEPORT_HOLD_MS;
         g_runtime.vehicle_create_last_tick = 0u;
+        g_runtime.local_stream_refresh_last_tick = 0u;
         runtime_tracef("vehicle: hold_after_teleport ms=%lu pos=(%.3f,%.3f,%.3f)",
                        (unsigned long)SAMP_VEHICLE_COMPAT_POST_TELEPORT_HOLD_MS, (double)server_pos[0],
                        (double)server_pos[1], (double)server_pos[2]);
@@ -7949,6 +8088,7 @@ static void apply_multiplayer_session_bridge_compat(void) {
   }
 
   if (ped != 0u && spawn_ready && InterlockedCompareExchange(&g_runtime.mp_session_spawn_finalized, 0, 0) != 0) {
+    refresh_local_streaming_from_entity_compat(ped);
     send_onfoot_sync_compat(ped);
     vehicle_compat_process_markers(ped);
   }
@@ -8258,7 +8398,14 @@ static void launch_prepare_network_compat(void) {
     InterlockedExchange(&g_runtime.mp_session_spawn_finalized, 0);
     InterlockedExchange(&g_runtime.mp_session_finalized_spawn_seq, 0);
     InterlockedExchange(&g_runtime.mp_session_scene_loaded, 0);
+    InterlockedExchange(&g_runtime.raknet_time_apply_logged, 0);
+    InterlockedExchange(&g_runtime.local_stream_refresh_logged, 0);
     g_runtime.raknet_weather = 0u;
+    g_runtime.raknet_world_hour = 12u;
+    g_runtime.raknet_world_minute = 0u;
+    g_runtime.raknet_world_time_valid = 0u;
+    g_runtime.raknet_clock_enabled = 0u;
+    g_runtime.raknet_hold_time = 1u;
     g_runtime.raknet_interior = 0u;
     g_runtime.raknet_camera_look_at_type = 0u;
     g_runtime.raknet_init_world_time = 0u;
@@ -8270,6 +8417,7 @@ static void launch_prepare_network_compat(void) {
     g_runtime.raknet_init_local_player_id = 0u;
     g_runtime.raknet_init_death_drop_money = 0;
     g_runtime.raknet_player_facing_angle = 0.0f;
+    g_runtime.local_stream_refresh_last_tick = 0u;
     InterlockedExchange(&g_runtime.raknet_logon_marked, 0);
     InterlockedExchange(&g_runtime.raknet_player_pos_seq, 0);
     InterlockedExchange(&g_runtime.raknet_player_facing_seq, 0);
@@ -8278,6 +8426,7 @@ static void launch_prepare_network_compat(void) {
     g_runtime.raknet_init_name_tag_draw_distance = 0.0f;
     g_runtime.raknet_init_global_chat_radius = 0.0f;
     memset(g_runtime.raknet_player_pos, 0, sizeof(g_runtime.raknet_player_pos));
+    memset(g_runtime.local_stream_refresh_pos, 0, sizeof(g_runtime.local_stream_refresh_pos));
     memset(g_runtime.raknet_camera_pos, 0, sizeof(g_runtime.raknet_camera_pos));
     memset(g_runtime.raknet_camera_look_at, 0, sizeof(g_runtime.raknet_camera_look_at));
     memset(g_runtime.raknet_init_send_rates, 0, sizeof(g_runtime.raknet_init_send_rates));

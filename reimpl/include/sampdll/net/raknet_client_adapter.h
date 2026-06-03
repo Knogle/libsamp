@@ -69,6 +69,9 @@ typedef struct samp_raknet_join_profile {
 #define SAMP_RAKNET_RPC_FLAG_TEXTDRAW_SELECT 0x00010000u
 #define SAMP_RAKNET_RPC_FLAG_OBJECT_EVENT 0x00020000u
 #define SAMP_RAKNET_RPC_FLAG_VEHICLE_EVENT 0x00040000u
+#define SAMP_RAKNET_RPC_FLAG_WORLD_TIME 0x00080000u
+#define SAMP_RAKNET_RPC_FLAG_SET_TIME_EX 0x00100000u
+#define SAMP_RAKNET_RPC_FLAG_TOGGLE_CLOCK 0x00200000u
 
 #define SAMP_RAKNET_CLIENT_MESSAGE_RING 8u
 #define SAMP_RAKNET_CLIENT_MESSAGE_BYTES 256u
@@ -217,6 +220,9 @@ typedef struct samp_raknet_rpc_probe_snapshot {
   uint32_t player_pos_seq;
   uint32_t player_facing_seq;
   uint8_t weather;
+  uint8_t world_time_hour;
+  uint8_t world_time_minute;
+  uint8_t clock_enabled;
   uint8_t interior;
   float camera_pos[3];
   float camera_look_at[3];
