@@ -97,7 +97,7 @@ struct RpcProbeState {
   RakNet::RakClientInterface *client;
   unsigned char rpc_ids[256];
   unsigned int counts[256];
-  unsigned int dummy_logged[256];
+  unsigned int handler_logged[256];
   int registered;
   int saw_init_game;
   int saw_request_class_reply;
@@ -502,9 +502,119 @@ const char *rpc_source(unsigned int rpc_id) {
   return meta != nullptr ? meta->source : "TODO_VERIFY";
 }
 
-bool rpc_should_log_dummy(unsigned int rpc_id) {
-  const RpcLocalStatus status = rpc_local_status(rpc_id);
-  return status == kRpcLocalUnknown || status == kRpcLocalOutgoing || status == kRpcLocalDummy;
+unsigned int rpc_min_payload_bytes(unsigned int rpc_id) {
+  switch (rpc_id) {
+    case 12U:
+    case 157U:
+    case 158U:
+      return 12U;
+    case 19U:
+      return 4U;
+    case 29U:
+      return 2U;
+    case 44U:
+      return kOpenMpObjectCreateMinBytes;
+    case 45U:
+      return kOpenMpObjectSetPosMinBytes;
+    case 46U:
+      return kOpenMpObjectSetRotMinBytes;
+    case 47U:
+      return kOpenMpObjectDestroyMinBytes;
+    case 61U:
+      return 2U;
+    case 68U:
+      return kLegacyPlayerSpawnInfoBytes;
+    case 70U:
+    case 71U:
+      return 2U;
+    case 83U:
+      return 0U;
+    case 93U:
+      return 8U;
+    case 94U:
+    case 144U:
+    case 152U:
+    case 156U:
+      return 1U;
+    case 99U:
+      return kOpenMpObjectMoveMinBytes;
+    case 105U:
+    case 122U:
+    case 135U:
+    case 136U:
+    case 165U:
+      return 2U;
+    case 134U:
+      return kTextDrawShowMinBytes;
+    case 139U:
+      return 0U;
+    case 164U:
+      return kOpenMpVehicleAddBytes;
+    default:
+      return 0U;
+  }
+}
+
+const char *rpc_handler_mode(unsigned int rpc_id) {
+  switch (rpc_local_status(rpc_id)) {
+    case kRpcLocalOutgoing:
+      return "unexpected_inbound";
+    case kRpcLocalDummy:
+      return "noop";
+    case kRpcLocalDecoded:
+      return "decoded";
+    case kRpcLocalImplemented:
+      return "applied_partial";
+    case kRpcLocalUnknown:
+    default:
+      return "unknown";
+  }
+}
+
+const char *rpc_handler_action(unsigned int rpc_id) {
+  switch (rpc_local_status(rpc_id)) {
+    case kRpcLocalImplemented:
+      return "dispatch_existing";
+    case kRpcLocalDecoded:
+      return "decode_log_only";
+    case kRpcLocalDummy:
+    case kRpcLocalOutgoing:
+    case kRpcLocalUnknown:
+    default:
+      return "log_only";
+  }
+}
+
+bool rpc_handler_surface_should_log(unsigned int rpc_id, unsigned int bytes) {
+  if (rpc_id >= 256U) {
+    return true;
+  }
+
+  const unsigned int min_bytes = rpc_min_payload_bytes(rpc_id);
+  if (min_bytes != 0U && bytes < min_bytes) {
+    return true;
+  }
+
+  const unsigned int count = g_rpc_probe.counts[rpc_id];
+  return g_rpc_probe.handler_logged[rpc_id] == 0U || (count % 64U) == 0U;
+}
+
+void observe_rpc_handler_surface(unsigned int rpc_id, unsigned int bytes, unsigned int bits) {
+  if (!rpc_handler_surface_should_log(rpc_id, bytes)) {
+    return;
+  }
+
+  if (rpc_id < 256U) {
+    g_rpc_probe.handler_logged[rpc_id] = 1U;
+  }
+
+  const unsigned int min_bytes = rpc_min_payload_bytes(rpc_id);
+  const int payload_short = min_bytes != 0U && bytes < min_bytes;
+  trace_netf("rpc-handler id=%u name=%s mode=%s local=%s source=%s count=%u min_bytes=%u bytes=%u bits=%u payload=%s action=%s TODO_VERIFY=%d",
+             rpc_id, rpc_name(rpc_id), rpc_handler_mode(rpc_id), rpc_local_status_name(rpc_local_status(rpc_id)),
+             rpc_source(rpc_id), (rpc_id < 256U) ? g_rpc_probe.counts[rpc_id] : 0U, min_bytes, bytes, bits,
+             payload_short ? "short" : "ok", rpc_handler_action(rpc_id),
+             (rpc_local_status(rpc_id) == kRpcLocalUnknown || rpc_local_status(rpc_id) == kRpcLocalDummy) ? 1 : 0);
 }
 
 unsigned int rpc_known_meta_count() {
@@ -521,26 +631,10 @@ unsigned int rpc_dummy_meta_count() {
   return count;
 }
 
-void observe_rpc_dummy(unsigned int rpc_id, unsigned int bytes) {
-  if (rpc_id >= 256U || !rpc_should_log_dummy(rpc_id)) {
-    return;
-  }
-
-  const unsigned int count = g_rpc_probe.counts[rpc_id];
-  if (g_rpc_probe.dummy_logged[rpc_id] != 0U && (count % 64U) != 0U) {
-    return;
-  }
-
-  g_rpc_probe.dummy_logged[rpc_id] = 1U;
-  trace_netf("rpc-dummy id=%u name=%s local=%s source=%s count=%u bytes=%u action=log_only TODO_VERIFY=1",
-             rpc_id, rpc_name(rpc_id), rpc_local_status_name(rpc_local_status(rpc_id)), rpc_source(rpc_id),
-             count, bytes);
-}
-
 void reset_rpc_probe_runtime(RakNet::RakClientInterface *client) {
   g_rpc_probe.client = client;
   std::memset(g_rpc_probe.counts, 0, sizeof(g_rpc_probe.counts));
-  std::memset(g_rpc_probe.dummy_logged, 0, sizeof(g_rpc_probe.dummy_logged));
+  std::memset(g_rpc_probe.handler_logged, 0, sizeof(g_rpc_probe.handler_logged));
   g_rpc_probe.saw_init_game = 0;
   g_rpc_probe.saw_request_class_reply = 0;
   g_rpc_probe.saw_request_spawn_reply = 0;
@@ -2284,7 +2378,7 @@ void rpc_observer(RakNet::RPCParameters *rpc_params, void *extra) {
              rpc_params != nullptr ? static_cast<unsigned int>(rpc_params->senderIndex) : 0U,
              prefix_bytes > 0U ? prefix : "-");
 
-  observe_rpc_dummy(rpc_id, bytes);
+  observe_rpc_handler_surface(rpc_id, bytes, rpc_params != nullptr ? rpc_params->numberOfBitsOfData : 0U);
 
   if (rpc_id == 93U) {
     if (rpc_params != nullptr && bytes >= 8U) {
@@ -2547,7 +2641,7 @@ void register_rpc_probe_handlers(RakNet::RakClientInterface *rak_client) {
   }
 
   g_rpc_probe.registered = 1;
-  trace_netf("rpc-probe registered ids=1..%u known=%u dummy=%u mode=catch_all_log_only_for_unimplemented",
+  trace_netf("rpc-probe registered ids=1..%u known=%u noop=%u mode=catch_all_handler_surface",
              kRpcRegisterMax, rpc_known_meta_count(), rpc_dummy_meta_count());
 }
 
