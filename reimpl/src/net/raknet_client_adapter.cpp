@@ -20,6 +20,7 @@
 #include "raknet/NetworkTypes.h"
 #include "raknet/PacketEnumerations.h"
 #include "raknet/PacketPriority.h"
+#include "raknet/RakClient.h"
 #include "raknet/RakClientInterface.h"
 #include "raknet/RakNetworkFactory.h"
 #include "raknet/StringCompressor.h"
@@ -86,6 +87,11 @@ constexpr unsigned int kOpenMpVehicleRemoveMinBytes = 2U;
 constexpr int kSampVehicleModelMin = 400;
 constexpr int kSampVehicleModelMax = 611;
 static_assert(sizeof(samp_raknet_onfoot_sync) == 68U, "SA-MP 0.3.7 on-foot sync payload must be 68 bytes");
+
+bool packet_resets_session_state(unsigned char packet_id) {
+  return packet_id == static_cast<unsigned char>(RakNet::ID_DISCONNECTION_NOTIFICATION) ||
+         packet_id == static_cast<unsigned char>(RakNet::ID_CONNECTION_LOST);
+}
 
 struct RpcProbeState {
   RakNet::RakClientInterface *client;
@@ -2632,7 +2638,9 @@ int drain_packets_internal(void *client, int max_packets, const samp_raknet_join
       break;
     }
 
-    last_packet_id = static_cast<int>(get_packet_id(packet));
+    const unsigned char packet_id = get_packet_id(packet);
+    const bool reset_session = packet_resets_session_state(packet_id);
+    last_packet_id = static_cast<int>(packet_id);
     if (autojoin && last_packet_id == static_cast<int>(RakNet::ID_AUTH_KEY)) {
       send_auth_key_response(rak_client, packet);
     } else if (autojoin && !join_sent && last_packet_id == static_cast<int>(RakNet::ID_CONNECTION_REQUEST_ACCEPTED)) {
@@ -2640,7 +2648,12 @@ int drain_packets_internal(void *client, int max_packets, const samp_raknet_join
     }
 
     rak_client->DeallocatePacket(packet);
-    service_rpc_probe_actions(rak_client);
+    if (reset_session) {
+      trace_netf("packet-state id=%d reset_rpc_probe reason=disconnect", last_packet_id);
+      reset_rpc_probe_runtime(rak_client);
+    } else {
+      service_rpc_probe_actions(rak_client);
+    }
     ++drained;
   }
 
@@ -2715,6 +2728,18 @@ int samp_raknet_client_is_connected(void *client) {
   }
 
   return static_cast<RakNet::RakClientInterface *>(client)->IsConnected() ? 1 : 0;
+}
+
+int samp_raknet_client_mark_logged_on(void *client) {
+  if (client == nullptr) {
+    return -1;
+  }
+
+  RakNet::RakClient *rak_client = static_cast<RakNet::RakClient *>(static_cast<RakNet::RakClientInterface *>(client));
+  const bool before = rak_client->IsServerLogonForSamp();
+  const bool marked = rak_client->MarkServerLogonForSamp();
+  trace_netf("packet-state mark-logon before=%d marked=%d", before ? 1 : 0, marked ? 1 : 0);
+  return marked ? 0 : -1;
 }
 
 int samp_raknet_client_send_chat(void *client, const char *text) {

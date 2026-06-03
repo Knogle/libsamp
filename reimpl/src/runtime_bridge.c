@@ -22,7 +22,12 @@
 #define SAMP_LAUNCH_WAIT_MS 5
 #define SAMP_GRAPHICS_TICK_MS 16
 #define SAMP_LAUNCH_THREAD_JOIN_MS 2000
-#define SAMP_RAKNET_PUMP_BUDGET 8
+/* OLD_02X_REF + PROBE_TRACE:
+ * The legacy client drains RakClient::Receive() until empty each network tick.
+ * Our replacement keeps a safety cap, but object/vehicle streaming bursts can
+ * exceed small caps and correlate with later ID_CONNECTION_LOST/ID_DISCONNECTION.
+ */
+#define SAMP_RAKNET_PUMP_BUDGET 1024
 #define SAMP_RAKNET_SLEEP_TIMER 5
 #define SAMP_RAKNET_CONNECT_RETRY_MS 3000
 #define SAMP_RAKNET_CONNECT_STALE_MS 12000
@@ -227,7 +232,9 @@
 #define SAMP_OBJECT_COMPAT_CHAT_SKIP_LIMIT 3
 #define SAMP_OBJECT_COMPAT_SAMP_MODEL_MIN 18631
 #define SAMP_VEHICLE_COMPAT_MODEL_LOAD_FLAGS 0x06
-#define SAMP_VEHICLE_COMPAT_CREATE_BUDGET 4u
+#define SAMP_VEHICLE_COMPAT_CREATE_BUDGET 1u
+#define SAMP_VEHICLE_COMPAT_CREATE_INTERVAL_MS 100u
+#define SAMP_VEHICLE_COMPAT_POST_TELEPORT_HOLD_MS 1500u
 #define SAMP_VEHICLE_COMPAT_MODEL_MIN 400
 #define SAMP_VEHICLE_COMPAT_MODEL_MAX 611
 #define SAMP_VEHICLE_COMPAT_TRAIN_PASSENGER_LOCO 538
@@ -504,7 +511,9 @@ typedef struct samp_runtime_state {
   LONG net_mgr_connected;
   LONG netgame_state;
   LONG raknet_pump_calls;
+  LONG raknet_pump_saturated_count;
   LONG raknet_join_sent;
+  LONG raknet_logon_marked;
   LONG raknet_profile_ready;
   LONG raknet_last_packet_id;
   LONG raknet_rpc_flags;
@@ -662,6 +671,8 @@ typedef struct samp_runtime_state {
   LONG vehicle_active_count;
   LONG vehicle_pending_count;
   LONG vehicle_logged;
+  DWORD vehicle_create_last_tick;
+  DWORD vehicle_create_hold_until_tick;
   LONG onfoot_sync_send_count;
   LONG onfoot_sync_failures;
   LONG onfoot_sync_logged;
@@ -2727,9 +2738,20 @@ static void vehicle_compat_flush_pending(uint32_t budget) {
   uint32_t applied = 0u;
   uint32_t i = 0u;
   LONG pending = 0;
+  DWORD now = 0u;
+  DWORD hold_until = 0u;
 
   pending = InterlockedCompareExchange(&g_runtime.vehicle_pending_count, 0, 0);
   if (pending <= 0 || budget == 0u || !object_compat_can_flush_pending()) {
+    return;
+  }
+  now = GetTickCount();
+  hold_until = g_runtime.vehicle_create_hold_until_tick;
+  if (hold_until != 0u && (LONG)(now - hold_until) < 0) {
+    return;
+  }
+  if (g_runtime.vehicle_create_last_tick != 0u &&
+      (DWORD)(now - g_runtime.vehicle_create_last_tick) < SAMP_VEHICLE_COMPAT_CREATE_INTERVAL_MS) {
     return;
   }
 
@@ -2738,6 +2760,7 @@ static void vehicle_compat_flush_pending(uint32_t budget) {
     if (InterlockedCompareExchange(&slot->pending, 0, 0) != 0 &&
         InterlockedCompareExchange(&slot->active, 0, 0) == 0) {
       if (vehicle_compat_apply_pending_slot((uint16_t)i, slot)) {
+        g_runtime.vehicle_create_last_tick = now;
         ++applied;
         if (applied >= budget) {
           break;
@@ -2957,6 +2980,8 @@ static void vehicle_compat_reset_pool(const char *reason) {
   InterlockedExchange(&g_runtime.vehicle_active_count, 0);
   InterlockedExchange(&g_runtime.vehicle_pending_count, 0);
   InterlockedExchange(&g_runtime.vehicle_logged, 0);
+  g_runtime.vehicle_create_last_tick = 0u;
+  g_runtime.vehicle_create_hold_until_tick = 0u;
   memset(g_runtime.vehicle_slots, 0, sizeof(g_runtime.vehicle_slots));
 }
 
@@ -7887,6 +7912,19 @@ static void apply_multiplayer_session_bridge_compat(void) {
       }
       InterlockedExchange(&g_runtime.mp_session_applied_player_pos_seq, player_pos_seq);
       InterlockedIncrement(&g_runtime.mp_session_teleport_count);
+      if (teleported) {
+        /*
+         * PROBE_TRACE + GTA_REVERSED_REF + INFERRED:
+         * Grove Street /teles streamed a large vehicle burst immediately after SetPlayerPos and crashed in
+         * GTA's CPhysical::Add (0x00544bc8) during create_car. Hold and pace vehicle creation while the
+         * scene/streaming state settles; TODO_VERIFY against original 0.3.7 golden trace.
+         */
+        g_runtime.vehicle_create_hold_until_tick = GetTickCount() + SAMP_VEHICLE_COMPAT_POST_TELEPORT_HOLD_MS;
+        g_runtime.vehicle_create_last_tick = 0u;
+        runtime_tracef("vehicle: hold_after_teleport ms=%lu pos=(%.3f,%.3f,%.3f)",
+                       (unsigned long)SAMP_VEHICLE_COMPAT_POST_TELEPORT_HOLD_MS, (double)server_pos[0],
+                       (double)server_pos[1], (double)server_pos[2]);
+      }
       runtime_tracef(
           "mp_session_bridge: apply_player_pos seq=%ld previous=%ld teleported=%d pos=(%.3f,%.3f,%.3f) entry=%ld",
           (long)player_pos_seq, (long)applied_player_pos_seq, teleported, (double)server_pos[0],
@@ -8232,6 +8270,7 @@ static void launch_prepare_network_compat(void) {
     g_runtime.raknet_init_local_player_id = 0u;
     g_runtime.raknet_init_death_drop_money = 0;
     g_runtime.raknet_player_facing_angle = 0.0f;
+    InterlockedExchange(&g_runtime.raknet_logon_marked, 0);
     InterlockedExchange(&g_runtime.raknet_player_pos_seq, 0);
     InterlockedExchange(&g_runtime.raknet_player_facing_seq, 0);
     InterlockedExchange(&g_runtime.raknet_spawn_info_seq, 0);
@@ -8294,6 +8333,7 @@ static void launch_prepare_network_compat(void) {
     int join_sent = 0;
     int last_packet_id = -1;
     int connected_after_pump = 0;
+    int disconnect_packet = 0;
     uint32_t rpc_flags = 0u;
     LONG state_before = InterlockedCompareExchange(&g_runtime.netgame_state, 0, 0);
 
@@ -8304,6 +8344,14 @@ static void launch_prepare_network_compat(void) {
     rpc_flags = refresh_raknet_rpc_snapshot_compat();
     if (drained >= 0) {
       InterlockedIncrement(&g_runtime.raknet_pump_calls);
+      if (drained >= SAMP_RAKNET_PUMP_BUDGET) {
+        LONG saturated = InterlockedIncrement(&g_runtime.raknet_pump_saturated_count);
+        if (saturated <= 8 || (saturated % 60) == 0) {
+          runtime_tracef("network_prepare: pump saturated drained=%d budget=%d count=%ld state_before=%ld connected=%d",
+                         drained, SAMP_RAKNET_PUMP_BUDGET, (long)saturated, (long)state_before,
+                         connected_after_pump);
+        }
+      }
     }
 
     if (join_sent && InterlockedCompareExchange(&g_runtime.raknet_join_sent, 1, 0) == 0) {
@@ -8328,10 +8376,20 @@ static void launch_prepare_network_compat(void) {
           break;
         case 32: /* ID_DISCONNECTION_NOTIFICATION */
         case 33: /* ID_CONNECTION_LOST */
+          disconnect_packet = 1;
           InterlockedExchange(&g_runtime.net_mgr_connected, 0);
           InterlockedExchange(&g_runtime.raknet_join_sent, 0);
+          InterlockedExchange(&g_runtime.raknet_logon_marked, 0);
+          InterlockedExchange(&g_runtime.raknet_rpc_flags, 0);
+          InterlockedExchange(&g_runtime.raknet_game_rpc_flags, 0);
+          InterlockedExchange(&g_runtime.raknet_request_class_outcome, 0);
+          InterlockedExchange(&g_runtime.raknet_request_spawn_outcome, 0);
           InterlockedExchange(&g_runtime.netgame_state, SAMP_NETGAME_WAIT_CONNECT);
-          runtime_tracef("network_prepare: RakNet disconnected -> state=WAIT_CONNECT");
+          runtime_tracef("network_prepare: RakNet disconnected -> state=WAIT_CONNECT packet=%d drained=%d state_before=%ld "
+                         "pump_calls=%ld saturated=%ld",
+                         last_packet_id, drained, (long)state_before,
+                         (long)InterlockedCompareExchange(&g_runtime.raknet_pump_calls, 0, 0),
+                         (long)InterlockedCompareExchange(&g_runtime.raknet_pump_saturated_count, 0, 0));
           break;
         case 36: /* ID_CONNECTION_BANNED */
         case 37: /* ID_INVALID_PASSWORD */
@@ -8345,11 +8403,31 @@ static void launch_prepare_network_compat(void) {
       }
     }
 
+    if (disconnect_packet) {
+      rpc_flags = 0u;
+      connected_after_pump = 0;
+    }
+
     if (connected_after_pump) {
       InterlockedExchange(&g_runtime.net_mgr_connected, 1);
     }
 
-    if ((rpc_flags & SAMP_RAKNET_RPC_FLAG_INIT_GAME) != 0u) {
+    if (connected_after_pump && (rpc_flags & SAMP_RAKNET_RPC_FLAG_INIT_GAME) != 0u) {
+      if (InterlockedCompareExchange(&g_runtime.raknet_logon_marked, 1, 0) == 0) {
+        int mark_result = samp_raknet_client_mark_logged_on(g_runtime.net_mgr.raknet_client);
+        /*
+         * INFERRED + PROBE_TRACE:
+         * Replacement runs dropped with ID_CONNECTION_LOST almost exactly 30s after join while
+         * pump_saturated=0. The embedded SA-MP 0.3.7 RakPeer fork disconnects CONNECTED peers
+         * after 30s while remoteSystem.isLogon is false. InitGame is the first confirmed game
+         * logon marker we currently observe on the client side. TODO_VERIFY against original 0.3.7.
+         */
+        runtime_tracef("network_prepare: RakNet mark logged-on result=%d flags=0x%08lx state_before=%ld", mark_result,
+                       (unsigned long)rpc_flags, (long)state_before);
+        if (mark_result != 0) {
+          InterlockedExchange(&g_runtime.raknet_logon_marked, 0);
+        }
+      }
       InterlockedExchange(&g_runtime.net_mgr_connected, 1);
       InterlockedExchange(&g_runtime.netgame_state, SAMP_NETGAME_CONNECTED);
       if (state_before != SAMP_NETGAME_CONNECTED) {

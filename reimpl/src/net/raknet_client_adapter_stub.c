@@ -37,6 +37,11 @@ int samp_raknet_client_is_connected(void *client) {
   return 0;
 }
 
+int samp_raknet_client_mark_logged_on(void *client) {
+  (void)client;
+  return -1;
+}
+
 int samp_raknet_client_drain_packets(void *client, int max_packets) {
   (void)client;
   if (max_packets < 0) {
