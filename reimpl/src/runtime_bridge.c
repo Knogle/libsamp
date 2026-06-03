@@ -145,8 +145,8 @@
 #define SAMP_MP_BRIDGE_MAX_APPLIES 3600
 #define SAMP_MP_BRIDGE_TELEPORT_PERIOD 15
 #define SAMP_ONFOOT_SYNC_INTERVAL_MS 250u
-#define SAMP_LOCAL_STREAM_REFRESH_INTERVAL_MS 750u
-#define SAMP_LOCAL_STREAM_REFRESH_DISTANCE 80.0f
+#define SAMP_LOCAL_STREAM_REFRESH_INTERVAL_MS 500u
+#define SAMP_LOCAL_STREAM_REFRESH_DISTANCE 35.0f
 #define SAMP_PED_OFFSET_MATRIX 20u
 #define SAMP_PED_OFFSET_STATE_FLAGS 1132u
 #define SAMP_PED_OFFSET_HEALTH 1344u
@@ -565,6 +565,7 @@ typedef struct samp_runtime_state {
   LONG mp_session_frontend_hold_logged;
   LONG time_passing_patch_applied;
   LONG script_process_suppressed_logged;
+  LONG script_process_allowed_after_spawn_logged;
   LONG gta_version;
   LONG preconnect_anim_wait_logged;
   LONG preconnect_clump_wait_logged;
@@ -6182,17 +6183,30 @@ static void restore_script_gate_writable(void) {
 }
 
 static void __cdecl scripts_process_hook_compat(void) {
-  if (g_runtime.settings.play_online && !run_game_scripts_enabled()) {
+  LONG spawn_finalized = InterlockedCompareExchange(&g_runtime.mp_session_spawn_finalized, 0, 0);
+
+  if (g_runtime.settings.play_online && !run_game_scripts_enabled() && spawn_finalized == 0) {
     write_game_u8(SAMP_ADDR_SCRIPT_PROCESS_GATE, 0x8Bu);
     write_game_u8(SAMP_ADDR_SCRIPT_PROCESS_GATE2, 0xD0u);
     if (InterlockedCompareExchange(&g_runtime.script_process_suppressed_logged, 1, 0) == 0) {
-      runtime_tracef("script_hook: suppressed CTheScripts::Process in online mode");
+      runtime_tracef("script_hook: suppressed CTheScripts::Process before online spawn");
     }
     return;
   }
 
   write_game_u8(SAMP_ADDR_SCRIPT_PROCESS_GATE, 0xFFu);
   write_game_u8(SAMP_ADDR_SCRIPT_PROCESS_GATE2, 0xD2u);
+
+  if (g_runtime.settings.play_online && spawn_finalized != 0 &&
+      InterlockedCompareExchange(&g_runtime.script_process_allowed_after_spawn_logged, 1, 0) == 0) {
+    /*
+     * OLD_02X_REF + INFERRED:
+     * Legacy SA-MP starts GTA's normal world loop and only steers spawn/session state around it. Keeping
+     * CTheScripts::Process suppressed after spawn starves GTA-SA's own world/streaming process in long drives.
+     * TODO_VERIFY against an original 0.3.7 golden trace with the ASI probe.
+     */
+    runtime_tracef("script_hook: allowing CTheScripts::Process after online spawn");
+  }
 
   if (g_script_process_original != NULL) {
     g_script_process_original();
@@ -7270,11 +7284,20 @@ static void refresh_local_streaming_from_entity_compat(uintptr_t ped) {
    * OLD_02X_REF + GTA_REVERSED_REF + INFERRED:
    * Legacy spawn/teleport paths call RefreshStreamingAt. While driving, no server SetPlayerPos RPC may arrive for
    * every local movement, so keep GTA's streamer warm from the local vehicle/ped position without forcing movement.
+   * GTA's scene/collision loaders match the existing spawn/teleport prepare path and are only ticked on movement.
    */
   ok = gta_script_command_compat(0x04E4u, "ff", x, y);
   if (!ok) {
     mp_bridge_record_script_failure("local_refresh_streaming_at", 0x04E4u);
     return;
+  }
+  {
+    samp_gta_vector point;
+    point.x = x;
+    point.y = y;
+    point.z = z;
+    gta_streaming_load_scene_collision_compat(&point);
+    gta_streaming_load_scene_compat(&point);
   }
   if (InterlockedCompareExchange(&g_runtime.local_stream_refresh_logged, 1, 0) == 0) {
     runtime_tracef("local_stream_refresh: entity=0x%08lx pos=(%.3f,%.3f,%.3f) interval_ms=%lu distance=%.1f",
@@ -8542,10 +8565,18 @@ static void launch_prepare_network_compat(void) {
           break;
         case 36: /* ID_CONNECTION_BANNED */
         case 37: /* ID_INVALID_PASSWORD */
-        case 38: /* ID_MODIFIED_PACKET */
           InterlockedExchange(&g_runtime.net_mgr_connected, 0);
           InterlockedExchange(&g_runtime.netgame_state, SAMP_NETGAME_FAILED);
           runtime_tracef("network_prepare: RakNet terminal packet -> state=FAILED");
+          break;
+        case 38: /* ID_MODIFIED_PACKET */
+          /*
+           * PROBE_TRACE + INFERRED:
+           * A replacement run produced ID_MODIFIED_PACKET after normal user RPCs and then spammed FAILED before
+           * ID_CONNECTION_LOST. Treat this as a bad/ignored packet signal, not as a local terminal state.
+           * TODO_VERIFY against original 0.3.7 RakNet traces.
+           */
+          runtime_tracef("network_prepare: RakNet modified packet ignored -> keep state=%ld", (long)state_before);
           break;
         default:
           break;
