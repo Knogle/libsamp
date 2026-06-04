@@ -480,6 +480,16 @@ typedef struct samp_textdraw_slot_compat {
   char text[SAMP_TEXTDRAW_COMPAT_MAX_TEXT_BYTES];
 } samp_textdraw_slot_compat;
 
+typedef struct samp_scoreboard_player_compat {
+  LONG active;
+  uint16_t player_id;
+  uint8_t is_npc;
+  int32_t score;
+  uint32_t ping;
+  uint32_t color;
+  char name[SAMP_RAKNET_PLAYER_NAME_BYTES];
+} samp_scoreboard_player_compat;
+
 typedef struct samp_object_slot_compat {
   LONG active;
   LONG pending;
@@ -592,6 +602,7 @@ typedef struct samp_runtime_state {
   LONG preconnect_started_logged;
   LONG preconnect_no_ped_fallback_logged;
   LONG preconnect_ped_seen_logged;
+  LONG preconnect_pause_logged;
   LONG chat_connecting_logged;
   LONG chat_joining_logged;
   LONG chat_overlay_draw_logged;
@@ -614,6 +625,11 @@ typedef struct samp_runtime_state {
   LONG scoreboard_offset;
   LONG scoreboard_logged;
   LONG scoreboard_d3d_font_fail_logged;
+  LONG scoreboard_player_pool_event_seq;
+  LONG scoreboard_score_ping_seq;
+  LONG scoreboard_player_count;
+  LONG scoreboard_local_player_id_valid;
+  LONG scoreboard_local_player_id;
   LONG mp_session_apply_count;
   LONG mp_session_teleport_count;
   LONG mp_session_applied_player_pos_seq;
@@ -665,6 +681,8 @@ typedef struct samp_runtime_state {
   int script_gate_page_unprotected;
   DWORD preconnect_start_tick;
   DWORD preconnect_ped_seen_tick;
+  DWORD preconnect_delay_active_ms;
+  DWORD preconnect_delay_last_tick;
   uint8_t time_passing_saved_byte;
   uint8_t raknet_weather;
   uint8_t raknet_world_hour;
@@ -824,6 +842,7 @@ typedef struct samp_runtime_state {
   void *loading_screen_device;
   void *textdraw_d3d_device;
   samp_textdraw_slot_compat textdraw_slots[SAMP_RAKNET_MAX_TEXTDRAWS];
+  samp_scoreboard_player_compat scoreboard_players[SAMP_SCOREBOARD_MAX_PLAYERS];
   samp_object_slot_compat object_slots[SAMP_RAKNET_MAX_OBJECTS];
   DWORD object_destroy_ticks[SAMP_RAKNET_MAX_OBJECTS];
   samp_vehicle_slot_compat vehicle_slots[SAMP_RAKNET_MAX_VEHICLES];
@@ -850,6 +869,7 @@ static int scoreboard_compat_active(void);
 static int scoreboard_compat_draw_d3dx_overlay(void *device);
 static int scoreboard_compat_handle_key(UINT msg, WPARAM wparam);
 static void scoreboard_compat_release_font(void);
+static void scoreboard_compat_update_from_snapshot(const samp_raknet_rpc_probe_snapshot *snapshot);
 static void dialog_compat_normalize_selection(void);
 static void dialog_compat_submit(unsigned char button);
 static void textdraw_compat_update_from_snapshot(const samp_raknet_rpc_probe_snapshot *snapshot);
@@ -4237,7 +4257,18 @@ static int scoreboard_compat_handle_key(UINT msg, WPARAM wparam) {
       return 1;
     }
     if (wparam == VK_NEXT) {
-      InterlockedExchange(&g_runtime.scoreboard_offset, 0);
+      LONG offset = InterlockedCompareExchange(&g_runtime.scoreboard_offset, 0, 0);
+      LONG count = InterlockedCompareExchange(&g_runtime.scoreboard_player_count, 0, 0);
+      offset += SAMP_SCOREBOARD_MAX_VISIBLE;
+      if (count <= SAMP_SCOREBOARD_MAX_VISIBLE) {
+        offset = 0;
+      } else if (offset >= count) {
+        offset = count - SAMP_SCOREBOARD_MAX_VISIBLE;
+      }
+      if (offset < 0) {
+        offset = 0;
+      }
+      InterlockedExchange(&g_runtime.scoreboard_offset, offset);
       return 1;
     }
   }
@@ -4299,22 +4330,212 @@ static const char *scoreboard_compat_local_name(void) {
   return SAMP_DEFAULT_NICKNAME;
 }
 
-static int scoreboard_compat_local_id(void) {
-  uint16_t player_id = g_runtime.raknet_init_local_player_id;
+static samp_scoreboard_player_compat *scoreboard_compat_player_slot(uint16_t player_id) {
+  if (player_id >= SAMP_SCOREBOARD_MAX_PLAYERS) {
+    return NULL;
+  }
+  return &g_runtime.scoreboard_players[player_id];
+}
+
+static int scoreboard_compat_player_visible(const samp_scoreboard_player_compat *slot) {
+  return slot != NULL && slot->active != 0 && slot->is_npc == 0u;
+}
+
+static int scoreboard_compat_recount_visible_players(void) {
+  int count = 0;
+  uint16_t player_id = 0u;
+
+  for (player_id = 0u; player_id < SAMP_SCOREBOARD_MAX_PLAYERS; ++player_id) {
+    if (scoreboard_compat_player_visible(&g_runtime.scoreboard_players[player_id])) {
+      ++count;
+    }
+  }
+  InterlockedExchange(&g_runtime.scoreboard_player_count, (LONG)count);
+  return count;
+}
+
+static int scoreboard_compat_slot_name_conflicts_with_local(const samp_scoreboard_player_compat *slot) {
+  const char *local_name = scoreboard_compat_local_name();
+
+  return slot != NULL && slot->active != 0 && slot->is_npc == 0u && slot->name[0] != '\0' &&
+         strcmp(slot->name, local_name) != 0;
+}
+
+static int scoreboard_compat_set_local_player_id(uint16_t player_id, const char *source) {
+  LONG previous_valid = 0;
+  LONG previous_id = 0;
 
   if (player_id >= SAMP_SCOREBOARD_MAX_PLAYERS) {
     return 0;
   }
-  return (int)player_id;
+
+  previous_valid = InterlockedCompareExchange(&g_runtime.scoreboard_local_player_id_valid, 0, 0);
+  previous_id = InterlockedCompareExchange(&g_runtime.scoreboard_local_player_id, 0, 0);
+  if (previous_valid != 0 && previous_id == (LONG)player_id) {
+    return 1;
+  }
+
+  InterlockedExchange(&g_runtime.scoreboard_local_player_id, (LONG)player_id);
+  InterlockedExchange(&g_runtime.scoreboard_local_player_id_valid, 1);
+  runtime_tracef("scoreboard: local_player_id=%u source=%s previous=%ld previous_valid=%ld "
+                 "evidence=PROBE_TRACE,INFERRED,TODO_VERIFY",
+                 (unsigned)player_id, source != NULL ? source : "unknown", (long)previous_id,
+                 (long)previous_valid);
+  return 1;
 }
 
-static DWORD scoreboard_compat_local_color(void) {
-  uint32_t color = g_runtime.raknet_player_color;
+static samp_scoreboard_player_compat *scoreboard_compat_ensure_local_player(void) {
+  LONG local_valid = InterlockedCompareExchange(&g_runtime.scoreboard_local_player_id_valid, 0, 0);
+  LONG local_id = InterlockedCompareExchange(&g_runtime.scoreboard_local_player_id, 0, 0);
+  uint16_t player_id = 0u;
+  samp_scoreboard_player_compat *slot = NULL;
+  const char *name = scoreboard_compat_local_name();
 
-  if (color == 0u) {
-    return 0xFFFFFFFFu;
+  if (local_valid == 0 || local_id < 0 || local_id >= (LONG)SAMP_SCOREBOARD_MAX_PLAYERS) {
+    return NULL;
   }
-  return chat_compat_samp_color_to_argb(color);
+
+  player_id = (uint16_t)local_id;
+  slot = scoreboard_compat_player_slot(player_id);
+  if (slot == NULL) {
+    return NULL;
+  }
+  if (scoreboard_compat_slot_name_conflicts_with_local(slot)) {
+    runtime_tracef("scoreboard: local slot conflict id=%u existing='%s' local='%s' skipped=1 "
+                   "evidence=PROBE_TRACE,TODO_VERIFY",
+                   (unsigned)player_id, slot->name, name);
+    return NULL;
+  }
+
+  InterlockedExchange(&slot->active, 1);
+  slot->player_id = player_id;
+  slot->is_npc = 0u;
+  if (slot->color == 0u) {
+    slot->color = g_runtime.raknet_player_color;
+  }
+  if (slot->name[0] == '\0') {
+    strncpy(slot->name, name, sizeof(slot->name) - 1u);
+    slot->name[sizeof(slot->name) - 1u] = '\0';
+  }
+  return slot;
+}
+
+static int scoreboard_compat_local_id(void) {
+  LONG local_valid = InterlockedCompareExchange(&g_runtime.scoreboard_local_player_id_valid, 0, 0);
+  LONG local_id = InterlockedCompareExchange(&g_runtime.scoreboard_local_player_id, 0, 0);
+
+  if (local_valid == 0 || local_id < 0 || local_id >= (LONG)SAMP_SCOREBOARD_MAX_PLAYERS) {
+    return -1;
+  }
+  return (int)local_id;
+}
+
+static void scoreboard_compat_update_from_snapshot(const samp_raknet_rpc_probe_snapshot *snapshot) {
+  uint32_t previous_event_seq = 0u;
+  uint32_t latest_event_seq = 0u;
+  uint32_t previous_score_seq = 0u;
+  uint32_t i = 0u;
+
+  if (snapshot == NULL) {
+    return;
+  }
+
+  if (snapshot->auth_local_player_id_valid != 0u &&
+      snapshot->auth_local_player_id < SAMP_SCOREBOARD_MAX_PLAYERS) {
+    scoreboard_compat_set_local_player_id(snapshot->auth_local_player_id, "auth_player_index");
+  } else if ((snapshot->flags & SAMP_RAKNET_RPC_FLAG_INIT_GAME) != 0u &&
+             snapshot->init_local_player_id < SAMP_SCOREBOARD_MAX_PLAYERS) {
+    scoreboard_compat_set_local_player_id(snapshot->init_local_player_id, "init_game");
+  } else if (snapshot->player_color_seq != 0u &&
+             snapshot->player_color_player_id < SAMP_SCOREBOARD_MAX_PLAYERS) {
+    const samp_scoreboard_player_compat *slot =
+        scoreboard_compat_player_slot(snapshot->player_color_player_id);
+    if (!scoreboard_compat_slot_name_conflicts_with_local(slot)) {
+      scoreboard_compat_set_local_player_id(snapshot->player_color_player_id, "player_color_rpc");
+    }
+  }
+
+  if ((snapshot->flags & SAMP_RAKNET_RPC_FLAG_INIT_GAME) != 0u) {
+    scoreboard_compat_ensure_local_player();
+  }
+
+  previous_event_seq = (uint32_t)InterlockedCompareExchange(&g_runtime.scoreboard_player_pool_event_seq, 0, 0);
+  latest_event_seq = previous_event_seq;
+  if (snapshot->player_pool_event_count > 0u) {
+    uint32_t count = snapshot->player_pool_event_count;
+    if (count > SAMP_RAKNET_PLAYER_POOL_EVENT_RING) {
+      count = SAMP_RAKNET_PLAYER_POOL_EVENT_RING;
+    }
+    for (i = 0u; i < count; ++i) {
+      const samp_raknet_player_pool_event *event = &snapshot->player_pool_events[i];
+      samp_scoreboard_player_compat *slot = NULL;
+
+      if (event->seq == 0u || event->seq <= previous_event_seq) {
+        continue;
+      }
+      if (event->seq > latest_event_seq) {
+        latest_event_seq = event->seq;
+      }
+      slot = scoreboard_compat_player_slot(event->player_id);
+      if (slot == NULL) {
+        runtime_tracef("scoreboard: ignored player_pool_event action=%u id=%u out_of_range evidence=PROBE_TRACE",
+                       (unsigned)event->action, (unsigned)event->player_id);
+        continue;
+      }
+
+      if (event->action == SAMP_RAKNET_PLAYER_POOL_ACTION_JOIN) {
+        InterlockedExchange(&slot->active, 1);
+        slot->player_id = event->player_id;
+        slot->is_npc = event->is_npc;
+        slot->color = event->color;
+        if (event->name[0] != '\0') {
+          strncpy(slot->name, event->name, sizeof(slot->name) - 1u);
+          slot->name[sizeof(slot->name) - 1u] = '\0';
+        } else if (slot->name[0] == '\0') {
+          (void)snprintf(slot->name, sizeof(slot->name), "Player%u", (unsigned)event->player_id);
+          slot->name[sizeof(slot->name) - 1u] = '\0';
+        }
+      } else if (event->action == SAMP_RAKNET_PLAYER_POOL_ACTION_QUIT) {
+        memset(slot, 0, sizeof(*slot));
+        slot->player_id = event->player_id;
+      }
+    }
+  }
+  if (latest_event_seq != previous_event_seq) {
+    InterlockedExchange(&g_runtime.scoreboard_player_pool_event_seq, (LONG)latest_event_seq);
+  }
+
+  previous_score_seq = (uint32_t)InterlockedCompareExchange(&g_runtime.scoreboard_score_ping_seq, 0, 0);
+  if (snapshot->score_ping_seq != 0u && snapshot->score_ping_seq != previous_score_seq) {
+    uint32_t count = snapshot->score_ping_count;
+    if (count > SAMP_RAKNET_SCORE_PING_MAX_ENTRIES) {
+      count = SAMP_RAKNET_SCORE_PING_MAX_ENTRIES;
+    }
+    for (i = 0u; i < count; ++i) {
+      const samp_raknet_score_ping_entry *entry = &snapshot->score_ping_entries[i];
+      samp_scoreboard_player_compat *slot = scoreboard_compat_player_slot(entry->player_id);
+      if (slot == NULL) {
+        continue;
+      }
+      if (InterlockedCompareExchange(&slot->active, 0, 0) == 0 &&
+          InterlockedCompareExchange(&g_runtime.scoreboard_local_player_id_valid, 0, 0) != 0 &&
+          entry->player_id == (uint16_t)InterlockedCompareExchange(&g_runtime.scoreboard_local_player_id, 0, 0)) {
+        slot = scoreboard_compat_ensure_local_player();
+      }
+      if (slot == NULL || InterlockedCompareExchange(&slot->active, 0, 0) == 0) {
+        continue;
+      }
+      slot->score = entry->score;
+      slot->ping = entry->ping;
+    }
+    InterlockedExchange(&g_runtime.scoreboard_score_ping_seq, (LONG)snapshot->score_ping_seq);
+  }
+
+  if (scoreboard_compat_recount_visible_players() == 0 &&
+      (snapshot->flags & SAMP_RAKNET_RPC_FLAG_INIT_GAME) != 0u) {
+    scoreboard_compat_ensure_local_player();
+    scoreboard_compat_recount_visible_players();
+  }
 }
 
 static void scoreboard_compat_draw_border(void *device, int x, int y, int w, int h, DWORD color) {
@@ -4351,8 +4572,14 @@ static int scoreboard_compat_draw_d3dx_overlay(void *device) {
   int col_name = 0;
   int col_score = 0;
   int col_ping = 0;
-  DWORD local_color = 0;
   int connected = 0;
+  int player_count = 0;
+  int offset = 0;
+  int first_visible = 0;
+  int last_visible = 0;
+  int visible_index = 0;
+  int drawn_rows = 0;
+  uint16_t player_id = 0u;
   RECT rect;
   char players_text[64];
   char value[64];
@@ -4364,6 +4591,23 @@ static int scoreboard_compat_draw_d3dx_overlay(void *device) {
 
   font = g_runtime.scoreboard_d3dx_font;
   connected = scoreboard_compat_connected();
+  if (connected) {
+    scoreboard_compat_ensure_local_player();
+  }
+  player_count = scoreboard_compat_recount_visible_players();
+  offset = (int)InterlockedCompareExchange(&g_runtime.scoreboard_offset, 0, 0);
+  if (offset < 0 || player_count <= SAMP_SCOREBOARD_MAX_VISIBLE) {
+    offset = 0;
+  } else if (offset >= player_count) {
+    offset = player_count - SAMP_SCOREBOARD_MAX_VISIBLE;
+  }
+  InterlockedExchange(&g_runtime.scoreboard_offset, (LONG)offset);
+  first_visible = player_count > 0 ? offset + 1 : 0;
+  last_visible = offset + SAMP_SCOREBOARD_MAX_VISIBLE;
+  if (last_visible > player_count) {
+    last_visible = player_count;
+  }
+
   chat_compat_viewport_rect(&viewport_x, &viewport_y, &viewport_w, &viewport_h);
   if (viewport_w <= 0 || viewport_h <= 0) {
     return 0;
@@ -4399,7 +4643,12 @@ static int scoreboard_compat_draw_d3dx_overlay(void *device) {
   scoreboard_compat_draw_border(device, panel_x, panel_y, panel_w, panel_h, SAMP_SCOREBOARD_COLOR_GRID);
 
   host = g_runtime.raknet_init_hostname[0] != '\0' ? g_runtime.raknet_init_hostname : "SA-MP 0.3.7-R5";
-  (void)snprintf(players_text, sizeof(players_text), "%s", connected ? "Players: 1-1 of 1" : "Players: 0-0 of 0");
+  if (connected && player_count > 0) {
+    (void)snprintf(players_text, sizeof(players_text), "Players: %d-%d of %d", first_visible, last_visible,
+                   player_count);
+  } else {
+    (void)snprintf(players_text, sizeof(players_text), "Players: 0-0 of 0");
+  }
   players_text[sizeof(players_text) - 1u] = '\0';
 
   rect.left = panel_x + 14;
@@ -4439,35 +4688,58 @@ static int scoreboard_compat_draw_d3dx_overlay(void *device) {
   dialog_compat_d3d_fill_rect(device, panel_x + 10, row_y - 5, panel_w - 20, 1, SAMP_SCOREBOARD_COLOR_GRID);
   if (!connected) {
     if (InterlockedCompareExchange(&g_runtime.scoreboard_logged, 1, 0) == 0) {
-      runtime_tracef("scoreboard: drawing enabled preconnect evidence=OLD_02X_REF TODO_VERIFY remote_pool=stub");
+      runtime_tracef("scoreboard: drawing enabled preconnect evidence=OLD_02X_REF TODO_VERIFY remote_pool=decoded");
     }
     return 1;
   }
-  local_color = scoreboard_compat_local_color();
 
-  (void)snprintf(value, sizeof(value), "%d", scoreboard_compat_local_id());
-  value[sizeof(value) - 1u] = '\0';
-  rect.left = col_id;
-  rect.top = row_y;
-  rect.right = col_name - 10;
-  rect.bottom = row_y + SAMP_SCOREBOARD_LINE_HEIGHT;
-  scoreboard_compat_draw_text_shadowed(font, rect, value, local_color, DT_SINGLELINE | DT_CENTER | DT_NOCLIP);
+  for (player_id = 0u; player_id < SAMP_SCOREBOARD_MAX_PLAYERS; ++player_id) {
+    const samp_scoreboard_player_compat *slot = &g_runtime.scoreboard_players[player_id];
+    DWORD row_color = 0xFFFFFFFFu;
 
-  rect.left = col_name;
-  rect.right = col_score - 10;
-  scoreboard_compat_draw_text_shadowed(font, rect, scoreboard_compat_local_name(), local_color,
-                                       DT_SINGLELINE | DT_LEFT | DT_NOCLIP);
+    if (!scoreboard_compat_player_visible(slot)) {
+      continue;
+    }
+    if (visible_index++ < offset) {
+      continue;
+    }
+    if (drawn_rows >= SAMP_SCOREBOARD_MAX_VISIBLE) {
+      break;
+    }
+    row_color = slot->color != 0u ? chat_compat_samp_color_to_argb(slot->color) : 0xFFFFFFFFu;
 
-  rect.left = col_score;
-  rect.right = col_ping - 10;
-  scoreboard_compat_draw_text_shadowed(font, rect, "0", local_color, DT_SINGLELINE | DT_CENTER | DT_NOCLIP);
-  rect.left = col_ping;
-  rect.right = panel_x + panel_w - 18;
-  scoreboard_compat_draw_text_shadowed(font, rect, "0", local_color, DT_SINGLELINE | DT_CENTER | DT_NOCLIP);
+    rect.left = col_id;
+    rect.top = row_y;
+    rect.right = col_name - 10;
+    rect.bottom = row_y + SAMP_SCOREBOARD_LINE_HEIGHT;
+    (void)snprintf(value, sizeof(value), "%u", (unsigned)slot->player_id);
+    value[sizeof(value) - 1u] = '\0';
+    scoreboard_compat_draw_text_shadowed(font, rect, value, row_color, DT_SINGLELINE | DT_CENTER | DT_NOCLIP);
+
+    rect.left = col_name;
+    rect.right = col_score - 10;
+    scoreboard_compat_draw_text_shadowed(font, rect, slot->name[0] != '\0' ? slot->name : "Player",
+                                         row_color, DT_SINGLELINE | DT_LEFT | DT_NOCLIP);
+
+    rect.left = col_score;
+    rect.right = col_ping - 10;
+    (void)snprintf(value, sizeof(value), "%ld", (long)slot->score);
+    value[sizeof(value) - 1u] = '\0';
+    scoreboard_compat_draw_text_shadowed(font, rect, value, row_color, DT_SINGLELINE | DT_CENTER | DT_NOCLIP);
+
+    rect.left = col_ping;
+    rect.right = panel_x + panel_w - 18;
+    (void)snprintf(value, sizeof(value), "%lu", (unsigned long)slot->ping);
+    value[sizeof(value) - 1u] = '\0';
+    scoreboard_compat_draw_text_shadowed(font, rect, value, row_color, DT_SINGLELINE | DT_CENTER | DT_NOCLIP);
+
+    row_y += SAMP_SCOREBOARD_LINE_HEIGHT;
+    ++drawn_rows;
+  }
 
   if (InterlockedCompareExchange(&g_runtime.scoreboard_logged, 1, 0) == 0) {
-    runtime_tracef("scoreboard: drawing enabled local_id=%d host='%s' evidence=OLD_02X_REF TODO_VERIFY remote_pool=stub",
-                   scoreboard_compat_local_id(), host);
+    runtime_tracef("scoreboard: drawing enabled local_id=%d players=%d host='%s' evidence=OLD_02X_REF,OPENMP_REF,PROBE_TRACE remote_pool=decoded",
+                   scoreboard_compat_local_id(), player_count, host);
   }
   return 1;
 }
@@ -4739,6 +5011,19 @@ static int textdraw_compat_gta_font_enabled(void) {
   return enabled;
 }
 
+static int textdraw_compat_gta_font_style(uint8_t style) {
+  /*
+   * GTA_REVERSED_REF + TODO_VERIFY:
+   * gta-reversed PR #1414 documents that GTA's script font styles are mapped
+   * into a small CFont data set. Keep unknown SA-MP values out of SetFontStyle
+   * until we have an OBSERVED_037 trace for them.
+   */
+  if (style <= 3u) {
+    return (int)style;
+  }
+  return 1;
+}
+
 static void textdraw_compat_prepare_gta_text(const char *input, char *output, size_t output_size) {
   const char *read_cursor = input;
   char *write_cursor = output;
@@ -4850,7 +5135,7 @@ static int textdraw_compat_draw_gta_font_slot(const samp_textdraw_slot_compat *s
   } else {
     set_shadow(slot->transmit.shadow);
   }
-  set_style(slot->transmit.style);
+  set_style(textdraw_compat_gta_font_style(slot->transmit.style));
   print_string(use_x, use_y, text);
   set_outline(0);
   set_shadow(0);
@@ -7611,6 +7896,7 @@ static uint32_t refresh_raknet_rpc_snapshot_compat(void) {
   apply_raknet_init_game_settings_compat(&snapshot);
   dialog_compat_update_from_snapshot(&snapshot);
   textdraw_compat_update_from_snapshot(&snapshot);
+  scoreboard_compat_update_from_snapshot(&snapshot);
   object_compat_update_from_snapshot(&snapshot);
   vehicle_compat_update_from_snapshot(&snapshot);
   previous_chat_seq = (uint32_t)InterlockedCompareExchange(&g_runtime.chat_client_message_seq, 0, 0);
@@ -7920,8 +8206,6 @@ static void maintain_online_session_state(void) {
   menu_before = read_game_u8(SAMP_ADDR_MENU);
   menu2_before = read_game_u8(SAMP_ADDR_MENU2);
   menu3_before = read_game_u8(SAMP_ADDR_MENU3);
-  write_game_u8(SAMP_ADDR_ENABLE_HUD, 1u);
-  write_game_u8(SAMP_ADDR_RADAR_BLANK, 0u);
 
   if (entry_before != 9 || game_started_before != 0u) {
     LONG drift_seen = InterlockedCompareExchange(&g_runtime.online_session_drift_seen, 0, 0);
@@ -7940,19 +8224,32 @@ static void maintain_online_session_state(void) {
     write_game_u8(SAMP_ADDR_GAME_STARTED, 0u);
   }
 
-  if (startgame_before == 0u && menu_before == 0u && menu2_before == 0u && menu3_before == 0u) {
+  if (startgame_before != 0u) {
+    write_game_u8(SAMP_ADDR_STARTGAME, 0u);
+    runtime_tracef(
+        "online_session_startgame_clear: state=%ld rpc=0x%08lx entry=%ld game_started=%u startgame %u->0 "
+        "menu=%u/%u/%u evidence=OLD_02X_REF,PROBE_TRACE,TODO_VERIFY",
+        (long)net_state, (unsigned long)rpc_flags, (long)entry_before, (unsigned)game_started_before,
+        (unsigned)startgame_before, (unsigned)menu_before, (unsigned)menu2_before, (unsigned)menu3_before);
+  }
+
+  /*
+   * OLD_02X_REF + PROBE_TRACE:
+   * During a spawned online session, ESC sets the GTA frontend/menu byte to 1. Clearing it every Process tick
+   * immediately closes the pause menu. The 0.2x client only clears ADDR_MENU during CGame::StartGame(), then
+   * reads IsMenuActive() to skip SA-MP overlay drawing while GTA's frontend is active. Keep the pre-spawn
+   * frontend clamps above, but leave the real GTA menu flags alone once RequestSpawn/Spawn has succeeded.
+   */
+  if (menu_before != 0u || menu2_before != 0u || menu3_before != 0u) {
     return;
   }
 
-  write_game_u8(SAMP_ADDR_STARTGAME, 0u);
-  write_game_u8(SAMP_ADDR_MENU, 0u);
-  write_game_u8(SAMP_ADDR_MENU2, 0u);
-  write_game_u8(SAMP_ADDR_MENU3, 0u);
+  write_game_u8(SAMP_ADDR_ENABLE_HUD, 1u);
+  write_game_u8(SAMP_ADDR_RADAR_BLANK, 0u);
 
-  runtime_tracef(
-      "online_session_menu_clear: state=%ld rpc=0x%08lx entry=%ld game_started=%u start/menu %u/%u/%u/%u -> 0/0/0/0",
-      (long)net_state, (unsigned long)rpc_flags, (long)entry_before, (unsigned)game_started_before,
-      (unsigned)startgame_before, (unsigned)menu_before, (unsigned)menu2_before, (unsigned)menu3_before);
+  if (startgame_before == 0u) {
+    return;
+  }
 }
 
 static int gta_code_ptr_compat(uintptr_t ptr) {
@@ -8191,6 +8488,25 @@ static int gta_restart_if_wasted_at_compat(const char *reason, float x, float y,
   }
   runtime_tracef("mp_session_bridge: restart_if_wasted_at reason=%s pos=(%.3f,%.3f,%.3f) angle=%.3f",
                  reason != NULL ? reason : "unknown", (double)x, (double)y, (double)z, (double)angle);
+  return 1;
+}
+
+static int mp_session_apply_player_play_sound_compat(uint32_t sound_id, float x, float y, float z) {
+  int ok = 0;
+
+  if (!isfinite(x) || !isfinite(y) || !isfinite(z)) {
+    return 0;
+  }
+
+  /* OLD_02X_REF + PROBE_TRACE:
+   * ScrPlaySound reads sound,x,y,z and CGame::PlaySound applies opcode 0x018C "fffi".
+   * TODO_VERIFY against original 0.3.7 binary trace for edge cases such as zero-vector sounds.
+   */
+  ok = gta_script_command_compat(0x018Cu, "fffi", x, y, z, (int)sound_id);
+  if (!ok) {
+    mp_bridge_record_script_failure("player_play_sound_rpc", 0x018Cu);
+    return 0;
+  }
   return 1;
 }
 
@@ -8463,10 +8779,15 @@ static int gta_preconnect_position_local_player_compat(uintptr_t ped) {
                                     SAMP_PRECONNECT_PLAYER_Z);
 }
 
+static int gta_frontend_menu_active_compat(void) {
+  return read_game_u8(SAMP_ADDR_MENU) != 0u || read_game_u8(SAMP_ADDR_MENU2) != 0u ||
+         read_game_u8(SAMP_ADDR_MENU3) != 0u;
+}
+
 static int preconnect_frontend_connect_allowed_compat(void) {
   DWORD delay_ms = 0;
-  DWORD started = 0;
   DWORD now = 0;
+  DWORD last = 0;
   DWORD elapsed = 0;
 
   if (!g_runtime.settings.play_online) {
@@ -8481,17 +8802,29 @@ static int preconnect_frontend_connect_allowed_compat(void) {
   }
 
   delay_ms = preconnect_delay_ms_compat();
+  if (gta_frontend_menu_active_compat()) {
+    g_runtime.preconnect_delay_last_tick = 0u;
+    if (InterlockedCompareExchange(&g_runtime.preconnect_pause_logged, 1, 0) == 0) {
+      runtime_tracef("preconnect_bridge: connect delay paused by GTA frontend menu elapsed_ms=%lu/%lu "
+                     "evidence=OLD_02X_REF,INFERRED,TODO_VERIFY",
+                     (unsigned long)g_runtime.preconnect_delay_active_ms, (unsigned long)delay_ms);
+    }
+    return 0;
+  }
   if (delay_ms == 0u) {
     return 1;
   }
 
-  started = g_runtime.preconnect_start_tick;
-  if (started == 0u) {
+  now = GetTickCount();
+  last = g_runtime.preconnect_delay_last_tick;
+  if (last == 0u) {
+    g_runtime.preconnect_delay_last_tick = now;
     return 0;
   }
 
-  now = GetTickCount();
-  elapsed = now - started;
+  elapsed = g_runtime.preconnect_delay_active_ms + (now - last);
+  g_runtime.preconnect_delay_active_ms = elapsed;
+  g_runtime.preconnect_delay_last_tick = now;
   if (elapsed < delay_ms) {
     return 0;
   }
@@ -8614,6 +8947,17 @@ static void apply_preconnect_frontend_compat(void) {
 
   rpc_flags = InterlockedCompareExchange(&g_runtime.raknet_rpc_flags, 0, 0);
   if (((uint32_t)rpc_flags & SAMP_RAKNET_RPC_FLAG_INIT_GAME) != 0u) {
+    return;
+  }
+
+  /*
+   * OLD_02X_REF + INFERRED:
+   * The legacy client lets GTA own its frontend once MENU is active and only skips SA-MP overlay drawing through
+   * IsMenuActive(). In pre-connect we also freeze camera/streaming nudges and the delayed RakNet connect while
+   * ESC/pause is open, so the user can sit in the GTA menu without the background connect timer expiring.
+   */
+  if (InterlockedCompareExchange(&g_runtime.preconnect_ready, 0, 0) != 0 && gta_frontend_menu_active_compat()) {
+    g_runtime.preconnect_delay_last_tick = 0u;
     return;
   }
 
@@ -9171,12 +9515,10 @@ static void apply_multiplayer_session_bridge_compat(void) {
       float x = g_runtime.raknet_play_sound_pos[0];
       float y = g_runtime.raknet_play_sound_pos[1];
       float z = g_runtime.raknet_play_sound_pos[2];
-      if (isfinite(x) && isfinite(y) && isfinite(z)) {
-        if (!gta_script_command_compat(0x018Cu, "fffi", x, y, z, (int)g_runtime.raknet_play_sound_id)) {
-          mp_bridge_record_script_failure("play_sound_rpc", 0x018Cu);
-        }
+      if (mp_session_apply_player_play_sound_compat(g_runtime.raknet_play_sound_id, x, y, z)) {
         InterlockedExchange(&g_runtime.mp_session_applied_play_sound_seq, play_sound_seq);
-        runtime_tracef("mp_session_bridge: apply_play_sound seq=%ld previous=%ld sound=%lu pos=(%.3f,%.3f,%.3f)",
+        runtime_tracef("mp_session_bridge: apply_player_play_sound seq=%ld previous=%ld sound=%lu "
+                       "pos=(%.3f,%.3f,%.3f)",
                        (long)play_sound_seq, (long)applied_play_sound_seq,
                        (unsigned long)g_runtime.raknet_play_sound_id, (double)x, (double)y, (double)z);
       }
@@ -9714,6 +10056,14 @@ static void launch_prepare_network_compat(void) {
     InterlockedExchange(&g_runtime.textdraw_mouse_down, 0);
     g_runtime.textdraw_select_color = 0u;
     memset(g_runtime.textdraw_slots, 0, sizeof(g_runtime.textdraw_slots));
+    InterlockedExchange(&g_runtime.scoreboard_offset, 0);
+    InterlockedExchange(&g_runtime.scoreboard_logged, 0);
+    InterlockedExchange(&g_runtime.scoreboard_player_pool_event_seq, 0);
+    InterlockedExchange(&g_runtime.scoreboard_score_ping_seq, 0);
+    InterlockedExchange(&g_runtime.scoreboard_player_count, 0);
+    InterlockedExchange(&g_runtime.scoreboard_local_player_id_valid, 0);
+    InterlockedExchange(&g_runtime.scoreboard_local_player_id, 0);
+    memset(g_runtime.scoreboard_players, 0, sizeof(g_runtime.scoreboard_players));
     object_compat_reset_pool("connect_reset");
     vehicle_compat_reset_pool("connect_reset");
     InterlockedExchange(&g_runtime.onfoot_sync_send_count, 0);

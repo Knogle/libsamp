@@ -40,6 +40,7 @@ constexpr RakNet::RPCID kRpcClickTextDraw = static_cast<RakNet::RPCID>(83u);
 constexpr unsigned int kRpcScrDialogBox = 61U;
 constexpr RakNet::RPCID kRpcRequestClass = static_cast<RakNet::RPCID>(128u);
 constexpr RakNet::RPCID kRpcRequestSpawn = static_cast<RakNet::RPCID>(129u);
+constexpr RakNet::RPCID kRpcUpdateScoresPingsIPs = static_cast<RakNet::RPCID>(155u);
 constexpr unsigned int kDefaultNetgameVersion = 4057u;
 constexpr unsigned char kDefaultModByte = 1u;
 constexpr const char *kDefaultNickname = "Player";
@@ -52,6 +53,7 @@ constexpr RakNet::RakNetTime kClassSelectionManualDelayMs = 2000U;
 constexpr RakNet::RakNetTime kPostDialogSpawnDelayMs = 450U;
 constexpr RakNet::RakNetTime kSpawnRetryDelayMs = 1600U;
 constexpr RakNet::RakNetTime kSelectModeClickDelayMs = 250U;
+constexpr RakNet::RakNetTime kScorePingUpdateMs = 3000U;
 constexpr unsigned int kMaxSpawnRetries = 4U;
 constexpr unsigned short kDefaultFreeroamTextDrawId = 24U;
 constexpr unsigned int kLegacyPlayerSpawnInfoBytes = 45U;
@@ -145,6 +147,8 @@ struct RpcProbeState {
   char dialog_button2[kDialogButtonBytes];
   unsigned short init_spawns_available;
   unsigned short init_local_player_id;
+  unsigned char auth_local_player_id_valid;
+  unsigned short auth_local_player_id;
   unsigned char init_show_player_tags;
   unsigned char init_show_player_markers;
   unsigned char init_tire_popping;
@@ -236,9 +240,15 @@ struct RpcProbeState {
   samp_raknet_object_event object_events[SAMP_RAKNET_OBJECT_EVENT_RING];
   unsigned int vehicle_event_seq;
   samp_raknet_vehicle_event vehicle_events[SAMP_RAKNET_VEHICLE_EVENT_RING];
+  unsigned int player_pool_event_seq;
+  samp_raknet_player_pool_event player_pool_events[SAMP_RAKNET_PLAYER_POOL_EVENT_RING];
+  unsigned int score_ping_seq;
+  unsigned int score_ping_count;
+  samp_raknet_score_ping_entry score_ping_entries[SAMP_RAKNET_SCORE_PING_MAX_ENTRIES];
   RakNet::RakNetTime class_selection_ready_time;
   RakNet::RakNetTime next_request_spawn_time;
   RakNet::RakNetTime select_mode_click_ready_time;
+  RakNet::RakNetTime next_score_ping_update_time;
 #ifdef _WIN32
   int dialog_window_active;
 #endif
@@ -478,8 +488,8 @@ const RpcMeta kRpcMeta[] = {
     {134U, "ScrShowTextDraw", kRpcLocalImplemented, "PROBE_TRACE"},
     {135U, "ScrHideTextDraw", kRpcLocalImplemented, "PROBE_TRACE"},
     {136U, "ScrEditTextDraw/VehicleDestroyed", kRpcLocalImplemented, "PROBE_TRACE"},
-    {137U, "ScrServerJoin", kRpcLocalDummy, "OLD_02X_REF"},
-    {138U, "ScrServerQuit", kRpcLocalDummy, "OLD_02X_REF"},
+    {137U, "ScrServerJoin", kRpcLocalDecoded, "PROBE_TRACE"},
+    {138U, "ScrServerQuit", kRpcLocalDecoded, "OLD_02X_REF"},
     {139U, "ScrInitGame", kRpcLocalImplemented, "PROBE_TRACE"},
     {140U, "MenuQuit", kRpcLocalOutgoing, "OPENMP_REF"},
     {144U, "ToggleClock/ScrRemovePlayerMapIcon", kRpcLocalImplemented, "PROBE_TRACE"},
@@ -491,7 +501,7 @@ const RpcMeta kRpcMeta[] = {
     {152U, "ScrSetWeather", kRpcLocalImplemented, "PROBE_TRACE"},
     {153U, "ScrSetPlayerSkin", kRpcLocalDummy, "OLD_02X_REF"},
     {154U, "ExitVehicle", kRpcLocalOutgoing, "OPENMP_REF"},
-    {155U, "UpdateScoresPingsIPs", kRpcLocalDummy, "OLD_02X_REF"},
+    {155U, "UpdateScoresPingsIPs", kRpcLocalImplemented, "OLD_02X_REF"},
     {156U, "ScrSetPlayerInterior", kRpcLocalImplemented, "PROBE_TRACE"},
     {157U, "ScrSetPlayerCameraPos", kRpcLocalImplemented, "PROBE_TRACE"},
     {158U, "ScrSetPlayerCameraLookAt", kRpcLocalImplemented, "PROBE_TRACE"},
@@ -749,6 +759,8 @@ void reset_rpc_probe_runtime(RakNet::RakClientInterface *client) {
   g_rpc_probe.dialog_button2[0] = '\0';
   g_rpc_probe.init_spawns_available = 0;
   g_rpc_probe.init_local_player_id = 0;
+  g_rpc_probe.auth_local_player_id_valid = 0U;
+  g_rpc_probe.auth_local_player_id = 0;
   g_rpc_probe.init_show_player_tags = 0;
   g_rpc_probe.init_show_player_markers = 0;
   g_rpc_probe.init_tire_popping = 0;
@@ -840,9 +852,15 @@ void reset_rpc_probe_runtime(RakNet::RakClientInterface *client) {
   std::memset(g_rpc_probe.object_events, 0, sizeof(g_rpc_probe.object_events));
   g_rpc_probe.vehicle_event_seq = 0U;
   std::memset(g_rpc_probe.vehicle_events, 0, sizeof(g_rpc_probe.vehicle_events));
+  g_rpc_probe.player_pool_event_seq = 0U;
+  std::memset(g_rpc_probe.player_pool_events, 0, sizeof(g_rpc_probe.player_pool_events));
+  g_rpc_probe.score_ping_seq = 0U;
+  g_rpc_probe.score_ping_count = 0U;
+  std::memset(g_rpc_probe.score_ping_entries, 0, sizeof(g_rpc_probe.score_ping_entries));
   g_rpc_probe.class_selection_ready_time = 0;
   g_rpc_probe.next_request_spawn_time = 0;
   g_rpc_probe.select_mode_click_ready_time = 0;
+  g_rpc_probe.next_score_ping_update_time = 0;
 #ifdef _WIN32
   g_rpc_probe.dialog_window_active = 0;
 #endif
@@ -1524,6 +1542,138 @@ bool read_dynstr8_plain(const unsigned char *data, unsigned int bytes, unsigned 
   }
   (void)copy_bounded_bytes(out, out_size, data + *offset, len);
   *offset += len;
+  return true;
+}
+
+void queue_player_pool_event(unsigned char action, unsigned short player_id, unsigned int color, unsigned char is_npc,
+                             unsigned char reason, const char *name) {
+  const unsigned int seq = bump_seq(&g_rpc_probe.player_pool_event_seq);
+  const unsigned int index = (seq - 1U) % SAMP_RAKNET_PLAYER_POOL_EVENT_RING;
+  samp_raknet_player_pool_event *event = &g_rpc_probe.player_pool_events[index];
+
+  std::memset(event, 0, sizeof(*event));
+  event->seq = seq;
+  event->action = action;
+  event->player_id = player_id;
+  event->color = color;
+  event->is_npc = is_npc;
+  event->reason = reason;
+  copy_text(event->name, sizeof(event->name), name);
+}
+
+bool decode_server_join_payload(const unsigned char *data, unsigned int bytes) {
+  unsigned short player_id = 0U;
+  unsigned int color = 0xFFFFFFFFU;
+  unsigned char is_npc = 0U;
+  unsigned int name_len = 0U;
+  char name[SAMP_RAKNET_PLAYER_NAME_BYTES] = {0};
+
+  if (data == nullptr || bytes < 2U) {
+    return false;
+  }
+
+  /*
+   * PROBE_TRACE + OPENMP_REF + TODO_VERIFY:
+   * Current 0.3.7/open.mp traces carry uint16 player id, uint32 colour, uint8 NPC flag,
+   * uint8 name length, then name. The 0.2x client source only had byte id + byte name length,
+   * so we keep that as a fallback below.
+   */
+  if (bytes >= 8U) {
+    player_id = read_le16(data);
+    color = read_le32(data + 2U);
+    is_npc = data[6U];
+    name_len = data[7U];
+    if (name_len <= (SAMP_RAKNET_PLAYER_NAME_BYTES - 1U) && (8U + name_len) <= bytes) {
+      (void)copy_bounded_bytes(name, sizeof(name), data + 8U, name_len);
+      queue_player_pool_event(SAMP_RAKNET_PLAYER_POOL_ACTION_JOIN, player_id, color, is_npc, 0U, name);
+      trace_netf("rpc-state id=137 server_join player=%u npc=%u color=0x%08x name='%s' layout=037",
+                 static_cast<unsigned int>(player_id), static_cast<unsigned int>(is_npc), color, name);
+      return true;
+    }
+  }
+
+  name_len = data[1U];
+  if (name_len <= (SAMP_RAKNET_PLAYER_NAME_BYTES - 1U) && (2U + name_len) <= bytes) {
+    player_id = data[0U];
+    (void)copy_bounded_bytes(name, sizeof(name), data + 2U, name_len);
+    queue_player_pool_event(SAMP_RAKNET_PLAYER_POOL_ACTION_JOIN, player_id, color, 0U, 0U, name);
+    trace_netf("rpc-state id=137 server_join player=%u npc=0 color=0xffffffff name='%s' layout=02x",
+               static_cast<unsigned int>(player_id), name);
+    return true;
+  }
+
+  return false;
+}
+
+bool decode_server_quit_payload(const unsigned char *data, unsigned int bytes) {
+  unsigned short player_id = 0U;
+  unsigned char reason = 0U;
+
+  if (data == nullptr || bytes < 2U) {
+    return false;
+  }
+
+  if (bytes >= 3U) {
+    player_id = read_le16(data);
+    reason = data[2U];
+    queue_player_pool_event(SAMP_RAKNET_PLAYER_POOL_ACTION_QUIT, player_id, 0U, 0U, reason, "");
+    trace_netf("rpc-state id=138 server_quit player=%u reason=%u layout=037",
+               static_cast<unsigned int>(player_id), static_cast<unsigned int>(reason));
+    return true;
+  }
+
+  player_id = data[0U];
+  reason = data[1U];
+  queue_player_pool_event(SAMP_RAKNET_PLAYER_POOL_ACTION_QUIT, player_id, 0U, 0U, reason, "");
+  trace_netf("rpc-state id=138 server_quit player=%u reason=%u layout=02x",
+             static_cast<unsigned int>(player_id), static_cast<unsigned int>(reason));
+  return true;
+}
+
+bool decode_update_scores_pings_payload(const unsigned char *data, unsigned int bytes) {
+  unsigned int entry_size = 0U;
+  unsigned int count = 0U;
+  unsigned int out_count = 0U;
+  int id_is_16_bit = 0;
+
+  if (data == nullptr || bytes == 0U) {
+    return false;
+  }
+
+  if ((bytes % 10U) == 0U) {
+    entry_size = 10U;
+    id_is_16_bit = 1;
+  } else if ((bytes % 9U) == 0U) {
+    entry_size = 9U;
+  } else {
+    return false;
+  }
+
+  count = bytes / entry_size;
+  if (count > SAMP_RAKNET_SCORE_PING_MAX_ENTRIES) {
+    count = SAMP_RAKNET_SCORE_PING_MAX_ENTRIES;
+  }
+
+  for (unsigned int i = 0U; i < count; ++i) {
+    const unsigned int offset = i * entry_size;
+    samp_raknet_score_ping_entry *entry = &g_rpc_probe.score_ping_entries[out_count];
+
+    if (id_is_16_bit) {
+      entry->player_id = read_le16(data + offset);
+      entry->score = read_le_i32(data + offset + 2U);
+      entry->ping = read_le32(data + offset + 6U);
+    } else {
+      entry->player_id = data[offset];
+      entry->score = read_le_i32(data + offset + 1U);
+      entry->ping = read_le32(data + offset + 5U);
+    }
+    ++out_count;
+  }
+
+  g_rpc_probe.score_ping_count = out_count;
+  (void)bump_seq(&g_rpc_probe.score_ping_seq);
+  trace_netf("rpc-state id=155 score_ping_update count=%u layout=%s bytes=%u evidence=OLD_02X_REF,OPENMP_REF,TODO_VERIFY",
+             out_count, id_is_16_bit ? "037" : "02x", bytes);
   return true;
 }
 
@@ -2769,6 +2919,20 @@ void service_rpc_probe_actions(RakNet::RakClientInterface *rak_client) {
     trace_netf("rpc-auto-out id=129 name=RequestSpawn attempt=%u retry=%u sent=%d",
                g_rpc_probe.request_spawn_send_count, g_rpc_probe.request_spawn_retry_count, sent);
   }
+
+  if (g_rpc_probe.saw_init_game) {
+    RakNet::RakNetTime now = RakNet::GetTime();
+    if (g_rpc_probe.next_score_ping_update_time == 0U || now >= g_rpc_probe.next_score_ping_update_time) {
+      RakNet::BitStream bs_send;
+      const int sent = rak_client->RPC(kRpcUpdateScoresPingsIPs, &bs_send, RakNet::HIGH_PRIORITY, RakNet::RELIABLE, 0,
+                                       false, RakNet::UNASSIGNED_NETWORK_ID, nullptr)
+                           ? 1
+                           : 0;
+      g_rpc_probe.next_score_ping_update_time = now + kScorePingUpdateMs;
+      trace_netf("rpc-auto-out id=155 name=UpdateScoresPingsIPs sent=%d interval_ms=%u evidence=OLD_02X_REF",
+                 sent, static_cast<unsigned int>(kScorePingUpdateMs));
+    }
+  }
 }
 
 int send_chat_rpc_internal(RakNet::RakClientInterface *rak_client, const char *text, int server_command) {
@@ -2956,6 +3120,18 @@ void rpc_observer(RakNet::RPCParameters *rpc_params, void *extra) {
   } else if (rpc_id == 136U) {
     if (rpc_params == nullptr || !decode_textdraw_edit_payload(rpc_params->input, bytes)) {
       trace_netf("rpc-state id=136 textdraw_edit decode_failed bytes=%u", bytes);
+    }
+  } else if (rpc_id == 137U) {
+    if (rpc_params == nullptr || !decode_server_join_payload(rpc_params->input, bytes)) {
+      trace_netf("rpc-state id=137 server_join decode_failed bytes=%u", bytes);
+    }
+  } else if (rpc_id == 138U) {
+    if (rpc_params == nullptr || !decode_server_quit_payload(rpc_params->input, bytes)) {
+      trace_netf("rpc-state id=138 server_quit decode_failed bytes=%u", bytes);
+    }
+  } else if (rpc_id == 155U) {
+    if (rpc_params == nullptr || !decode_update_scores_pings_payload(rpc_params->input, bytes)) {
+      trace_netf("rpc-state id=155 score_ping_update decode_failed bytes=%u", bytes);
     }
   } else if (rpc_id == 103U) {
     if (rpc_params == nullptr || !handle_client_check_payload(rpc_params->input, bytes)) {
@@ -3422,6 +3598,10 @@ int send_client_join(RakNet::RakClientInterface *rak_client, const RakNet::Packe
   if (!bs_succ_auth.Read(server_challenge)) {
     return 0;
   }
+  if (static_cast<unsigned int>(my_player_id) < SAMP_RAKNET_MAX_PLAYERS) {
+    g_rpc_probe.auth_local_player_id = static_cast<unsigned short>(my_player_id);
+    g_rpc_probe.auth_local_player_id_valid = 1U;
+  }
 
   challenge_response = server_challenge ^ netgame_version;
   name_len = static_cast<unsigned char>(std::strlen(nickname));
@@ -3731,6 +3911,15 @@ int samp_raknet_client_get_rpc_probe_snapshot(void *client, samp_raknet_rpc_prob
   if (g_rpc_probe.vehicle_event_seq > 0U) {
     flags |= SAMP_RAKNET_RPC_FLAG_VEHICLE_EVENT;
   }
+  if (g_rpc_probe.player_pool_event_seq > 0U) {
+    flags |= SAMP_RAKNET_RPC_FLAG_PLAYER_POOL_EVENT;
+  }
+  if (g_rpc_probe.score_ping_seq > 0U) {
+    flags |= SAMP_RAKNET_RPC_FLAG_SCOREBOARD_UPDATE;
+  }
+  if (g_rpc_probe.auth_local_player_id_valid) {
+    flags |= SAMP_RAKNET_RPC_FLAG_AUTH_LOCAL_PLAYER;
+  }
   if (g_rpc_probe.sent_request_class) {
     flags |= SAMP_RAKNET_RPC_FLAG_REQUEST_CLASS_SENT;
   }
@@ -3743,10 +3932,14 @@ int samp_raknet_client_get_rpc_probe_snapshot(void *client, samp_raknet_rpc_prob
   out_snapshot->textdraw_event_count = 0U;
   out_snapshot->object_event_count = 0U;
   out_snapshot->vehicle_event_count = 0U;
+  out_snapshot->player_pool_event_count = 0U;
+  out_snapshot->score_ping_count = 0U;
   out_snapshot->textdraw_select_active = g_rpc_probe.textdraw_select_active;
   out_snapshot->textdraw_select_color = g_rpc_probe.textdraw_select_color;
   out_snapshot->init_spawns_available = g_rpc_probe.init_spawns_available;
   out_snapshot->init_local_player_id = g_rpc_probe.init_local_player_id;
+  out_snapshot->auth_local_player_id_valid = g_rpc_probe.auth_local_player_id_valid;
+  out_snapshot->auth_local_player_id = g_rpc_probe.auth_local_player_id;
   out_snapshot->init_show_player_tags = g_rpc_probe.init_show_player_tags;
   out_snapshot->init_show_player_markers = g_rpc_probe.init_show_player_markers;
   out_snapshot->init_tire_popping = g_rpc_probe.init_tire_popping;
@@ -3795,6 +3988,8 @@ int samp_raknet_client_get_rpc_probe_snapshot(void *client, samp_raknet_rpc_prob
   out_snapshot->player_team_seq = g_rpc_probe.player_team_seq;
   out_snapshot->apply_animation_seq = g_rpc_probe.apply_animation_seq;
   out_snapshot->world_visual_event_seq = g_rpc_probe.world_visual_event_seq;
+  out_snapshot->player_pool_event_seq = g_rpc_probe.player_pool_event_seq;
+  out_snapshot->score_ping_seq = g_rpc_probe.score_ping_seq;
   out_snapshot->player_controllable = g_rpc_probe.player_controllable;
   out_snapshot->player_armour = g_rpc_probe.player_armour;
   out_snapshot->player_armed_weapon = g_rpc_probe.player_armed_weapon;
@@ -3893,6 +4088,29 @@ int samp_raknet_client_get_rpc_probe_snapshot(void *client, samp_raknet_rpc_prob
         out_snapshot->vehicle_events[out_snapshot->vehicle_event_count++] = g_rpc_probe.vehicle_events[slot];
       }
     }
+  }
+  std::memset(out_snapshot->player_pool_events, 0, sizeof(out_snapshot->player_pool_events));
+  if (g_rpc_probe.player_pool_event_seq > 0U) {
+    const unsigned int available = g_rpc_probe.player_pool_event_seq < SAMP_RAKNET_PLAYER_POOL_EVENT_RING
+                                       ? g_rpc_probe.player_pool_event_seq
+                                       : SAMP_RAKNET_PLAYER_POOL_EVENT_RING;
+    const unsigned int first_seq = g_rpc_probe.player_pool_event_seq - available + 1U;
+    for (unsigned int i = 0U; i < available; ++i) {
+      const unsigned int seq = first_seq + i;
+      const unsigned int slot = (seq - 1U) % SAMP_RAKNET_PLAYER_POOL_EVENT_RING;
+      if (g_rpc_probe.player_pool_events[slot].seq == seq) {
+        out_snapshot->player_pool_events[out_snapshot->player_pool_event_count++] =
+            g_rpc_probe.player_pool_events[slot];
+      }
+    }
+  }
+  std::memset(out_snapshot->score_ping_entries, 0, sizeof(out_snapshot->score_ping_entries));
+  if (g_rpc_probe.score_ping_count > 0U) {
+    out_snapshot->score_ping_count = g_rpc_probe.score_ping_count < SAMP_RAKNET_SCORE_PING_MAX_ENTRIES
+                                         ? g_rpc_probe.score_ping_count
+                                         : SAMP_RAKNET_SCORE_PING_MAX_ENTRIES;
+    std::memcpy(out_snapshot->score_ping_entries, g_rpc_probe.score_ping_entries,
+                out_snapshot->score_ping_count * sizeof(out_snapshot->score_ping_entries[0]));
   }
   return 0;
 }

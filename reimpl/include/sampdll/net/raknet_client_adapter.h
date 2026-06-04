@@ -77,10 +77,19 @@ typedef struct samp_raknet_join_profile {
 #define SAMP_RAKNET_RPC_FLAG_CAMERA_BEHIND 0x01000000u
 #define SAMP_RAKNET_RPC_FLAG_PLAYER_SCRIPT_EVENT 0x02000000u
 #define SAMP_RAKNET_RPC_FLAG_WORLD_VISUAL_EVENT 0x04000000u
+#define SAMP_RAKNET_RPC_FLAG_PLAYER_POOL_EVENT 0x08000000u
+#define SAMP_RAKNET_RPC_FLAG_SCOREBOARD_UPDATE 0x10000000u
+#define SAMP_RAKNET_RPC_FLAG_AUTH_LOCAL_PLAYER 0x20000000u
 
 #define SAMP_RAKNET_CLIENT_MESSAGE_RING 8u
 #define SAMP_RAKNET_CLIENT_MESSAGE_BYTES 256u
 #define SAMP_RAKNET_HOSTNAME_BYTES 256u
+#define SAMP_RAKNET_MAX_PLAYERS 1000u
+#define SAMP_RAKNET_PLAYER_NAME_BYTES 25u
+#define SAMP_RAKNET_PLAYER_POOL_EVENT_RING 64u
+#define SAMP_RAKNET_SCORE_PING_MAX_ENTRIES SAMP_RAKNET_MAX_PLAYERS
+#define SAMP_RAKNET_PLAYER_POOL_ACTION_JOIN 1u
+#define SAMP_RAKNET_PLAYER_POOL_ACTION_QUIT 2u
 #define SAMP_RAKNET_REQUIRED_VEHICLE_MODELS 212u
 #define SAMP_RAKNET_DIALOG_TITLE_BYTES 256u
 #define SAMP_RAKNET_DIALOG_INFO_BYTES 4096u
@@ -118,6 +127,22 @@ typedef struct samp_raknet_client_message_probe {
   uint32_t color;
   char text[SAMP_RAKNET_CLIENT_MESSAGE_BYTES];
 } samp_raknet_client_message_probe;
+
+typedef struct samp_raknet_player_pool_event {
+  uint32_t seq;
+  uint8_t action;
+  uint8_t is_npc;
+  uint8_t reason;
+  uint16_t player_id;
+  uint32_t color;
+  char name[SAMP_RAKNET_PLAYER_NAME_BYTES];
+} samp_raknet_player_pool_event;
+
+typedef struct samp_raknet_score_ping_entry {
+  uint16_t player_id;
+  int32_t score;
+  uint32_t ping;
+} samp_raknet_score_ping_entry;
 
 #pragma pack(push, 1)
 typedef struct samp_raknet_textdraw_transmit {
@@ -194,10 +219,14 @@ typedef struct samp_raknet_rpc_probe_snapshot {
   uint32_t textdraw_event_count;
   uint32_t object_event_count;
   uint32_t vehicle_event_count;
+  uint32_t player_pool_event_count;
+  uint32_t score_ping_count;
   uint8_t textdraw_select_active;
   uint32_t textdraw_select_color;
   uint16_t init_spawns_available;
   uint16_t init_local_player_id;
+  uint8_t auth_local_player_id_valid;
+  uint16_t auth_local_player_id;
   uint8_t init_show_player_tags;
   uint8_t init_show_player_markers;
   uint8_t init_tire_popping;
@@ -245,6 +274,8 @@ typedef struct samp_raknet_rpc_probe_snapshot {
   uint32_t player_team_seq;
   uint32_t apply_animation_seq;
   uint32_t world_visual_event_seq;
+  uint32_t player_pool_event_seq;
+  uint32_t score_ping_seq;
   uint8_t player_controllable;
   float player_armour;
   uint32_t player_armed_weapon;
@@ -288,6 +319,8 @@ typedef struct samp_raknet_rpc_probe_snapshot {
   samp_raknet_textdraw_event textdraw_events[SAMP_RAKNET_TEXTDRAW_EVENT_RING];
   samp_raknet_object_event object_events[SAMP_RAKNET_OBJECT_EVENT_RING];
   samp_raknet_vehicle_event vehicle_events[SAMP_RAKNET_VEHICLE_EVENT_RING];
+  samp_raknet_player_pool_event player_pool_events[SAMP_RAKNET_PLAYER_POOL_EVENT_RING];
+  samp_raknet_score_ping_entry score_ping_entries[SAMP_RAKNET_SCORE_PING_MAX_ENTRIES];
 } samp_raknet_rpc_probe_snapshot;
 
 /*
