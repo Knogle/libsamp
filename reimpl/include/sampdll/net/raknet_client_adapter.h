@@ -72,6 +72,9 @@ typedef struct samp_raknet_join_profile {
 #define SAMP_RAKNET_RPC_FLAG_WORLD_TIME 0x00080000u
 #define SAMP_RAKNET_RPC_FLAG_SET_TIME_EX 0x00100000u
 #define SAMP_RAKNET_RPC_FLAG_TOGGLE_CLOCK 0x00200000u
+#define SAMP_RAKNET_RPC_FLAG_PLAYER_HEALTH 0x00400000u
+#define SAMP_RAKNET_RPC_FLAG_PLAYER_CONTROLLABLE 0x00800000u
+#define SAMP_RAKNET_RPC_FLAG_CAMERA_BEHIND 0x01000000u
 
 #define SAMP_RAKNET_CLIENT_MESSAGE_RING 8u
 #define SAMP_RAKNET_CLIENT_MESSAGE_BYTES 256u
@@ -217,8 +220,13 @@ typedef struct samp_raknet_rpc_probe_snapshot {
   char dialog_button2[SAMP_RAKNET_DIALOG_BUTTON_BYTES];
   float player_pos[3];
   float player_facing_angle;
+  float player_health;
   uint32_t player_pos_seq;
   uint32_t player_facing_seq;
+  uint32_t player_health_seq;
+  uint32_t player_controllable_seq;
+  uint32_t camera_behind_seq;
+  uint8_t player_controllable;
   uint8_t weather;
   uint8_t world_time_hour;
   uint8_t world_time_minute;

@@ -35,6 +35,7 @@ constexpr RakNet::RPCID kRpcDialogResponse = static_cast<RakNet::RPCID>(62u);
 constexpr RakNet::RPCID kRpcSpawn = static_cast<RakNet::RPCID>(52u);
 constexpr RakNet::RPCID kRpcServerCommand = static_cast<RakNet::RPCID>(50u);
 constexpr RakNet::RPCID kRpcChat = static_cast<RakNet::RPCID>(101u);
+constexpr RakNet::RPCID kRpcClientCheck = static_cast<RakNet::RPCID>(103u);
 constexpr RakNet::RPCID kRpcClickTextDraw = static_cast<RakNet::RPCID>(83u);
 constexpr unsigned int kRpcScrDialogBox = 61U;
 constexpr RakNet::RPCID kRpcRequestClass = static_cast<RakNet::RPCID>(128u);
@@ -106,6 +107,8 @@ struct RpcProbeState {
   int saw_dialog;
   int saw_player_pos;
   int saw_player_facing;
+  int saw_player_health;
+  int saw_player_controllable;
   int saw_weather;
   int saw_world_time;
   int saw_set_time_ex;
@@ -113,6 +116,7 @@ struct RpcProbeState {
   int saw_interior;
   int saw_camera_pos;
   int saw_camera_look_at;
+  int saw_camera_behind;
   int saw_client_message;
   int saw_textdraw_select;
   int saw_object_event;
@@ -166,8 +170,14 @@ struct RpcProbeState {
   unsigned char request_spawn_outcome;
   float player_pos[3];
   float player_facing_angle;
+  float player_health;
   unsigned int player_pos_seq;
   unsigned int player_facing_seq;
+  unsigned int player_health_seq;
+  unsigned int player_controllable_seq;
+  unsigned int camera_behind_seq;
+  unsigned int client_check_response_count;
+  unsigned char player_controllable;
   unsigned char weather;
   unsigned char world_time_hour;
   unsigned char world_time_minute;
@@ -325,8 +335,8 @@ const RpcMeta kRpcMeta[] = {
     {11U, "ScrSetPlayerName", kRpcLocalDummy, "SAMPFUNCS_037"},
     {12U, "ScrSetPlayerPos", kRpcLocalImplemented, "PROBE_TRACE"},
     {13U, "ScrSetPlayerPosFindZ", kRpcLocalDummy, "SAMPFUNCS_037"},
-    {14U, "ScrSetPlayerHealth", kRpcLocalDummy, "SAMPFUNCS_037"},
-    {15U, "ScrTogglePlayerControllable", kRpcLocalDummy, "OLD_02X_REF"},
+    {14U, "ScrSetPlayerHealth", kRpcLocalImplemented, "OLD_02X_REF"},
+    {15U, "ScrTogglePlayerControllable", kRpcLocalImplemented, "OLD_02X_REF"},
     {16U, "ScrPlaySound", kRpcLocalDummy, "OLD_02X_REF"},
     {17U, "ScrSetWorldBounds", kRpcLocalDummy, "OLD_02X_REF"},
     {18U, "ScrGivePlayerMoney", kRpcLocalDummy, "OLD_02X_REF"},
@@ -407,7 +417,7 @@ const RpcMeta kRpcMeta[] = {
     {99U, "ScrMoveObject", kRpcLocalImplemented, "PROBE_TRACE"},
     {101U, "Chat", kRpcLocalOutgoing, "OPENMP_REF"},
     {102U, "ServerNetStats", kRpcLocalOutgoing, "OPENMP_REF"},
-    {103U, "ClientCheck", kRpcLocalOutgoing, "OPENMP_REF"},
+    {103U, "ClientCheck", kRpcLocalImplemented, "OPENMP_REF"},
     {104U, "ScrEnableStuntBonusForPlayer", kRpcLocalDummy, "OLD_02X_REF"},
     {105U, "ScrTextDrawSetString", kRpcLocalImplemented, "PROBE_TRACE"},
     {106U, "DamageVehicle", kRpcLocalOutgoing, "OPENMP_REF"},
@@ -455,7 +465,7 @@ const RpcMeta kRpcMeta[] = {
     {159U, "ScrSetVehiclePos", kRpcLocalDummy, "OLD_02X_REF"},
     {160U, "ScrSetVehicleZAngle", kRpcLocalDummy, "OLD_02X_REF"},
     {161U, "ScrSetVehicleParamsForPlayer", kRpcLocalDummy, "OLD_02X_REF"},
-    {162U, "ScrSetCameraBehindPlayer", kRpcLocalDummy, "OLD_02X_REF"},
+    {162U, "ScrSetCameraBehindPlayer", kRpcLocalImplemented, "OLD_02X_REF"},
     {163U, "ScrWorldPlayerRemove", kRpcLocalDummy, "SAMPFUNCS_037"},
     {164U, "ScrWorldVehicleAdd", kRpcLocalImplemented, "PROBE_TRACE"},
     {165U, "ScrWorldVehicleRemove", kRpcLocalImplemented, "PROBE_TRACE"},
@@ -508,6 +518,10 @@ unsigned int rpc_min_payload_bytes(unsigned int rpc_id) {
     case 157U:
     case 158U:
       return 12U;
+    case 14U:
+      return 4U;
+    case 15U:
+      return 1U;
     case 19U:
       return 4U;
     case 29U:
@@ -538,6 +552,8 @@ unsigned int rpc_min_payload_bytes(unsigned int rpc_id) {
       return 1U;
     case 99U:
       return kOpenMpObjectMoveMinBytes;
+    case 103U:
+      return 9U;
     case 105U:
     case 122U:
     case 135U:
@@ -547,6 +563,7 @@ unsigned int rpc_min_payload_bytes(unsigned int rpc_id) {
     case 134U:
       return kTextDrawShowMinBytes;
     case 139U:
+    case 162U:
       return 0U;
     case 164U:
       return kOpenMpVehicleAddBytes;
@@ -642,6 +659,8 @@ void reset_rpc_probe_runtime(RakNet::RakClientInterface *client) {
   g_rpc_probe.saw_dialog = 0;
   g_rpc_probe.saw_player_pos = 0;
   g_rpc_probe.saw_player_facing = 0;
+  g_rpc_probe.saw_player_health = 0;
+  g_rpc_probe.saw_player_controllable = 0;
   g_rpc_probe.saw_weather = 0;
   g_rpc_probe.saw_world_time = 0;
   g_rpc_probe.saw_set_time_ex = 0;
@@ -649,6 +668,7 @@ void reset_rpc_probe_runtime(RakNet::RakClientInterface *client) {
   g_rpc_probe.saw_interior = 0;
   g_rpc_probe.saw_camera_pos = 0;
   g_rpc_probe.saw_camera_look_at = 0;
+  g_rpc_probe.saw_camera_behind = 0;
   g_rpc_probe.saw_client_message = 0;
   g_rpc_probe.saw_textdraw_select = 0;
   g_rpc_probe.saw_object_event = 0;
@@ -702,8 +722,14 @@ void reset_rpc_probe_runtime(RakNet::RakClientInterface *client) {
   g_rpc_probe.request_spawn_outcome = 0;
   std::memset(g_rpc_probe.player_pos, 0, sizeof(g_rpc_probe.player_pos));
   g_rpc_probe.player_facing_angle = 0.0f;
+  g_rpc_probe.player_health = 100.0f;
   g_rpc_probe.player_pos_seq = 0U;
   g_rpc_probe.player_facing_seq = 0U;
+  g_rpc_probe.player_health_seq = 0U;
+  g_rpc_probe.player_controllable_seq = 0U;
+  g_rpc_probe.camera_behind_seq = 0U;
+  g_rpc_probe.client_check_response_count = 0U;
+  g_rpc_probe.player_controllable = 1U;
   g_rpc_probe.weather = 0;
   g_rpc_probe.world_time_hour = 12U;
   g_rpc_probe.world_time_minute = 0U;
@@ -762,6 +788,57 @@ void read_vec3(const unsigned char *data, float out[3]) {
   out[0] = read_le_float(data);
   out[1] = read_le_float(data + 4);
   out[2] = read_le_float(data + 8);
+}
+
+unsigned char client_check_result(unsigned char type, unsigned int address, unsigned short offset, unsigned short count) {
+  /*
+   * OPENMP_REF + PROBE_TRACE + TODO_VERIFY:
+   * open.mp writes ClientCheck requests as type/address/offset/count and expects a type/address/result response on
+   * the same RPC id. The observed 0x48 request is used by common scripts as a client capability probe; return a
+   * neutral result until original 0.3.7 behaviour is traced per check type.
+   */
+  (void)type;
+  (void)address;
+  (void)offset;
+  (void)count;
+  return 0U;
+}
+
+bool send_client_check_response(RakNet::RakClientInterface *rak_client, unsigned char type, unsigned int address,
+                                unsigned char result) {
+  RakNet::BitStream bs_send;
+
+  if (rak_client == nullptr) {
+    return false;
+  }
+
+  bs_send.Write(type);
+  bs_send.Write(address);
+  bs_send.Write(result);
+  const int sent = rak_client->RPC(kRpcClientCheck, &bs_send, RakNet::HIGH_PRIORITY, RakNet::RELIABLE, 0, false,
+                                  RakNet::UNASSIGNED_NETWORK_ID, nullptr);
+  ++g_rpc_probe.client_check_response_count;
+  trace_netf("rpc-user-out id=103 name=ClientCheck type=0x%02x address=0x%08x result=0x%02x sent=%d count=%u",
+             static_cast<unsigned int>(type), address, static_cast<unsigned int>(result), sent,
+             g_rpc_probe.client_check_response_count);
+  return sent != 0;
+}
+
+bool handle_client_check_payload(const unsigned char *data, unsigned int bytes) {
+  if (data == nullptr || bytes < 9U) {
+    return false;
+  }
+
+  const unsigned char type = data[0];
+  const unsigned int address = read_le32(data + 1U);
+  const unsigned short offset = read_le16(data + 5U);
+  const unsigned short count = read_le16(data + 7U);
+  const unsigned char result = client_check_result(type, address, offset, count);
+  const bool sent = send_client_check_response(g_rpc_probe.client, type, address, result);
+  trace_netf("rpc-state id=103 client_check type=0x%02x address=0x%08x offset=%u count=%u result=0x%02x sent=%d",
+             static_cast<unsigned int>(type), address, static_cast<unsigned int>(offset),
+             static_cast<unsigned int>(count), static_cast<unsigned int>(result), sent ? 1 : 0);
+  return sent;
 }
 
 bool spawn_info_plausible(std::int32_t skin, const float pos[3], float rotation) {
@@ -2467,6 +2544,10 @@ void rpc_observer(RakNet::RPCParameters *rpc_params, void *extra) {
     if (rpc_params == nullptr || !decode_textdraw_edit_payload(rpc_params->input, bytes)) {
       trace_netf("rpc-state id=136 textdraw_edit decode_failed bytes=%u", bytes);
     }
+  } else if (rpc_id == 103U) {
+    if (rpc_params == nullptr || !handle_client_check_payload(rpc_params->input, bytes)) {
+      trace_netf("rpc-state id=103 client_check decode_or_send_failed bytes=%u", bytes);
+    }
   } else if (rpc_id == 44U) {
     if (rpc_params == nullptr || !decode_object_create_payload(rpc_params->input, bytes)) {
       trace_netf("rpc-state id=44 object_create decode_failed bytes=%u", bytes);
@@ -2527,6 +2608,35 @@ void rpc_observer(RakNet::RPCParameters *rpc_params, void *extra) {
                  g_rpc_probe.player_pos_seq,
                  static_cast<double>(g_rpc_probe.player_pos[0]), static_cast<double>(g_rpc_probe.player_pos[1]),
                  static_cast<double>(g_rpc_probe.player_pos[2]));
+    }
+  } else if (rpc_id == 14U) {
+    if (rpc_params != nullptr && bytes >= 4U) {
+      const float health = read_le_float(rpc_params->input);
+      if (std::isfinite(health) && health >= 0.0f && health <= 10000.0f) {
+        g_rpc_probe.saw_player_health = 1;
+        g_rpc_probe.player_health = health;
+        ++g_rpc_probe.player_health_seq;
+        if (g_rpc_probe.player_health_seq == 0U) {
+          g_rpc_probe.player_health_seq = 1U;
+        }
+        trace_netf("rpc-state id=14 player_health_seq=%u health=%.3f observe_only=1",
+                   g_rpc_probe.player_health_seq, static_cast<double>(health));
+      } else {
+        trace_netf("rpc-state id=14 invalid_player_health=%.3f bytes=%u ignored=1",
+                   static_cast<double>(health), bytes);
+      }
+    }
+  } else if (rpc_id == 15U) {
+    if (rpc_params != nullptr && bytes >= 1U) {
+      g_rpc_probe.saw_player_controllable = 1;
+      g_rpc_probe.player_controllable = rpc_params->input[0] != 0U ? 1U : 0U;
+      ++g_rpc_probe.player_controllable_seq;
+      if (g_rpc_probe.player_controllable_seq == 0U) {
+        g_rpc_probe.player_controllable_seq = 1U;
+      }
+      trace_netf("rpc-state id=15 player_controllable_seq=%u controllable=%u observe_only=1",
+                 g_rpc_probe.player_controllable_seq,
+                 static_cast<unsigned int>(g_rpc_probe.player_controllable));
     }
   } else if (rpc_id == 19U) {
     if (rpc_params != nullptr && bytes >= 4U) {
@@ -2626,6 +2736,13 @@ void rpc_observer(RakNet::RPCParameters *rpc_params, void *extra) {
                  static_cast<double>(g_rpc_probe.camera_look_at[2]),
                  static_cast<unsigned int>(g_rpc_probe.camera_look_at_type));
     }
+  } else if (rpc_id == 162U) {
+    g_rpc_probe.saw_camera_behind = 1;
+    ++g_rpc_probe.camera_behind_seq;
+    if (g_rpc_probe.camera_behind_seq == 0U) {
+      g_rpc_probe.camera_behind_seq = 1U;
+    }
+    trace_netf("rpc-state id=162 camera_behind_seq=%u observe_only=1", g_rpc_probe.camera_behind_seq);
   }
 }
 
@@ -3118,6 +3235,12 @@ int samp_raknet_client_get_rpc_probe_snapshot(void *client, samp_raknet_rpc_prob
   if (g_rpc_probe.saw_player_facing) {
     flags |= SAMP_RAKNET_RPC_FLAG_PLAYER_FACING;
   }
+  if (g_rpc_probe.saw_player_health) {
+    flags |= SAMP_RAKNET_RPC_FLAG_PLAYER_HEALTH;
+  }
+  if (g_rpc_probe.saw_player_controllable) {
+    flags |= SAMP_RAKNET_RPC_FLAG_PLAYER_CONTROLLABLE;
+  }
   if (g_rpc_probe.saw_weather) {
     flags |= SAMP_RAKNET_RPC_FLAG_WEATHER;
   }
@@ -3138,6 +3261,9 @@ int samp_raknet_client_get_rpc_probe_snapshot(void *client, samp_raknet_rpc_prob
   }
   if (g_rpc_probe.saw_camera_look_at) {
     flags |= SAMP_RAKNET_RPC_FLAG_CAMERA_LOOK_AT;
+  }
+  if (g_rpc_probe.saw_camera_behind) {
+    flags |= SAMP_RAKNET_RPC_FLAG_CAMERA_BEHIND;
   }
   if (g_rpc_probe.saw_client_message) {
     flags |= SAMP_RAKNET_RPC_FLAG_CLIENT_MESSAGE;
@@ -3202,8 +3328,13 @@ int samp_raknet_client_get_rpc_probe_snapshot(void *client, samp_raknet_rpc_prob
   std::memcpy(out_snapshot->dialog_button2, g_rpc_probe.dialog_button2, sizeof(out_snapshot->dialog_button2));
   std::memcpy(out_snapshot->player_pos, g_rpc_probe.player_pos, sizeof(out_snapshot->player_pos));
   out_snapshot->player_facing_angle = g_rpc_probe.player_facing_angle;
+  out_snapshot->player_health = g_rpc_probe.player_health;
   out_snapshot->player_pos_seq = g_rpc_probe.player_pos_seq;
   out_snapshot->player_facing_seq = g_rpc_probe.player_facing_seq;
+  out_snapshot->player_health_seq = g_rpc_probe.player_health_seq;
+  out_snapshot->player_controllable_seq = g_rpc_probe.player_controllable_seq;
+  out_snapshot->camera_behind_seq = g_rpc_probe.camera_behind_seq;
+  out_snapshot->player_controllable = g_rpc_probe.player_controllable;
   out_snapshot->weather = g_rpc_probe.weather;
   out_snapshot->world_time_hour = g_rpc_probe.world_time_hour;
   out_snapshot->world_time_minute = g_rpc_probe.world_time_minute;
