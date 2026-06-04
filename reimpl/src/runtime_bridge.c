@@ -4198,6 +4198,23 @@ static int dialog_compat_d3d_alpha_rect(void *device, int x, int y, int w, int h
   return SUCCEEDED(draw_primitive_up(device, SAMP_D3DPT_TRIANGLESTRIP, 2u, vertices, sizeof(vertices[0])));
 }
 
+static void textdraw_compat_d3d_fill_rect(void *device, int x, int y, int w, int h, DWORD argb_color) {
+  DWORD alpha = argb_color & 0xFF000000u;
+
+  /* OLD_02X_REF + GTA_REVERSED_REF + TODO_VERIFY:
+   * CFont/CSprite2d textdraw boxes are alpha-blended. IDirect3DDevice9::Clear
+   * ignores that blend state, so the D3DX fallback must use a primitive path
+   * for translucent TextDrawBoxColour/BackgroundColour values.
+   */
+  if (alpha == 0u) {
+    return;
+  }
+  if (alpha != 0xFF000000u && dialog_compat_d3d_alpha_rect(device, x, y, w, h, argb_color)) {
+    return;
+  }
+  dialog_compat_d3d_fill_rect(device, x, y, w, h, argb_color);
+}
+
 static int scoreboard_compat_connected(void) {
   LONG net_state = InterlockedCompareExchange(&g_runtime.netgame_state, 0, 0);
 
@@ -4919,12 +4936,16 @@ static int loading_screen_compat_draw_d3dx_overlay(void *device) {
 }
 
 static DWORD textdraw_compat_abgr_to_argb(uint32_t color) {
-  DWORD converted = (DWORD)((color & 0xFF00FF00u) | ((color & 0x000000FFu) << 16u) |
-                            ((color & 0x00FF0000u) >> 16u));
-  if ((converted & 0xFF000000u) == 0u) {
-    converted |= 0xFF000000u;
-  }
-  return converted;
+  /* OLD_02X_REF + OPENMP_REF:
+   * TextDraw API colors are RGBA, but the legacy server stores RGBA_ABGR()
+   * in TEXT_DRAW_TRANSMIT. Convert that client-side ABGR value for D3D.
+   */
+  return (DWORD)((color & 0xFF00FF00u) | ((color & 0x000000FFu) << 16u) |
+                 ((color & 0x00FF0000u) >> 16u));
+}
+
+static int textdraw_compat_abgr_has_alpha(uint32_t color) {
+  return (color & 0xFF000000u) != 0u;
 }
 
 static int textdraw_compat_read_gta_screen(float *screen_width, float *screen_height, float *hud_horiz,
@@ -5532,10 +5553,10 @@ static void textdraw_compat_draw_rect_outline(void *device, int x, int y, int w,
   if (device == NULL || w <= 0 || h <= 0) {
     return;
   }
-  dialog_compat_d3d_fill_rect(device, x, y, w, 1, color);
-  dialog_compat_d3d_fill_rect(device, x, y + h - 1, w, 1, color);
-  dialog_compat_d3d_fill_rect(device, x, y, 1, h, color);
-  dialog_compat_d3d_fill_rect(device, x + w - 1, y, 1, h, color);
+  textdraw_compat_d3d_fill_rect(device, x, y, w, 1, color);
+  textdraw_compat_d3d_fill_rect(device, x, y + h - 1, w, 1, color);
+  textdraw_compat_d3d_fill_rect(device, x, y, 1, h, color);
+  textdraw_compat_d3d_fill_rect(device, x + w - 1, y, 1, h, color);
 }
 
 static void ui_compat_draw_cursor(void *device, int x, int y) {
@@ -5566,13 +5587,13 @@ static void textdraw_compat_draw_preview_placeholder(void *device, const samp_te
   if (device == NULL || slot == NULL || w <= 0 || h <= 0) {
     return;
   }
-  if ((slot->transmit.box_color & 0x00FFFFFFu) != 0u) {
+  if (textdraw_compat_abgr_has_alpha(slot->transmit.box_color)) {
     fill = textdraw_compat_abgr_to_argb(slot->transmit.box_color);
   }
-  if ((slot->transmit.background_color & 0x00FFFFFFu) != 0u) {
+  if (textdraw_compat_abgr_has_alpha(slot->transmit.background_color)) {
     border = textdraw_compat_abgr_to_argb(slot->transmit.background_color);
   }
-  dialog_compat_d3d_fill_rect(device, x, y, w, h, fill);
+  textdraw_compat_d3d_fill_rect(device, x, y, w, h, fill);
   textdraw_compat_draw_rect_outline(device, x, y, w, h, border);
 }
 
@@ -5881,8 +5902,8 @@ static void textdraw_compat_draw_slot(void *device, samp_textdraw_slot_compat *s
     textdraw_compat_draw_preview_placeholder(device, slot, x, y, w, h);
     return;
   }
-  if (use_box && (slot->transmit.box_color & 0x00FFFFFFu) != 0u) {
-    dialog_compat_d3d_fill_rect(device, x, y, w, h, textdraw_compat_abgr_to_argb(slot->transmit.box_color));
+  if (use_box && textdraw_compat_abgr_has_alpha(slot->transmit.box_color)) {
+    textdraw_compat_d3d_fill_rect(device, x, y, w, h, textdraw_compat_abgr_to_argb(slot->transmit.box_color));
   }
   if (!draw_text) {
     return;
