@@ -182,6 +182,15 @@
 #define SAMP_CHAT_COMPAT_BASE_Y 145
 #define SAMP_CHAT_COMPAT_LINE_HEIGHT 18
 #define SAMP_CHAT_COMPAT_COLOR_INFO 0xFFECECECu
+#define SAMP_SCOREBOARD_MAX_PLAYERS 1000
+#define SAMP_SCOREBOARD_MAX_VISIBLE 20
+#define SAMP_SCOREBOARD_FONT_SIZE 16
+#define SAMP_SCOREBOARD_LINE_HEIGHT 22
+#define SAMP_SCOREBOARD_COLOR_PANEL 0xB0000000u
+#define SAMP_SCOREBOARD_COLOR_HEADER 0xFF101010u
+#define SAMP_SCOREBOARD_COLOR_GRID 0xFF303030u
+#define SAMP_SCOREBOARD_COLOR_LABEL 0xFF6496C8u
+#define SAMP_SCOREBOARD_COLOR_MUTED 0xFF969696u
 #define SAMP_CHAT_INPUT_MAX 128
 #define SAMP_CHAT_INPUT_HISTORY 10
 #define SAMP_CHAT_INPUT_DRAW_BYTES 160
@@ -602,6 +611,9 @@ typedef struct samp_runtime_state {
   LONG chat_input_command_send_count;
   LONG chat_input_send_failures;
   LONG chat_input_hook_logged;
+  LONG scoreboard_offset;
+  LONG scoreboard_logged;
+  LONG scoreboard_d3d_font_fail_logged;
   LONG mp_session_apply_count;
   LONG mp_session_teleport_count;
   LONG mp_session_applied_player_pos_seq;
@@ -799,11 +811,13 @@ typedef struct samp_runtime_state {
   char dialog_overlay_button2[SAMP_RAKNET_DIALOG_BUTTON_BYTES];
   char dialog_overlay_input[SAMP_RAKNET_DIALOG_INPUT_BYTES];
   void *chat_d3d_device;
+  void *scoreboard_d3d_device;
   void **chat_d3d_vtbl;
   samp_d3d9_end_scene_fn chat_end_scene_original;
   samp_d3dx_create_font_a_fn d3dx_create_font_a;
   samp_d3dx_save_surface_to_file_a_fn d3dx_save_surface_to_file_a;
   samp_id3dx_font_compat *chat_d3dx_font;
+  samp_id3dx_font_compat *scoreboard_d3dx_font;
   samp_id3dx_font_compat *textdraw_d3dx_fonts[SAMP_TEXTDRAW_COMPAT_FONT_BUCKETS];
   samp_d3dx_create_texture_from_file_a_fn d3dx_create_texture_from_file_a;
   void *loading_screen_texture;
@@ -832,6 +846,10 @@ static uint8_t g_scan_list_memory[SAMP_SCANLIST_SIZE];
 static LONG read_game_entry_gate_value(void);
 static HRESULT WINAPI chat_compat_end_scene_hook(void *device);
 static void chat_compat_viewport_rect(int *out_x, int *out_y, int *out_w, int *out_h);
+static int scoreboard_compat_active(void);
+static int scoreboard_compat_draw_d3dx_overlay(void *device);
+static int scoreboard_compat_handle_key(UINT msg, WPARAM wparam);
+static void scoreboard_compat_release_font(void);
 static void dialog_compat_normalize_selection(void);
 static void dialog_compat_submit(unsigned char button);
 static void textdraw_compat_update_from_snapshot(const samp_raknet_rpc_probe_snapshot *snapshot);
@@ -3362,6 +3380,10 @@ static LRESULT CALLBACK chat_input_wndproc_compat(HWND hwnd, UINT msg, WPARAM wp
     }
   }
 
+  if (scoreboard_compat_handle_key(msg, wparam)) {
+    return 0;
+  }
+
   if (msg == WM_CHAR) {
     if (!active) {
       if (wparam == 't' || wparam == 'T' || wparam == '`') {
@@ -3669,6 +3691,7 @@ static void chat_compat_release_d3dx_font(void) {
   }
   g_runtime.chat_d3dx_font = NULL;
   g_runtime.chat_d3d_device = NULL;
+  scoreboard_compat_release_font();
   textdraw_compat_release_fonts();
   loading_screen_compat_release_texture();
 }
@@ -4151,6 +4174,302 @@ static int dialog_compat_d3d_alpha_rect(void *device, int x, int y, int w, int h
   (void)set_render_state(device, SAMP_D3DRS_DESTBLEND, SAMP_D3DBLEND_INVSRCALPHA);
   (void)set_fvf(device, SAMP_D3DFVF_XYZRHW_DIFFUSE);
   return SUCCEEDED(draw_primitive_up(device, SAMP_D3DPT_TRIANGLESTRIP, 2u, vertices, sizeof(vertices[0])));
+}
+
+static int scoreboard_compat_connected(void) {
+  LONG net_state = InterlockedCompareExchange(&g_runtime.netgame_state, 0, 0);
+
+  if (net_state != SAMP_NETGAME_CONNECTED) {
+    return 0;
+  }
+  if (g_runtime.net_mgr.raknet_client == NULL || !samp_raknet_client_is_connected(g_runtime.net_mgr.raknet_client)) {
+    return 0;
+  }
+  return 1;
+}
+
+static int scoreboard_compat_available(void) {
+  LONG net_state = InterlockedCompareExchange(&g_runtime.netgame_state, 0, 0);
+
+  if (!chat_input_enabled_compat() || !g_runtime.settings.play_online || net_state == SAMP_NETGAME_FAILED) {
+    return 0;
+  }
+  return 1;
+}
+
+static int scoreboard_compat_active(void) {
+  if (!scoreboard_compat_available()) {
+    return 0;
+  }
+  if (InterlockedCompareExchange(&g_runtime.chat_input_active, 0, 0) != 0 || dialog_compat_active() ||
+      InterlockedCompareExchange(&g_runtime.textdraw_select_active, 0, 0) != 0) {
+    return 0;
+  }
+  return (GetAsyncKeyState(VK_TAB) & 0x8000) != 0;
+}
+
+static int scoreboard_compat_handle_key(UINT msg, WPARAM wparam) {
+  if (!scoreboard_compat_available()) {
+    return 0;
+  }
+  if (InterlockedCompareExchange(&g_runtime.chat_input_active, 0, 0) != 0 || dialog_compat_active() ||
+      InterlockedCompareExchange(&g_runtime.textdraw_select_active, 0, 0) != 0) {
+    return 0;
+  }
+
+  if (msg == WM_CHAR && wparam == '\t') {
+    return 1;
+  }
+  if (msg != WM_KEYDOWN && msg != WM_KEYUP) {
+    return 0;
+  }
+  if (wparam == VK_TAB) {
+    return 1;
+  }
+  if ((GetAsyncKeyState(VK_TAB) & 0x8000) != 0) {
+    if (wparam == VK_PRIOR) {
+      LONG offset = InterlockedCompareExchange(&g_runtime.scoreboard_offset, 0, 0);
+      offset -= SAMP_SCOREBOARD_MAX_VISIBLE;
+      if (offset < 0) {
+        offset = 0;
+      }
+      InterlockedExchange(&g_runtime.scoreboard_offset, offset);
+      return 1;
+    }
+    if (wparam == VK_NEXT) {
+      InterlockedExchange(&g_runtime.scoreboard_offset, 0);
+      return 1;
+    }
+  }
+  return 0;
+}
+
+static void scoreboard_compat_release_font(void) {
+  samp_id3dx_font_compat *font = g_runtime.scoreboard_d3dx_font;
+
+  if (font != NULL && font->lpVtbl != NULL && font->lpVtbl->Release != NULL) {
+    font->lpVtbl->Release(font);
+  }
+  g_runtime.scoreboard_d3dx_font = NULL;
+  g_runtime.scoreboard_d3d_device = NULL;
+}
+
+static int scoreboard_compat_ensure_font(void *device) {
+  HRESULT hr = 0;
+  samp_id3dx_font_compat *font = NULL;
+
+  if (device == NULL) {
+    return 0;
+  }
+  if (g_runtime.scoreboard_d3dx_font != NULL && g_runtime.scoreboard_d3d_device == device) {
+    return 1;
+  }
+
+  scoreboard_compat_release_font();
+  if (!chat_compat_resolve_d3dx_create_font()) {
+    return 0;
+  }
+
+  hr = g_runtime.d3dx_create_font_a(device, SAMP_SCOREBOARD_FONT_SIZE, 0u, FW_BOLD, 1u, FALSE, DEFAULT_CHARSET,
+                                    OUT_DEFAULT_PRECIS, DEFAULT_QUALITY, DEFAULT_PITCH | FF_DONTCARE, "Arial",
+                                    &font);
+  if (FAILED(hr) || font == NULL) {
+    if (InterlockedCompareExchange(&g_runtime.scoreboard_d3d_font_fail_logged, 1, 0) == 0) {
+      runtime_tracef("scoreboard_d3dx: font create failed hr=0x%08lx device=0x%08lx", (unsigned long)hr,
+                     (unsigned long)(uintptr_t)device);
+    }
+    return 0;
+  }
+
+  g_runtime.scoreboard_d3dx_font = font;
+  g_runtime.scoreboard_d3d_device = device;
+  InterlockedExchange(&g_runtime.scoreboard_d3d_font_fail_logged, 0);
+  runtime_tracef("scoreboard_d3dx: font created device=0x%08lx size=%d evidence=OLD_02X_REF,TODO_VERIFY",
+                 (unsigned long)(uintptr_t)device, SAMP_SCOREBOARD_FONT_SIZE);
+  return 1;
+}
+
+static const char *scoreboard_compat_local_name(void) {
+  if (g_runtime.raknet_join_profile.nickname[0] != '\0') {
+    return g_runtime.raknet_join_profile.nickname;
+  }
+  if (g_runtime.settings.nickname[0] != '\0') {
+    return g_runtime.settings.nickname;
+  }
+  return SAMP_DEFAULT_NICKNAME;
+}
+
+static int scoreboard_compat_local_id(void) {
+  uint16_t player_id = g_runtime.raknet_init_local_player_id;
+
+  if (player_id >= SAMP_SCOREBOARD_MAX_PLAYERS) {
+    return 0;
+  }
+  return (int)player_id;
+}
+
+static DWORD scoreboard_compat_local_color(void) {
+  uint32_t color = g_runtime.raknet_player_color;
+
+  if (color == 0u) {
+    return 0xFFFFFFFFu;
+  }
+  return chat_compat_samp_color_to_argb(color);
+}
+
+static void scoreboard_compat_draw_border(void *device, int x, int y, int w, int h, DWORD color) {
+  dialog_compat_d3d_fill_rect(device, x, y, w, 1, color);
+  dialog_compat_d3d_fill_rect(device, x, y + h - 1, w, 1, color);
+  dialog_compat_d3d_fill_rect(device, x, y, 1, h, color);
+  dialog_compat_d3d_fill_rect(device, x + w - 1, y, 1, h, color);
+}
+
+static void scoreboard_compat_draw_text_shadowed(samp_id3dx_font_compat *font, RECT rect, const char *text,
+                                                 DWORD color, DWORD flags) {
+  RECT shadow = rect;
+
+  shadow.left += 1;
+  shadow.top += 1;
+  shadow.right += 1;
+  shadow.bottom += 1;
+  chat_compat_d3dx_draw_text(font, shadow, text, 0xFF000000u, flags);
+  chat_compat_d3dx_draw_text(font, rect, text, color, flags);
+}
+
+static int scoreboard_compat_draw_d3dx_overlay(void *device) {
+  samp_id3dx_font_compat *font = NULL;
+  int viewport_x = 0;
+  int viewport_y = 0;
+  int viewport_w = 0;
+  int viewport_h = 0;
+  int panel_w = 0;
+  int panel_h = 0;
+  int panel_x = 0;
+  int panel_y = 0;
+  int row_y = 0;
+  int col_id = 0;
+  int col_name = 0;
+  int col_score = 0;
+  int col_ping = 0;
+  DWORD local_color = 0;
+  int connected = 0;
+  RECT rect;
+  char players_text[64];
+  char value[64];
+  const char *host = NULL;
+
+  if (!scoreboard_compat_active() || !scoreboard_compat_ensure_font(device)) {
+    return 0;
+  }
+
+  font = g_runtime.scoreboard_d3dx_font;
+  connected = scoreboard_compat_connected();
+  chat_compat_viewport_rect(&viewport_x, &viewport_y, &viewport_w, &viewport_h);
+  if (viewport_w <= 0 || viewport_h <= 0) {
+    return 0;
+  }
+
+  panel_w = viewport_w - 80;
+  if (panel_w > 900) {
+    panel_w = 900;
+  }
+  if (panel_w < 560) {
+    panel_w = viewport_w - 24;
+  }
+  panel_h = viewport_h - 90;
+  if (panel_h > 560) {
+    panel_h = 560;
+  }
+  if (panel_h < 300) {
+    panel_h = viewport_h - 24;
+  }
+  panel_x = viewport_x + ((viewport_w - panel_w) / 2);
+  panel_y = viewport_y + ((viewport_h - panel_h) / 2);
+  if (panel_x < 0) {
+    panel_x = 0;
+  }
+  if (panel_y < 0) {
+    panel_y = 0;
+  }
+
+  if (!dialog_compat_d3d_alpha_rect(device, panel_x, panel_y, panel_w, panel_h, SAMP_SCOREBOARD_COLOR_PANEL)) {
+    dialog_compat_d3d_fill_rect(device, panel_x, panel_y, panel_w, panel_h, 0xFF000000u);
+  }
+  dialog_compat_d3d_fill_rect(device, panel_x, panel_y, panel_w, 42, SAMP_SCOREBOARD_COLOR_HEADER);
+  scoreboard_compat_draw_border(device, panel_x, panel_y, panel_w, panel_h, SAMP_SCOREBOARD_COLOR_GRID);
+
+  host = g_runtime.raknet_init_hostname[0] != '\0' ? g_runtime.raknet_init_hostname : "SA-MP 0.3.7-R5";
+  (void)snprintf(players_text, sizeof(players_text), "%s", connected ? "Players: 1-1 of 1" : "Players: 0-0 of 0");
+  players_text[sizeof(players_text) - 1u] = '\0';
+
+  rect.left = panel_x + 14;
+  rect.top = panel_y + 8;
+  rect.right = panel_x + panel_w - 14;
+  rect.bottom = panel_y + 34;
+  scoreboard_compat_draw_text_shadowed(font, rect, host, 0xFFFF0000u, DT_SINGLELINE | DT_LEFT | DT_NOCLIP);
+  scoreboard_compat_draw_text_shadowed(font, rect, players_text, SAMP_SCOREBOARD_COLOR_MUTED,
+                                       DT_SINGLELINE | DT_RIGHT | DT_NOCLIP);
+
+  col_id = panel_x + 18;
+  col_name = panel_x + 78;
+  col_score = panel_x + panel_w - 230;
+  col_ping = panel_x + panel_w - 112;
+
+  row_y = panel_y + 48;
+  rect.left = col_id;
+  rect.top = row_y;
+  rect.right = col_name - 10;
+  rect.bottom = row_y + SAMP_SCOREBOARD_LINE_HEIGHT;
+  scoreboard_compat_draw_text_shadowed(font, rect, "id", SAMP_SCOREBOARD_COLOR_LABEL,
+                                       DT_SINGLELINE | DT_CENTER | DT_NOCLIP);
+  rect.left = col_name;
+  rect.right = col_score - 10;
+  scoreboard_compat_draw_text_shadowed(font, rect, "name", SAMP_SCOREBOARD_COLOR_LABEL,
+                                       DT_SINGLELINE | DT_LEFT | DT_NOCLIP);
+  rect.left = col_score;
+  rect.right = col_ping - 10;
+  scoreboard_compat_draw_text_shadowed(font, rect, "score", SAMP_SCOREBOARD_COLOR_LABEL,
+                                       DT_SINGLELINE | DT_CENTER | DT_NOCLIP);
+  rect.left = col_ping;
+  rect.right = panel_x + panel_w - 18;
+  scoreboard_compat_draw_text_shadowed(font, rect, "ping", SAMP_SCOREBOARD_COLOR_LABEL,
+                                       DT_SINGLELINE | DT_CENTER | DT_NOCLIP);
+
+  row_y += SAMP_SCOREBOARD_LINE_HEIGHT + 8;
+  dialog_compat_d3d_fill_rect(device, panel_x + 10, row_y - 5, panel_w - 20, 1, SAMP_SCOREBOARD_COLOR_GRID);
+  if (!connected) {
+    if (InterlockedCompareExchange(&g_runtime.scoreboard_logged, 1, 0) == 0) {
+      runtime_tracef("scoreboard: drawing enabled preconnect evidence=OLD_02X_REF TODO_VERIFY remote_pool=stub");
+    }
+    return 1;
+  }
+  local_color = scoreboard_compat_local_color();
+
+  (void)snprintf(value, sizeof(value), "%d", scoreboard_compat_local_id());
+  value[sizeof(value) - 1u] = '\0';
+  rect.left = col_id;
+  rect.top = row_y;
+  rect.right = col_name - 10;
+  rect.bottom = row_y + SAMP_SCOREBOARD_LINE_HEIGHT;
+  scoreboard_compat_draw_text_shadowed(font, rect, value, local_color, DT_SINGLELINE | DT_CENTER | DT_NOCLIP);
+
+  rect.left = col_name;
+  rect.right = col_score - 10;
+  scoreboard_compat_draw_text_shadowed(font, rect, scoreboard_compat_local_name(), local_color,
+                                       DT_SINGLELINE | DT_LEFT | DT_NOCLIP);
+
+  rect.left = col_score;
+  rect.right = col_ping - 10;
+  scoreboard_compat_draw_text_shadowed(font, rect, "0", local_color, DT_SINGLELINE | DT_CENTER | DT_NOCLIP);
+  rect.left = col_ping;
+  rect.right = panel_x + panel_w - 18;
+  scoreboard_compat_draw_text_shadowed(font, rect, "0", local_color, DT_SINGLELINE | DT_CENTER | DT_NOCLIP);
+
+  if (InterlockedCompareExchange(&g_runtime.scoreboard_logged, 1, 0) == 0) {
+    runtime_tracef("scoreboard: drawing enabled local_id=%d host='%s' evidence=OLD_02X_REF TODO_VERIFY remote_pool=stub",
+                   scoreboard_compat_local_id(), host);
+  }
+  return 1;
 }
 
 static void loading_screen_compat_release_texture(void) {
@@ -5188,6 +5507,7 @@ static int chat_compat_draw_d3dx_overlay(void *device) {
   LONG dialog_active = 0;
   LONG textdraw_active = 0;
   int loading_active = 0;
+  int scoreboard_active = 0;
   int x = 0;
   int y = 0;
   int i = 0;
@@ -5201,7 +5521,9 @@ static int chat_compat_draw_d3dx_overlay(void *device) {
   dialog_active = InterlockedCompareExchange(&g_runtime.dialog_overlay_active, 0, 0);
   textdraw_active = InterlockedCompareExchange(&g_runtime.textdraw_active_count, 0, 0);
   loading_active = loading_screen_compat_active();
-  if (count <= 0 && input_active == 0 && dialog_active == 0 && textdraw_active <= 0 && !loading_active) {
+  scoreboard_active = scoreboard_compat_active();
+  if (count <= 0 && input_active == 0 && dialog_active == 0 && textdraw_active <= 0 && !loading_active &&
+      !scoreboard_active) {
     return 0;
   }
   if (count < 0) {
@@ -5217,7 +5539,7 @@ static int chat_compat_draw_d3dx_overlay(void *device) {
   if (loading_active) {
     (void)loading_screen_compat_draw_d3dx_overlay(device);
   }
-  if (textdraw_active > 0) {
+  if (textdraw_active > 0 && !scoreboard_active) {
     (void)textdraw_compat_draw_d3dx_overlay(device);
   }
   chat_compat_viewport_origin(&x, &y);
@@ -5263,11 +5585,14 @@ static int chat_compat_draw_d3dx_overlay(void *device) {
   }
   if (dialog_active != 0) {
     (void)dialog_compat_draw_d3dx_overlay(device, g_runtime.chat_d3dx_font);
+  } else if (scoreboard_active) {
+    (void)scoreboard_compat_draw_d3dx_overlay(device);
   }
 
   if (InterlockedCompareExchange(&g_runtime.chat_d3d_draw_logged, 1, 0) == 0) {
-    runtime_tracef("chat_d3dx: drawing enabled device=0x%08lx lines=%ld dialog=%ld textdraws=%ld x=%d y=%d",
-                   (unsigned long)(uintptr_t)device, (long)count, (long)dialog_active, (long)textdraw_active, x, y);
+    runtime_tracef("chat_d3dx: drawing enabled device=0x%08lx lines=%ld dialog=%ld textdraws=%ld scoreboard=%d x=%d y=%d",
+                   (unsigned long)(uintptr_t)device, (long)count, (long)dialog_active, (long)textdraw_active,
+                   scoreboard_active, x, y);
   }
   return 1;
 }
