@@ -176,8 +176,41 @@ struct RpcProbeState {
   unsigned int player_health_seq;
   unsigned int player_controllable_seq;
   unsigned int camera_behind_seq;
+  unsigned int player_armour_seq;
+  unsigned int player_armed_weapon_seq;
+  unsigned int reset_player_weapons_seq;
+  unsigned int reset_player_money_seq;
+  unsigned int play_sound_seq;
+  unsigned int stop_audio_stream_seq;
+  unsigned int player_color_seq;
+  unsigned int player_team_seq;
+  unsigned int apply_animation_seq;
+  unsigned int world_visual_event_seq;
   unsigned int client_check_response_count;
   unsigned char player_controllable;
+  float player_armour;
+  unsigned int player_armed_weapon;
+  unsigned int play_sound_id;
+  float play_sound_pos[3];
+  unsigned short player_color_player_id;
+  unsigned int player_color;
+  unsigned short player_team_player_id;
+  unsigned char player_team;
+  unsigned short apply_animation_player_id;
+  char apply_animation_lib[SAMP_RAKNET_ANIM_LIB_BYTES];
+  char apply_animation_name[SAMP_RAKNET_ANIM_NAME_BYTES];
+  float apply_animation_delta;
+  unsigned char apply_animation_loop;
+  unsigned char apply_animation_lock_x;
+  unsigned char apply_animation_lock_y;
+  unsigned char apply_animation_freeze;
+  std::int32_t apply_animation_time;
+  unsigned char world_visual_event_type;
+  unsigned short world_visual_id;
+  std::int32_t world_visual_model;
+  unsigned int world_visual_color;
+  float world_visual_pos[4];
+  char world_visual_text[SAMP_RAKNET_WORLD_VISUAL_TEXT_BYTES];
   unsigned char weather;
   unsigned char world_time_hour;
   unsigned char world_time_minute;
@@ -337,12 +370,12 @@ const RpcMeta kRpcMeta[] = {
     {13U, "ScrSetPlayerPosFindZ", kRpcLocalDummy, "SAMPFUNCS_037"},
     {14U, "ScrSetPlayerHealth", kRpcLocalImplemented, "OLD_02X_REF"},
     {15U, "ScrTogglePlayerControllable", kRpcLocalImplemented, "OLD_02X_REF"},
-    {16U, "ScrPlaySound", kRpcLocalDummy, "OLD_02X_REF"},
+    {16U, "ScrPlaySound", kRpcLocalImplemented, "OLD_02X_REF"},
     {17U, "ScrSetWorldBounds", kRpcLocalDummy, "OLD_02X_REF"},
     {18U, "ScrGivePlayerMoney", kRpcLocalDummy, "OLD_02X_REF"},
     {19U, "ScrSetPlayerFacingAngle", kRpcLocalImplemented, "PROBE_TRACE"},
-    {20U, "ScrResetPlayerMoney", kRpcLocalDummy, "OLD_02X_REF"},
-    {21U, "ScrResetPlayerWeapons", kRpcLocalDummy, "OLD_02X_REF"},
+    {20U, "ScrResetPlayerMoney", kRpcLocalImplemented, "OLD_02X_REF"},
+    {21U, "ScrResetPlayerWeapons", kRpcLocalImplemented, "OLD_02X_REF"},
     {22U, "ScrGivePlayerWeapon", kRpcLocalDummy, "OLD_02X_REF"},
     {23U, "OnPlayerClickPlayer", kRpcLocalOutgoing, "OPENMP_REF"},
     {24U, "ScrSetVehicleParamsEx", kRpcLocalDummy, "SAMPFUNCS_037"},
@@ -357,14 +390,14 @@ const RpcMeta kRpcMeta[] = {
     {33U, "ScrSetPlayerShopName", kRpcLocalDummy, "SAMPFUNCS_037"},
     {34U, "ScrSetPlayerSkillLevel", kRpcLocalDummy, "SAMPFUNCS_037"},
     {35U, "ScrSetPlayerDrunkLevel", kRpcLocalDummy, "SAMPFUNCS_037"},
-    {36U, "ScrCreate3DTextLabel", kRpcLocalDummy, "SAMPFUNCS_037"},
+    {36U, "ScrCreate3DTextLabel", kRpcLocalDecoded, "OPENMP_REF"},
     {37U, "ScrDisableCheckpoint", kRpcLocalDummy, "OLD_02X_REF"},
     {38U, "ScrSetRaceCheckpoint", kRpcLocalDummy, "OLD_02X_REF"},
     {39U, "ScrDisableRaceCheckpoint", kRpcLocalDummy, "OLD_02X_REF"},
     {40U, "ScrGameModeRestart", kRpcLocalDummy, "OLD_02X_REF"},
     {41U, "ScrPlayAudioStream", kRpcLocalDummy, "SAMPFUNCS_037"},
-    {42U, "ScrStopAudioStream", kRpcLocalDummy, "SAMPFUNCS_037"},
-    {43U, "ScrRemoveBuildingForPlayer", kRpcLocalDummy, "SAMPFUNCS_037"},
+    {42U, "ScrStopAudioStream", kRpcLocalDecoded, "OPENMP_REF"},
+    {43U, "ScrRemoveBuildingForPlayer", kRpcLocalDecoded, "OPENMP_REF"},
     {44U, "ScrCreateObject", kRpcLocalImplemented, "PROBE_TRACE"},
     {45U, "ScrSetObjectPos", kRpcLocalImplemented, "PROBE_TRACE"},
     {46U, "ScrSetObjectRot", kRpcLocalImplemented, "PROBE_TRACE"},
@@ -383,13 +416,13 @@ const RpcMeta kRpcMeta[] = {
     {62U, "DialogResponse", kRpcLocalOutgoing, "OPENMP_REF"},
     {63U, "ScrDestroyPickup", kRpcLocalDummy, "OLD_02X_REF"},
     {65U, "ScrLinkVehicleToInterior", kRpcLocalDummy, "OLD_02X_REF"},
-    {66U, "ScrSetPlayerArmour", kRpcLocalDummy, "OLD_02X_REF"},
-    {67U, "ScrSetPlayerArmedWeapon", kRpcLocalDummy, "SAMPFUNCS_037"},
+    {66U, "ScrSetPlayerArmour", kRpcLocalImplemented, "OPENMP_REF"},
+    {67U, "ScrSetPlayerArmedWeapon", kRpcLocalImplemented, "OPENMP_REF"},
     {68U, "ScrSetSpawnInfo", kRpcLocalImplemented, "PROBE_TRACE"},
-    {69U, "ScrSetPlayerTeam", kRpcLocalDummy, "OLD_02X_REF"},
+    {69U, "ScrSetPlayerTeam", kRpcLocalDecoded, "OPENMP_REF"},
     {70U, "ScrPutPlayerInVehicle", kRpcLocalDummy, "OLD_02X_REF"},
     {71U, "ScrRemovePlayerFromVehicle", kRpcLocalDummy, "OLD_02X_REF"},
-    {72U, "ScrSetPlayerColor", kRpcLocalDummy, "OLD_02X_REF"},
+    {72U, "ScrSetPlayerColor", kRpcLocalDecoded, "OPENMP_REF"},
     {73U, "ScrDisplayGameText", kRpcLocalDummy, "OLD_02X_REF"},
     {74U, "ScrForceClassSelection", kRpcLocalDummy, "OLD_02X_REF"},
     {75U, "ScrAttachObjectToPlayer", kRpcLocalDecoded, "PROBE_TRACE"},
@@ -401,9 +434,9 @@ const RpcMeta kRpcMeta[] = {
     {81U, "ScrAttachCameraToObject", kRpcLocalDummy, "SAMPFUNCS_037"},
     {82U, "ScrInterpolateCamera", kRpcLocalDummy, "SAMPFUNCS_037"},
     {83U, "ClickTextDraw/SelectTextDraw", kRpcLocalImplemented, "PROBE_TRACE"},
-    {84U, "ScrSetObjectMaterial", kRpcLocalDummy, "SAMPFUNCS_037"},
+    {84U, "ScrSetObjectMaterial", kRpcLocalDecoded, "OPENMP_REF"},
     {85U, "ScrGangZoneStopFlash", kRpcLocalDummy, "SAMPFUNCS_037"},
-    {86U, "ScrApplyAnimation", kRpcLocalDummy, "OLD_02X_REF"},
+    {86U, "ScrApplyAnimation", kRpcLocalDecoded, "OLD_02X_REF"},
     {87U, "ScrClearAnimations", kRpcLocalDummy, "OLD_02X_REF"},
     {88U, "ScrSetPlayerSpecialAction", kRpcLocalDummy, "OLD_02X_REF"},
     {89U, "ScrSetPlayerFightingStyle", kRpcLocalDummy, "SAMPFUNCS_037"},
@@ -422,7 +455,7 @@ const RpcMeta kRpcMeta[] = {
     {105U, "ScrTextDrawSetString", kRpcLocalImplemented, "PROBE_TRACE"},
     {106U, "DamageVehicle", kRpcLocalOutgoing, "OPENMP_REF"},
     {107U, "ScrSetCheckpoint", kRpcLocalDummy, "OLD_02X_REF"},
-    {108U, "ScrGangZoneCreate", kRpcLocalDummy, "OLD_02X_REF"},
+    {108U, "ScrGangZoneCreate", kRpcLocalDecoded, "OPENMP_REF"},
     {112U, "ScrPlayCrimeReport", kRpcLocalDummy, "SAMPFUNCS_037"},
     {113U, "ScrSetPlayerAttachedObject", kRpcLocalDummy, "SAMPFUNCS_037"},
     {115U, "GiveTakeDamage", kRpcLocalOutgoing, "OPENMP_REF"},
@@ -522,8 +555,14 @@ unsigned int rpc_min_payload_bytes(unsigned int rpc_id) {
       return 4U;
     case 15U:
       return 1U;
+    case 16U:
+      return 16U;
     case 19U:
       return 4U;
+    case 36U:
+      return 27U;
+    case 43U:
+      return 20U;
     case 29U:
       return 2U;
     case 44U:
@@ -536,13 +575,24 @@ unsigned int rpc_min_payload_bytes(unsigned int rpc_id) {
       return kOpenMpObjectDestroyMinBytes;
     case 61U:
       return 2U;
+    case 66U:
+    case 67U:
+      return 4U;
     case 68U:
       return kLegacyPlayerSpawnInfoBytes;
+    case 69U:
+      return 3U;
     case 70U:
     case 71U:
       return 2U;
+    case 72U:
+      return 6U;
     case 83U:
       return 0U;
+    case 84U:
+      return 4U;
+    case 86U:
+      return 16U;
     case 93U:
       return 8U;
     case 94U:
@@ -554,6 +604,8 @@ unsigned int rpc_min_payload_bytes(unsigned int rpc_id) {
       return kOpenMpObjectMoveMinBytes;
     case 103U:
       return 9U;
+    case 108U:
+      return 22U;
     case 105U:
     case 122U:
     case 135U:
@@ -728,8 +780,41 @@ void reset_rpc_probe_runtime(RakNet::RakClientInterface *client) {
   g_rpc_probe.player_health_seq = 0U;
   g_rpc_probe.player_controllable_seq = 0U;
   g_rpc_probe.camera_behind_seq = 0U;
+  g_rpc_probe.player_armour_seq = 0U;
+  g_rpc_probe.player_armed_weapon_seq = 0U;
+  g_rpc_probe.reset_player_weapons_seq = 0U;
+  g_rpc_probe.reset_player_money_seq = 0U;
+  g_rpc_probe.play_sound_seq = 0U;
+  g_rpc_probe.stop_audio_stream_seq = 0U;
+  g_rpc_probe.player_color_seq = 0U;
+  g_rpc_probe.player_team_seq = 0U;
+  g_rpc_probe.apply_animation_seq = 0U;
+  g_rpc_probe.world_visual_event_seq = 0U;
   g_rpc_probe.client_check_response_count = 0U;
   g_rpc_probe.player_controllable = 1U;
+  g_rpc_probe.player_armour = 0.0f;
+  g_rpc_probe.player_armed_weapon = 0U;
+  g_rpc_probe.play_sound_id = 0U;
+  std::memset(g_rpc_probe.play_sound_pos, 0, sizeof(g_rpc_probe.play_sound_pos));
+  g_rpc_probe.player_color_player_id = 0U;
+  g_rpc_probe.player_color = 0U;
+  g_rpc_probe.player_team_player_id = 0U;
+  g_rpc_probe.player_team = 0U;
+  g_rpc_probe.apply_animation_player_id = 0U;
+  g_rpc_probe.apply_animation_lib[0] = '\0';
+  g_rpc_probe.apply_animation_name[0] = '\0';
+  g_rpc_probe.apply_animation_delta = 0.0f;
+  g_rpc_probe.apply_animation_loop = 0U;
+  g_rpc_probe.apply_animation_lock_x = 0U;
+  g_rpc_probe.apply_animation_lock_y = 0U;
+  g_rpc_probe.apply_animation_freeze = 0U;
+  g_rpc_probe.apply_animation_time = 0;
+  g_rpc_probe.world_visual_event_type = 0U;
+  g_rpc_probe.world_visual_id = 0U;
+  g_rpc_probe.world_visual_model = 0;
+  g_rpc_probe.world_visual_color = 0U;
+  std::memset(g_rpc_probe.world_visual_pos, 0, sizeof(g_rpc_probe.world_visual_pos));
+  g_rpc_probe.world_visual_text[0] = '\0';
   g_rpc_probe.weather = 0;
   g_rpc_probe.world_time_hour = 12U;
   g_rpc_probe.world_time_minute = 0U;
@@ -1398,6 +1483,313 @@ void copy_text(char *out, size_t out_size, const char *input) {
   }
   std::strncpy(out, input, out_size - 1U);
   out[out_size - 1U] = '\0';
+}
+
+unsigned int bump_seq(unsigned int *seq) {
+  if (seq == nullptr) {
+    return 0U;
+  }
+  ++(*seq);
+  if (*seq == 0U) {
+    *seq = 1U;
+  }
+  return *seq;
+}
+
+bool copy_bounded_bytes(char *out, size_t out_size, const unsigned char *data, unsigned int len) {
+  if (out == nullptr || out_size == 0U) {
+    return false;
+  }
+  out[0] = '\0';
+  if (data == nullptr) {
+    return false;
+  }
+  const unsigned int copy_len = len < (out_size - 1U) ? len : static_cast<unsigned int>(out_size - 1U);
+  if (copy_len > 0U) {
+    std::memcpy(out, data, copy_len);
+  }
+  out[copy_len] = '\0';
+  return len < out_size;
+}
+
+bool read_dynstr8_plain(const unsigned char *data, unsigned int bytes, unsigned int *offset, char *out,
+                        size_t out_size) {
+  if (data == nullptr || offset == nullptr || *offset >= bytes) {
+    return false;
+  }
+  const unsigned int len = static_cast<unsigned int>(data[*offset]);
+  ++(*offset);
+  if (len > bytes - *offset) {
+    return false;
+  }
+  (void)copy_bounded_bytes(out, out_size, data + *offset, len);
+  *offset += len;
+  return true;
+}
+
+void set_world_visual_event(unsigned char type, unsigned short id, std::int32_t model, unsigned int color,
+                            const float *pos, const char *text) {
+  const unsigned int seq = bump_seq(&g_rpc_probe.world_visual_event_seq);
+  g_rpc_probe.world_visual_event_type = type;
+  g_rpc_probe.world_visual_id = id;
+  g_rpc_probe.world_visual_model = model;
+  g_rpc_probe.world_visual_color = color;
+  if (pos != nullptr) {
+    std::memcpy(g_rpc_probe.world_visual_pos, pos, sizeof(g_rpc_probe.world_visual_pos));
+  } else {
+    std::memset(g_rpc_probe.world_visual_pos, 0, sizeof(g_rpc_probe.world_visual_pos));
+  }
+  copy_text(g_rpc_probe.world_visual_text, sizeof(g_rpc_probe.world_visual_text), text);
+  trace_netf("rpc-world-visual: seq=%u type=%u id=%u model=%d color=0x%08x pos=%.3f %.3f %.3f %.3f text='%s' observe_only=1 TODO_VERIFY=1",
+             seq, static_cast<unsigned int>(type), static_cast<unsigned int>(id), static_cast<int>(model), color,
+             static_cast<double>(g_rpc_probe.world_visual_pos[0]),
+             static_cast<double>(g_rpc_probe.world_visual_pos[1]),
+             static_cast<double>(g_rpc_probe.world_visual_pos[2]),
+             static_cast<double>(g_rpc_probe.world_visual_pos[3]), g_rpc_probe.world_visual_text);
+}
+
+bool decode_player_armour_payload(const unsigned char *data, unsigned int bytes) {
+  if (data == nullptr || bytes < 4U) {
+    return false;
+  }
+  const float armour = read_le_float(data);
+  if (!std::isfinite(armour) || armour < 0.0f || armour > 10000.0f) {
+    trace_netf("rpc-state id=66 invalid_player_armour=%.3f bytes=%u ignored=1", static_cast<double>(armour),
+               bytes);
+    return false;
+  }
+  g_rpc_probe.player_armour = armour;
+  const unsigned int seq = bump_seq(&g_rpc_probe.player_armour_seq);
+  trace_netf("rpc-state id=66 player_armour_seq=%u armour=%.3f apply_pending=1", seq,
+             static_cast<double>(armour));
+  return true;
+}
+
+bool decode_player_armed_weapon_payload(const unsigned char *data, unsigned int bytes) {
+  if (data == nullptr || bytes < 4U) {
+    return false;
+  }
+  const unsigned int weapon = read_le32(data);
+  if (weapon > 255U) {
+    trace_netf("rpc-state id=67 invalid_armed_weapon=%u bytes=%u ignored=1", weapon, bytes);
+    return false;
+  }
+  g_rpc_probe.player_armed_weapon = weapon;
+  const unsigned int seq = bump_seq(&g_rpc_probe.player_armed_weapon_seq);
+  trace_netf("rpc-state id=67 armed_weapon_seq=%u weapon=%u apply_pending=1", seq, weapon);
+  return true;
+}
+
+bool decode_play_sound_payload(const unsigned char *data, unsigned int bytes) {
+  if (data == nullptr || bytes < 16U) {
+    return false;
+  }
+  const unsigned int sound = read_le32(data);
+  float pos[3] = {0.0f, 0.0f, 0.0f};
+  read_vec3(data + 4U, pos);
+  if (!std::isfinite(pos[0]) || !std::isfinite(pos[1]) || !std::isfinite(pos[2])) {
+    trace_netf("rpc-state id=16 invalid_sound_pos sound=%u bytes=%u ignored=1", sound, bytes);
+    return false;
+  }
+  g_rpc_probe.play_sound_id = sound;
+  std::memcpy(g_rpc_probe.play_sound_pos, pos, sizeof(g_rpc_probe.play_sound_pos));
+  const unsigned int seq = bump_seq(&g_rpc_probe.play_sound_seq);
+  trace_netf("rpc-state id=16 play_sound_seq=%u sound=%u pos=%.3f %.3f %.3f apply_pending=1", seq, sound,
+             static_cast<double>(pos[0]), static_cast<double>(pos[1]), static_cast<double>(pos[2]));
+  return true;
+}
+
+bool decode_player_team_payload(const unsigned char *data, unsigned int bytes) {
+  if (data == nullptr || bytes < 3U) {
+    return false;
+  }
+  g_rpc_probe.player_team_player_id = read_le16(data);
+  g_rpc_probe.player_team = data[2U];
+  const unsigned int seq = bump_seq(&g_rpc_probe.player_team_seq);
+  trace_netf("rpc-state id=69 player_team_seq=%u player=%u team=%u decoded_only=1", seq,
+             static_cast<unsigned int>(g_rpc_probe.player_team_player_id),
+             static_cast<unsigned int>(g_rpc_probe.player_team));
+  return true;
+}
+
+bool decode_player_color_payload(const unsigned char *data, unsigned int bytes) {
+  if (data == nullptr || bytes < 6U) {
+    return false;
+  }
+  g_rpc_probe.player_color_player_id = read_le16(data);
+  g_rpc_probe.player_color = read_le32(data + 2U);
+  const unsigned int seq = bump_seq(&g_rpc_probe.player_color_seq);
+  trace_netf("rpc-state id=72 player_color_seq=%u player=%u color=0x%08x decoded_only=1", seq,
+             static_cast<unsigned int>(g_rpc_probe.player_color_player_id), g_rpc_probe.player_color);
+  return true;
+}
+
+bool decode_apply_animation_payload(const unsigned char *data, unsigned int bytes) {
+  unsigned int offset = 0U;
+  unsigned int lib_len = 0U;
+  unsigned int name_len = 0U;
+
+  if (data == nullptr || bytes < 16U) {
+    return false;
+  }
+  g_rpc_probe.apply_animation_player_id = read_le16(data + offset);
+  offset += 2U;
+  lib_len = data[offset++];
+  if (lib_len > bytes - offset) {
+    return false;
+  }
+  (void)copy_bounded_bytes(g_rpc_probe.apply_animation_lib, sizeof(g_rpc_probe.apply_animation_lib), data + offset,
+                           lib_len);
+  offset += lib_len;
+  if (offset >= bytes) {
+    return false;
+  }
+  name_len = data[offset++];
+  if (name_len > bytes - offset) {
+    return false;
+  }
+  (void)copy_bounded_bytes(g_rpc_probe.apply_animation_name, sizeof(g_rpc_probe.apply_animation_name), data + offset,
+                           name_len);
+  offset += name_len;
+  if (bytes - offset < 8U) {
+    return false;
+  }
+  g_rpc_probe.apply_animation_delta = read_le_float(data + offset);
+  offset += 4U;
+  g_rpc_probe.apply_animation_loop = data[offset++] != 0U ? 1U : 0U;
+  g_rpc_probe.apply_animation_lock_x = data[offset++] != 0U ? 1U : 0U;
+  g_rpc_probe.apply_animation_lock_y = data[offset++] != 0U ? 1U : 0U;
+  g_rpc_probe.apply_animation_freeze = data[offset++] != 0U ? 1U : 0U;
+  if (bytes - offset < 4U) {
+    return false;
+  }
+  g_rpc_probe.apply_animation_time = read_le_i32(data + offset);
+  const unsigned int seq = bump_seq(&g_rpc_probe.apply_animation_seq);
+  trace_netf("rpc-state id=86 apply_animation_seq=%u player=%u lib='%s' name='%s' delta=%.3f flags=%u/%u/%u/%u time=%d decoded_only=1 TODO_VERIFY=1",
+             seq, static_cast<unsigned int>(g_rpc_probe.apply_animation_player_id),
+             g_rpc_probe.apply_animation_lib, g_rpc_probe.apply_animation_name,
+             static_cast<double>(g_rpc_probe.apply_animation_delta),
+             static_cast<unsigned int>(g_rpc_probe.apply_animation_loop),
+             static_cast<unsigned int>(g_rpc_probe.apply_animation_lock_x),
+             static_cast<unsigned int>(g_rpc_probe.apply_animation_lock_y),
+             static_cast<unsigned int>(g_rpc_probe.apply_animation_freeze),
+             static_cast<int>(g_rpc_probe.apply_animation_time));
+  return true;
+}
+
+bool decode_set_object_material_payload(const unsigned char *data, unsigned int bytes) {
+  unsigned int offset = 0U;
+  unsigned short object_id = 0U;
+  unsigned char material_type = 0U;
+  unsigned char material_id = 0U;
+  std::int32_t model = 0;
+  unsigned int color = 0U;
+  char left[SAMP_RAKNET_WORLD_VISUAL_TEXT_BYTES] = {0};
+  char right[SAMP_RAKNET_WORLD_VISUAL_TEXT_BYTES] = {0};
+  float pos[4] = {0.0f, 0.0f, 0.0f, 0.0f};
+  char text[SAMP_RAKNET_WORLD_VISUAL_TEXT_BYTES] = {0};
+
+  if (data == nullptr || bytes < 4U) {
+    return false;
+  }
+  object_id = read_le16(data + offset);
+  offset += 2U;
+  material_type = data[offset++];
+  material_id = data[offset++];
+  pos[0] = static_cast<float>(material_type);
+  pos[1] = static_cast<float>(material_id);
+  if (material_type == 1U) {
+    if (bytes - offset < 2U) {
+      return false;
+    }
+    model = static_cast<std::int32_t>(read_le16(data + offset));
+    offset += 2U;
+    if (!read_dynstr8_plain(data, bytes, &offset, left, sizeof(left)) ||
+        !read_dynstr8_plain(data, bytes, &offset, right, sizeof(right)) || bytes - offset < 4U) {
+      return false;
+    }
+    color = read_le32(data + offset);
+    std::snprintf(text, sizeof(text), "type=default slot=%u txd='%s' texture='%s'", static_cast<unsigned int>(material_id),
+                  left, right);
+  } else if (material_type == 2U) {
+    if (bytes - offset < 12U) {
+      return false;
+    }
+    const unsigned int material_size = data[offset++];
+    if (!read_dynstr8_plain(data, bytes, &offset, right, sizeof(right)) || bytes - offset < 11U) {
+      return false;
+    }
+    const unsigned int font_size = data[offset++];
+    const unsigned int bold = data[offset++];
+    color = read_le32(data + offset);
+    offset += 4U;
+    const unsigned int background = read_le32(data + offset);
+    offset += 4U;
+    const unsigned int alignment = data[offset++];
+    pos[2] = static_cast<float>(font_size);
+    pos[3] = static_cast<float>(alignment);
+    std::snprintf(text, sizeof(text), "type=text slot=%u size=%u font='%s' bold=%u bg=0x%08x compressed_text=1",
+                  static_cast<unsigned int>(material_id), material_size, right, bold, background);
+  } else {
+    std::snprintf(text, sizeof(text), "type=%u slot=%u unsupported", static_cast<unsigned int>(material_type),
+                  static_cast<unsigned int>(material_id));
+  }
+
+  set_world_visual_event(SAMP_RAKNET_WORLD_VISUAL_SET_OBJECT_MATERIAL, object_id, model, color, pos, text);
+  return true;
+}
+
+bool decode_create_3d_text_label_payload(const unsigned char *data, unsigned int bytes) {
+  if (data == nullptr || bytes < 27U) {
+    return false;
+  }
+  float pos[4] = {0.0f, 0.0f, 0.0f, 0.0f};
+  const unsigned short label_id = read_le16(data);
+  const unsigned int color = read_le32(data + 2U);
+  read_vec3(data + 6U, pos);
+  pos[3] = read_le_float(data + 18U);
+  const unsigned int los = data[22U] != 0U ? 1U : 0U;
+  const unsigned int player_attach = read_le16(data + 23U);
+  const unsigned int vehicle_attach = read_le16(data + 25U);
+  char text[SAMP_RAKNET_WORLD_VISUAL_TEXT_BYTES] = {0};
+  std::snprintf(text, sizeof(text), "draw=%.3f los=%u attach=%u/%u compressed_text=1",
+                static_cast<double>(pos[3]), los, player_attach, vehicle_attach);
+  set_world_visual_event(SAMP_RAKNET_WORLD_VISUAL_CREATE_3D_TEXT_LABEL, label_id, 0, color, pos, text);
+  return true;
+}
+
+bool decode_gang_zone_create_payload(const unsigned char *data, unsigned int bytes) {
+  if (data == nullptr || bytes < 22U) {
+    return false;
+  }
+  float pos[4] = {0.0f, 0.0f, 0.0f, 0.0f};
+  const unsigned short zone_id = read_le16(data);
+  pos[0] = read_le_float(data + 2U);
+  pos[1] = read_le_float(data + 6U);
+  pos[2] = read_le_float(data + 10U);
+  pos[3] = read_le_float(data + 14U);
+  const unsigned int color = read_le32(data + 18U);
+  if (!std::isfinite(pos[0]) || !std::isfinite(pos[1]) || !std::isfinite(pos[2]) || !std::isfinite(pos[3])) {
+    return false;
+  }
+  set_world_visual_event(SAMP_RAKNET_WORLD_VISUAL_GANG_ZONE_CREATE, zone_id, 0, color, pos, "gang_zone_create");
+  return true;
+}
+
+bool decode_remove_building_payload(const unsigned char *data, unsigned int bytes) {
+  if (data == nullptr || bytes < 20U) {
+    return false;
+  }
+  float pos[4] = {0.0f, 0.0f, 0.0f, 0.0f};
+  const std::int32_t model = read_le_i32(data);
+  read_vec3(data + 4U, pos);
+  pos[3] = read_le_float(data + 16U);
+  if (!std::isfinite(pos[0]) || !std::isfinite(pos[1]) || !std::isfinite(pos[2]) || !std::isfinite(pos[3])) {
+    return false;
+  }
+  set_world_visual_event(SAMP_RAKNET_WORLD_VISUAL_REMOVE_BUILDING, 0U, model, 0U, pos,
+                         "remove_building_for_player");
+  return true;
 }
 
 void filter_chat_text(char *text) {
@@ -2532,6 +2924,27 @@ void rpc_observer(RakNet::RPCParameters *rpc_params, void *extra) {
     if (rpc_params == nullptr || !decode_textdraw_show_payload(rpc_params->input, bytes)) {
       trace_netf("rpc-state id=134 textdraw_show decode_failed bytes=%u", bytes);
     }
+  } else if (rpc_id == 16U) {
+    if (rpc_params == nullptr || !decode_play_sound_payload(rpc_params->input, bytes)) {
+      trace_netf("rpc-state id=16 play_sound decode_failed bytes=%u", bytes);
+    }
+  } else if (rpc_id == 20U) {
+    const unsigned int seq = bump_seq(&g_rpc_probe.reset_player_money_seq);
+    trace_netf("rpc-state id=20 reset_player_money_seq=%u apply_pending=1", seq);
+  } else if (rpc_id == 21U) {
+    const unsigned int seq = bump_seq(&g_rpc_probe.reset_player_weapons_seq);
+    trace_netf("rpc-state id=21 reset_player_weapons_seq=%u apply_pending=1", seq);
+  } else if (rpc_id == 36U) {
+    if (rpc_params == nullptr || !decode_create_3d_text_label_payload(rpc_params->input, bytes)) {
+      trace_netf("rpc-state id=36 create_3d_text_label decode_failed bytes=%u", bytes);
+    }
+  } else if (rpc_id == 42U) {
+    const unsigned int seq = bump_seq(&g_rpc_probe.stop_audio_stream_seq);
+    trace_netf("rpc-state id=42 stop_audio_stream_seq=%u decoded_only=1", seq);
+  } else if (rpc_id == 43U) {
+    if (rpc_params == nullptr || !decode_remove_building_payload(rpc_params->input, bytes)) {
+      trace_netf("rpc-state id=43 remove_building decode_failed bytes=%u", bytes);
+    }
   } else if (rpc_id == 135U) {
     if (rpc_params == nullptr || !decode_textdraw_hide_payload(rpc_params->input, bytes)) {
       trace_netf("rpc-state id=135 textdraw_hide decode_failed bytes=%u", bytes);
@@ -2595,6 +3008,34 @@ void rpc_observer(RakNet::RPCParameters *rpc_params, void *extra) {
       }
     } else {
       g_rpc_probe.saw_spawn_info = 1;
+    }
+  } else if (rpc_id == 66U) {
+    if (rpc_params == nullptr || !decode_player_armour_payload(rpc_params->input, bytes)) {
+      trace_netf("rpc-state id=66 player_armour decode_failed bytes=%u", bytes);
+    }
+  } else if (rpc_id == 67U) {
+    if (rpc_params == nullptr || !decode_player_armed_weapon_payload(rpc_params->input, bytes)) {
+      trace_netf("rpc-state id=67 armed_weapon decode_failed bytes=%u", bytes);
+    }
+  } else if (rpc_id == 69U) {
+    if (rpc_params == nullptr || !decode_player_team_payload(rpc_params->input, bytes)) {
+      trace_netf("rpc-state id=69 player_team decode_failed bytes=%u", bytes);
+    }
+  } else if (rpc_id == 72U) {
+    if (rpc_params == nullptr || !decode_player_color_payload(rpc_params->input, bytes)) {
+      trace_netf("rpc-state id=72 player_color decode_failed bytes=%u", bytes);
+    }
+  } else if (rpc_id == 84U) {
+    if (rpc_params == nullptr || !decode_set_object_material_payload(rpc_params->input, bytes)) {
+      trace_netf("rpc-state id=84 set_object_material decode_failed bytes=%u", bytes);
+    }
+  } else if (rpc_id == 86U) {
+    if (rpc_params == nullptr || !decode_apply_animation_payload(rpc_params->input, bytes)) {
+      trace_netf("rpc-state id=86 apply_animation decode_failed bytes=%u", bytes);
+    }
+  } else if (rpc_id == 108U) {
+    if (rpc_params == nullptr || !decode_gang_zone_create_payload(rpc_params->input, bytes)) {
+      trace_netf("rpc-state id=108 gang_zone_create decode_failed bytes=%u", bytes);
     }
   } else if (rpc_id == 12U) {
     if (rpc_params != nullptr && bytes >= 12U) {
@@ -3265,6 +3706,16 @@ int samp_raknet_client_get_rpc_probe_snapshot(void *client, samp_raknet_rpc_prob
   if (g_rpc_probe.saw_camera_behind) {
     flags |= SAMP_RAKNET_RPC_FLAG_CAMERA_BEHIND;
   }
+  if (g_rpc_probe.player_armour_seq > 0U || g_rpc_probe.player_armed_weapon_seq > 0U ||
+      g_rpc_probe.reset_player_weapons_seq > 0U || g_rpc_probe.reset_player_money_seq > 0U ||
+      g_rpc_probe.play_sound_seq > 0U || g_rpc_probe.stop_audio_stream_seq > 0U ||
+      g_rpc_probe.player_color_seq > 0U || g_rpc_probe.player_team_seq > 0U ||
+      g_rpc_probe.apply_animation_seq > 0U) {
+    flags |= SAMP_RAKNET_RPC_FLAG_PLAYER_SCRIPT_EVENT;
+  }
+  if (g_rpc_probe.world_visual_event_seq > 0U) {
+    flags |= SAMP_RAKNET_RPC_FLAG_WORLD_VISUAL_EVENT;
+  }
   if (g_rpc_probe.saw_client_message) {
     flags |= SAMP_RAKNET_RPC_FLAG_CLIENT_MESSAGE;
   }
@@ -3334,7 +3785,44 @@ int samp_raknet_client_get_rpc_probe_snapshot(void *client, samp_raknet_rpc_prob
   out_snapshot->player_health_seq = g_rpc_probe.player_health_seq;
   out_snapshot->player_controllable_seq = g_rpc_probe.player_controllable_seq;
   out_snapshot->camera_behind_seq = g_rpc_probe.camera_behind_seq;
+  out_snapshot->player_armour_seq = g_rpc_probe.player_armour_seq;
+  out_snapshot->player_armed_weapon_seq = g_rpc_probe.player_armed_weapon_seq;
+  out_snapshot->reset_player_weapons_seq = g_rpc_probe.reset_player_weapons_seq;
+  out_snapshot->reset_player_money_seq = g_rpc_probe.reset_player_money_seq;
+  out_snapshot->play_sound_seq = g_rpc_probe.play_sound_seq;
+  out_snapshot->stop_audio_stream_seq = g_rpc_probe.stop_audio_stream_seq;
+  out_snapshot->player_color_seq = g_rpc_probe.player_color_seq;
+  out_snapshot->player_team_seq = g_rpc_probe.player_team_seq;
+  out_snapshot->apply_animation_seq = g_rpc_probe.apply_animation_seq;
+  out_snapshot->world_visual_event_seq = g_rpc_probe.world_visual_event_seq;
   out_snapshot->player_controllable = g_rpc_probe.player_controllable;
+  out_snapshot->player_armour = g_rpc_probe.player_armour;
+  out_snapshot->player_armed_weapon = g_rpc_probe.player_armed_weapon;
+  out_snapshot->play_sound_id = g_rpc_probe.play_sound_id;
+  std::memcpy(out_snapshot->play_sound_pos, g_rpc_probe.play_sound_pos, sizeof(out_snapshot->play_sound_pos));
+  out_snapshot->player_color_player_id = g_rpc_probe.player_color_player_id;
+  out_snapshot->player_color = g_rpc_probe.player_color;
+  out_snapshot->player_team_player_id = g_rpc_probe.player_team_player_id;
+  out_snapshot->player_team = g_rpc_probe.player_team;
+  out_snapshot->apply_animation_player_id = g_rpc_probe.apply_animation_player_id;
+  std::memcpy(out_snapshot->apply_animation_lib, g_rpc_probe.apply_animation_lib,
+              sizeof(out_snapshot->apply_animation_lib));
+  std::memcpy(out_snapshot->apply_animation_name, g_rpc_probe.apply_animation_name,
+              sizeof(out_snapshot->apply_animation_name));
+  out_snapshot->apply_animation_delta = g_rpc_probe.apply_animation_delta;
+  out_snapshot->apply_animation_loop = g_rpc_probe.apply_animation_loop;
+  out_snapshot->apply_animation_lock_x = g_rpc_probe.apply_animation_lock_x;
+  out_snapshot->apply_animation_lock_y = g_rpc_probe.apply_animation_lock_y;
+  out_snapshot->apply_animation_freeze = g_rpc_probe.apply_animation_freeze;
+  out_snapshot->apply_animation_time = g_rpc_probe.apply_animation_time;
+  out_snapshot->world_visual_event_type = g_rpc_probe.world_visual_event_type;
+  out_snapshot->world_visual_id = g_rpc_probe.world_visual_id;
+  out_snapshot->world_visual_model = g_rpc_probe.world_visual_model;
+  out_snapshot->world_visual_color = g_rpc_probe.world_visual_color;
+  std::memcpy(out_snapshot->world_visual_pos, g_rpc_probe.world_visual_pos,
+              sizeof(out_snapshot->world_visual_pos));
+  std::memcpy(out_snapshot->world_visual_text, g_rpc_probe.world_visual_text,
+              sizeof(out_snapshot->world_visual_text));
   out_snapshot->weather = g_rpc_probe.weather;
   out_snapshot->world_time_hour = g_rpc_probe.world_time_hour;
   out_snapshot->world_time_minute = g_rpc_probe.world_time_minute;

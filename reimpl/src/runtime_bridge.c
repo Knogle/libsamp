@@ -124,6 +124,7 @@
 #define SAMP_ADDR_ENTER_EXITS 0x96A7C8u
 #define SAMP_ADDR_FIND_PLAYER_PED 0xB7CD98u
 #define SAMP_ADDR_CURRENT_PLAYER 0xB7CD74u
+#define SAMP_ADDR_MONEY 0xB7CE50u
 #define SAMP_ADDR_VEHICLE_TABLE 0xB74494u
 #define SAMP_ADDR_VEHICLE_FROM_ID 0x4048E0u
 #define SAMP_ADDR_PROCESS_ONE_COMMAND 0x469EB0u
@@ -152,6 +153,7 @@
 #define SAMP_PED_OFFSET_MATRIX 20u
 #define SAMP_PED_OFFSET_STATE_FLAGS 1132u
 #define SAMP_PED_OFFSET_HEALTH 1344u
+#define SAMP_PED_OFFSET_ARMOUR 1352u
 #define SAMP_PED_OFFSET_AUDIO_ENTITY 660u
 #define SAMP_PED_OFFSET_ROTATION1 1368u
 #define SAMP_PED_OFFSET_ROTATION2 1372u
@@ -232,6 +234,36 @@
 #define SAMP_TEXTDRAW_COMPAT_SCRIPT_WIDTH 640.0f
 #define SAMP_TEXTDRAW_COMPAT_SCRIPT_HEIGHT 448.0f
 #define SAMP_TEXTDRAW_COMPAT_MIN_WIDTH 48
+/* OLD_02X_REF + TODO_VERIFY:
+ * 0.2x CTextDraw::Draw delegates normal textdraw text/box output to GTA SA CFont.
+ * Keep D3DX as fallback and for 0.3.7 preview-model textdraws until OBSERVED_037 confirms that path.
+ */
+#define SAMP_ADDR_SCREEN_WIDTH 0xC17044u
+#define SAMP_ADDR_SCREEN_HEIGHT 0xC17048u
+#define SAMP_ADDR_HUD_HORIZ_SCALE 0x859520u
+#define SAMP_ADDR_HUD_VERT_SCALE 0x859524u
+#define SAMP_ADDR_FONT_SET_SCALE 0x719380u
+#define SAMP_ADDR_FONT_SET_COLOR 0x719430u
+#define SAMP_ADDR_FONT_SET_STYLE 0x719490u
+#define SAMP_ADDR_FONT_SET_LINE_WIDTH 0x7194D0u
+#define SAMP_ADDR_FONT_SET_LINE_HEIGHT 0x7194E0u
+#define SAMP_ADDR_FONT_SET_DROPCOLOR 0x719510u
+#define SAMP_ADDR_FONT_SET_SHADOW 0x719570u
+#define SAMP_ADDR_FONT_SET_OUTLINE 0x719590u
+#define SAMP_ADDR_FONT_SET_PROPORTIONAL 0x7195B0u
+#define SAMP_ADDR_FONT_USE_BOX 0x7195C0u
+#define SAMP_ADDR_FONT_USE_BOX_COLOR 0x7195E0u
+#define SAMP_ADDR_FONT_UNK12 0x719600u
+#define SAMP_ADDR_FONT_SET_JUSTIFY 0x719610u
+#define SAMP_ADDR_FONT_PRINT_STRING 0x71A700u
+#define SAMP_TEXTDRAW_COMPAT_GTA_FONT_ENV "SAMP_TEXTDRAW_GTA_FONT"
+/* GTA_REVERSED_REF + OLD_02X_REF + TODO_VERIFY:
+ * 0x69E160 is CMessages::InsertPlayerControlKeysInString in gta-reversed.
+ * The 0.2x Font_UnkConv wrapper returns 0x69DE90 rather than calling it like a
+ * regular C function, so neither conversion helper is safe as a blind textdraw
+ * normalizer until we validate the original 0.3.7 call site.
+ */
+#define SAMP_ADDR_MESSAGES_INSERT_PLAYER_CONTROL_KEYS 0x69E160u
 #define SAMP_TEXTDRAW_COMPAT_MAX_TEXT_BYTES SAMP_RAKNET_TEXTDRAW_TEXT_BYTES
 #define SAMP_OBJECT_COMPAT_MODEL_LOAD_FLAGS 0x06
 #define SAMP_OBJECT_COMPAT_CREATE_BUDGET 4u
@@ -256,7 +288,8 @@
   (SAMP_RAKNET_RPC_FLAG_PLAYER_POS | SAMP_RAKNET_RPC_FLAG_PLAYER_FACING | SAMP_RAKNET_RPC_FLAG_WEATHER |          \
    SAMP_RAKNET_RPC_FLAG_WORLD_TIME | SAMP_RAKNET_RPC_FLAG_SET_TIME_EX | SAMP_RAKNET_RPC_FLAG_TOGGLE_CLOCK |        \
    SAMP_RAKNET_RPC_FLAG_PLAYER_HEALTH | SAMP_RAKNET_RPC_FLAG_PLAYER_CONTROLLABLE |                                 \
-   SAMP_RAKNET_RPC_FLAG_CAMERA_BEHIND | SAMP_RAKNET_RPC_FLAG_INTERIOR | SAMP_RAKNET_RPC_FLAG_CAMERA_POS |          \
+   SAMP_RAKNET_RPC_FLAG_CAMERA_BEHIND | SAMP_RAKNET_RPC_FLAG_PLAYER_SCRIPT_EVENT |                                  \
+   SAMP_RAKNET_RPC_FLAG_WORLD_VISUAL_EVENT | SAMP_RAKNET_RPC_FLAG_INTERIOR | SAMP_RAKNET_RPC_FLAG_CAMERA_POS |      \
    SAMP_RAKNET_RPC_FLAG_CAMERA_LOOK_AT)
 
 /* Emitted in logs so test runs can be matched to the deployed DLL. */
@@ -374,6 +407,12 @@ typedef int(__cdecl *samp_rw_get_num_subsystems_fn)(void);
 typedef int(__cdecl *samp_rw_set_subsystem_fn)(int);
 typedef int(__cdecl *samp_rw_get_num_video_modes_fn)(void);
 typedef samp_rw_video_mode *(__cdecl *samp_rw_get_video_mode_info_fn)(samp_rw_video_mode *, unsigned int);
+typedef void(__cdecl *samp_gta_font_set_scale_fn)(float, float);
+typedef void(__cdecl *samp_gta_font_set_color_fn)(uint32_t);
+typedef void(__cdecl *samp_gta_font_set_int_fn)(int);
+typedef void(__cdecl *samp_gta_font_set_float_fn)(float);
+typedef void(__cdecl *samp_gta_font_use_box_fn)(int, int);
+typedef void(__cdecl *samp_gta_font_print_string_fn)(float, float, const char *);
 
 typedef struct samp_id3dx_font_compat samp_id3dx_font_compat;
 typedef struct samp_id3dx_font_compat_vtbl {
@@ -570,6 +609,16 @@ typedef struct samp_runtime_state {
   LONG mp_session_applied_player_health_seq;
   LONG mp_session_applied_player_controllable_seq;
   LONG mp_session_applied_camera_behind_seq;
+  LONG mp_session_applied_player_armour_seq;
+  LONG mp_session_applied_player_armed_weapon_seq;
+  LONG mp_session_applied_reset_player_weapons_seq;
+  LONG mp_session_applied_reset_player_money_seq;
+  LONG mp_session_applied_play_sound_seq;
+  LONG mp_session_applied_stop_audio_stream_seq;
+  LONG mp_session_applied_player_color_seq;
+  LONG mp_session_applied_player_team_seq;
+  LONG mp_session_applied_apply_animation_seq;
+  LONG mp_session_observed_world_visual_seq;
   LONG mp_session_script_failures;
   LONG mp_session_spawn_finalized;
   LONG mp_session_finalized_spawn_seq;
@@ -615,6 +664,12 @@ typedef struct samp_runtime_state {
   uint8_t raknet_spawn_team;
   uint8_t raknet_camera_look_at_type;
   uint8_t raknet_player_controllable;
+  uint8_t raknet_player_team;
+  uint8_t raknet_apply_animation_loop;
+  uint8_t raknet_apply_animation_lock_x;
+  uint8_t raknet_apply_animation_lock_y;
+  uint8_t raknet_apply_animation_freeze;
+  uint8_t raknet_world_visual_event_type;
   uint8_t raknet_init_world_time;
   uint8_t raknet_init_weather;
   uint8_t raknet_init_lan_mode;
@@ -622,8 +677,14 @@ typedef struct samp_runtime_state {
   uint8_t raknet_init_stunt_bonus;
   uint16_t raknet_init_spawns_available;
   uint16_t raknet_init_local_player_id;
+  uint16_t raknet_player_color_player_id;
+  uint16_t raknet_player_team_player_id;
+  uint16_t raknet_apply_animation_player_id;
+  uint16_t raknet_world_visual_id;
   int32_t raknet_spawn_skin;
   int32_t raknet_init_death_drop_money;
+  int32_t raknet_apply_animation_time;
+  int32_t raknet_world_visual_model;
   DWORD script_gate_old_protect;
   DWORD net_mgr_last_connect_attempt_tick;
   DWORD onfoot_sync_last_tick;
@@ -642,14 +703,32 @@ typedef struct samp_runtime_state {
   float local_stream_refresh_pos[3];
   float raknet_player_facing_angle;
   float raknet_player_health;
+  float raknet_player_armour;
+  float raknet_apply_animation_delta;
   LONG raknet_player_pos_seq;
   LONG raknet_player_facing_seq;
   LONG raknet_player_health_seq;
   LONG raknet_player_controllable_seq;
   LONG raknet_camera_behind_seq;
+  LONG raknet_player_armour_seq;
+  LONG raknet_player_armed_weapon_seq;
+  LONG raknet_reset_player_weapons_seq;
+  LONG raknet_reset_player_money_seq;
+  LONG raknet_play_sound_seq;
+  LONG raknet_stop_audio_stream_seq;
+  LONG raknet_player_color_seq;
+  LONG raknet_player_team_seq;
+  LONG raknet_apply_animation_seq;
+  LONG raknet_world_visual_event_seq;
   LONG raknet_spawn_info_seq;
+  uint32_t raknet_player_armed_weapon;
+  uint32_t raknet_play_sound_id;
+  uint32_t raknet_player_color;
+  uint32_t raknet_world_visual_color;
   float raknet_camera_pos[3];
   float raknet_camera_look_at[3];
+  float raknet_play_sound_pos[3];
+  float raknet_world_visual_pos[4];
   float raknet_init_gravity;
   float raknet_init_name_tag_draw_distance;
   float raknet_init_global_chat_radius;
@@ -660,6 +739,9 @@ typedef struct samp_runtime_state {
   int32_t raknet_init_send_rates[6];
   uint8_t raknet_init_vehicle_models[SAMP_RAKNET_REQUIRED_VEHICLE_MODELS];
   char raknet_init_hostname[SAMP_RAKNET_HOSTNAME_BYTES];
+  char raknet_apply_animation_lib[SAMP_RAKNET_ANIM_LIB_BYTES];
+  char raknet_apply_animation_name[SAMP_RAKNET_ANIM_NAME_BYTES];
+  char raknet_world_visual_text[SAMP_RAKNET_WORLD_VISUAL_TEXT_BYTES];
   HFONT chat_overlay_font;
   DWORD chat_overlay_colors[SAMP_CHAT_COMPAT_MAX_LINES];
   char chat_overlay_lines[SAMP_CHAT_COMPAT_MAX_LINES][SAMP_CHAT_COMPAT_LINE_BYTES];
@@ -690,6 +772,7 @@ typedef struct samp_runtime_state {
   LONG textdraw_active_count;
   LONG textdraw_logged;
   LONG textdraw_d3d_font_fail_logged;
+  LONG textdraw_gta_font_fail_logged;
   LONG textdraw_select_active;
   LONG textdraw_mouse_down;
   LONG object_event_seq;
@@ -753,6 +836,8 @@ static void dialog_compat_normalize_selection(void);
 static void dialog_compat_submit(unsigned char button);
 static void textdraw_compat_update_from_snapshot(const samp_raknet_rpc_probe_snapshot *snapshot);
 static int textdraw_compat_draw_d3dx_overlay(void *device);
+static int textdraw_compat_is_preview_like(const samp_textdraw_slot_compat *slot);
+static int textdraw_compat_has_box(const samp_textdraw_slot_compat *slot);
 static int textdraw_compat_handle_mouse(HWND hwnd, UINT msg, LPARAM lparam);
 static int textdraw_compat_submit_click(uint16_t textdraw_id);
 static void textdraw_compat_clear_select_mode(const char *reason);
@@ -974,6 +1059,40 @@ static int chat_compat_is_hex_digit(char ch) {
   return (ch >= '0' && ch <= '9') || (ch >= 'a' && ch <= 'f') || (ch >= 'A' && ch <= 'F');
 }
 
+static int chat_compat_hex_value(char ch) {
+  if (ch >= '0' && ch <= '9') {
+    return ch - '0';
+  }
+  if (ch >= 'a' && ch <= 'f') {
+    return 10 + (ch - 'a');
+  }
+  if (ch >= 'A' && ch <= 'F') {
+    return 10 + (ch - 'A');
+  }
+  return -1;
+}
+
+static int chat_compat_parse_color_tag(const char *text, DWORD *out_argb) {
+  DWORD rgb = 0u;
+  int i = 0;
+
+  if (text == NULL || out_argb == NULL || strlen(text) < 8u || text[0] != '{') {
+    return 0;
+  }
+  for (i = 1; i <= 6; ++i) {
+    int value = chat_compat_hex_value(text[i]);
+    if (value < 0) {
+      return 0;
+    }
+    rgb = (rgb << 4u) | (DWORD)value;
+  }
+  if (text[7] != '}') {
+    return 0;
+  }
+  *out_argb = 0xFF000000u | rgb;
+  return 1;
+}
+
 static void chat_compat_strip_samp_color_tags(char *line) {
   char *read_cursor = line;
   char *write_cursor = line;
@@ -983,11 +1102,8 @@ static void chat_compat_strip_samp_color_tags(char *line) {
   }
 
   while (*read_cursor != '\0') {
-    size_t remaining = strlen(read_cursor);
-    if (remaining >= 8u && read_cursor[0] == '{' && chat_compat_is_hex_digit(read_cursor[1]) &&
-        chat_compat_is_hex_digit(read_cursor[2]) && chat_compat_is_hex_digit(read_cursor[3]) &&
-        chat_compat_is_hex_digit(read_cursor[4]) && chat_compat_is_hex_digit(read_cursor[5]) &&
-        chat_compat_is_hex_digit(read_cursor[6]) && read_cursor[7] == '}') {
+    DWORD ignored_color = 0u;
+    if (chat_compat_parse_color_tag(read_cursor, &ignored_color)) {
       read_cursor += 8;
       continue;
     }
@@ -1008,7 +1124,6 @@ static void chat_compat_add_colored_line(DWORD argb_color, const char *text) {
   strncpy(line, text, sizeof(line) - 1u);
   line[sizeof(line) - 1u] = '\0';
   chat_compat_filter_invalid_chars(line);
-  chat_compat_strip_samp_color_tags(line);
   if (line[0] == '\0') {
     return;
   }
@@ -3242,8 +3357,8 @@ static LRESULT CALLBACK chat_input_wndproc_compat(HWND hwnd, UINT msg, WPARAM wp
       }
     }
     if (msg == WM_KEYDOWN && wparam == VK_ESCAPE) {
-      (void)textdraw_compat_submit_click(0xFFFFu);
-      return 0;
+      textdraw_compat_clear_select_mode("escape_passthrough");
+      return chat_input_call_original_compat(hwnd, msg, wparam, lparam);
     }
   }
 
@@ -3490,6 +3605,48 @@ static void chat_compat_draw_text_outline(HDC dc, int x, int y, const char *text
   TextOutA(dc, x, y + 1, text, (int)strlen(text));
   SetTextColor(dc, chat_compat_colorref_from_argb(argb_color));
   TextOutA(dc, x, y, text, (int)strlen(text));
+}
+
+static void chat_compat_draw_text_outline_segments(HDC dc, int x, int y, const char *text, DWORD default_argb_color) {
+  const char *cursor = text;
+  int draw_x = x;
+  DWORD color = default_argb_color;
+
+  if (dc == NULL || text == NULL || text[0] == '\0') {
+    return;
+  }
+
+  while (*cursor != '\0') {
+    char segment[SAMP_CHAT_COMPAT_LINE_BYTES];
+    size_t len = 0u;
+    DWORD tag_color = 0u;
+    SIZE extent;
+
+    if (chat_compat_parse_color_tag(cursor, &tag_color)) {
+      color = tag_color;
+      cursor += 8;
+      continue;
+    }
+
+    while (cursor[len] != '\0' && !chat_compat_parse_color_tag(cursor + len, &tag_color) &&
+           len + 1u < sizeof(segment)) {
+      ++len;
+    }
+    if (len == 0u) {
+      ++cursor;
+      continue;
+    }
+    memcpy(segment, cursor, len);
+    segment[len] = '\0';
+    chat_compat_draw_text_outline(dc, draw_x, y, segment, color);
+    memset(&extent, 0, sizeof(extent));
+    if (GetTextExtentPoint32A(dc, segment, (int)len, &extent) && extent.cx > 0) {
+      draw_x += extent.cx;
+    } else {
+      draw_x += (int)len * 8;
+    }
+    cursor += len;
+  }
 }
 
 static void textdraw_compat_release_fonts(void) {
@@ -3790,6 +3947,8 @@ static void chat_compat_d3dx_draw_text(samp_id3dx_font_compat *font, RECT rect, 
   font->lpVtbl->DrawTextA(font, NULL, text, -1, &rect, flags, argb_color);
 }
 
+static int chat_compat_d3dx_measure_text_width(samp_id3dx_font_compat *font, const char *text, int fallback_width);
+
 static void chat_compat_d3dx_draw_text_outline(samp_id3dx_font_compat *font, RECT rect, const char *text,
                                                DWORD argb_color) {
   if (font == NULL || font->lpVtbl == NULL || font->lpVtbl->DrawTextA == NULL || text == NULL || text[0] == '\0') {
@@ -3807,6 +3966,45 @@ static void chat_compat_d3dx_draw_text_outline(samp_id3dx_font_compat *font, REC
   font->lpVtbl->DrawTextA(font, NULL, text, -1, &rect, DT_NOCLIP | DT_SINGLELINE | DT_LEFT, 0xFF000000u);
   rect.left -= 1;
   font->lpVtbl->DrawTextA(font, NULL, text, -1, &rect, DT_NOCLIP | DT_SINGLELINE | DT_LEFT, argb_color);
+}
+
+static void chat_compat_d3dx_draw_text_outline_segments(samp_id3dx_font_compat *font, RECT rect, const char *text,
+                                                        DWORD default_argb_color) {
+  const char *cursor = text;
+  DWORD color = default_argb_color;
+
+  if (font == NULL || font->lpVtbl == NULL || font->lpVtbl->DrawTextA == NULL || text == NULL || text[0] == '\0') {
+    return;
+  }
+
+  while (*cursor != '\0') {
+    char segment[SAMP_CHAT_COMPAT_LINE_BYTES];
+    size_t len = 0u;
+    DWORD tag_color = 0u;
+    int width = 0;
+
+    if (chat_compat_parse_color_tag(cursor, &tag_color)) {
+      color = tag_color;
+      cursor += 8;
+      continue;
+    }
+
+    while (cursor[len] != '\0' && !chat_compat_parse_color_tag(cursor + len, &tag_color) &&
+           len + 1u < sizeof(segment)) {
+      ++len;
+    }
+    if (len == 0u) {
+      ++cursor;
+      continue;
+    }
+    memcpy(segment, cursor, len);
+    segment[len] = '\0';
+    chat_compat_d3dx_draw_text_outline(font, rect, segment, color);
+    width = chat_compat_d3dx_measure_text_width(font, segment, (int)len * 8);
+    rect.left += width;
+    rect.right += width;
+    cursor += len;
+  }
 }
 
 static int chat_compat_d3dx_measure_text_width(samp_id3dx_font_compat *font, const char *text, int fallback_width) {
@@ -4087,6 +4285,210 @@ static DWORD textdraw_compat_abgr_to_argb(uint32_t color) {
   return converted;
 }
 
+static int textdraw_compat_read_gta_screen(float *screen_width, float *screen_height, float *hud_horiz,
+                                           float *hud_vert) {
+  int width = 0;
+  int height = 0;
+  float horiz = 0.0f;
+  float vert = 0.0f;
+
+  if (screen_width == NULL || screen_height == NULL || hud_horiz == NULL || hud_vert == NULL) {
+    return 0;
+  }
+  if (!memory_is_readable_compat((const void *)(uintptr_t)SAMP_ADDR_SCREEN_WIDTH, sizeof(width)) ||
+      !memory_is_readable_compat((const void *)(uintptr_t)SAMP_ADDR_SCREEN_HEIGHT, sizeof(height)) ||
+      !memory_is_readable_compat((const void *)(uintptr_t)SAMP_ADDR_HUD_HORIZ_SCALE, sizeof(horiz)) ||
+      !memory_is_readable_compat((const void *)(uintptr_t)SAMP_ADDR_HUD_VERT_SCALE, sizeof(vert))) {
+    return 0;
+  }
+
+  width = *(volatile int *)(uintptr_t)SAMP_ADDR_SCREEN_WIDTH;
+  height = *(volatile int *)(uintptr_t)SAMP_ADDR_SCREEN_HEIGHT;
+  horiz = *(volatile float *)(uintptr_t)SAMP_ADDR_HUD_HORIZ_SCALE;
+  vert = *(volatile float *)(uintptr_t)SAMP_ADDR_HUD_VERT_SCALE;
+  if (width < 320 || width > 10000 || height < 200 || height > 10000 || !isfinite(horiz) || !isfinite(vert) ||
+      horiz <= 0.0f || horiz > 4.0f || vert <= 0.0f || vert > 4.0f) {
+    return 0;
+  }
+
+  *screen_width = (float)width;
+  *screen_height = (float)height;
+  *hud_horiz = horiz;
+  *hud_vert = vert;
+  return 1;
+}
+
+static int textdraw_compat_gta_font_ready(void) {
+  const uintptr_t addrs[] = {SAMP_ADDR_FONT_SET_SCALE,
+                             SAMP_ADDR_FONT_SET_COLOR,
+                             SAMP_ADDR_FONT_SET_STYLE,
+                             SAMP_ADDR_FONT_SET_LINE_WIDTH,
+                             SAMP_ADDR_FONT_SET_LINE_HEIGHT,
+                             SAMP_ADDR_FONT_SET_DROPCOLOR,
+                             SAMP_ADDR_FONT_SET_SHADOW,
+                             SAMP_ADDR_FONT_SET_OUTLINE,
+                             SAMP_ADDR_FONT_SET_PROPORTIONAL,
+                             SAMP_ADDR_FONT_USE_BOX,
+                             SAMP_ADDR_FONT_USE_BOX_COLOR,
+                             SAMP_ADDR_FONT_UNK12,
+                             SAMP_ADDR_FONT_SET_JUSTIFY,
+                             SAMP_ADDR_FONT_PRINT_STRING};
+  LONG gta_version = InterlockedCompareExchange(&g_runtime.gta_version, 0, 0);
+  size_t i = 0u;
+
+  if (gta_version == SAMP_GTA_VERSION_UNKNOWN) {
+    return 0;
+  }
+  for (i = 0u; i < sizeof(addrs) / sizeof(addrs[0]); ++i) {
+    if (!memory_is_readable_compat((const void *)(uintptr_t)addrs[i], 1u)) {
+      if (InterlockedCompareExchange(&g_runtime.textdraw_gta_font_fail_logged, 1, 0) == 0) {
+        runtime_tracef("textdraw_gta_font: unavailable gta_version=%ld addr=0x%08lx", (long)gta_version,
+                       (unsigned long)addrs[i]);
+      }
+      return 0;
+    }
+  }
+  InterlockedExchange(&g_runtime.textdraw_gta_font_fail_logged, 0);
+  return 1;
+}
+
+static int textdraw_compat_gta_font_enabled(void) {
+  static LONG initialized = 0;
+  static int enabled = 0;
+  const char *value = NULL;
+
+  if (InterlockedCompareExchange(&initialized, 0, 0) != 0) {
+    return enabled;
+  }
+
+  value = getenv(SAMP_TEXTDRAW_COMPAT_GTA_FONT_ENV);
+  if (value != NULL && value[0] != '\0' && value[0] != '0') {
+    enabled = 1;
+  }
+  InterlockedExchange(&initialized, 1);
+  runtime_tracef("textdraw_gta_font: enabled=%d env=%s evidence=OLD_02X_REF,GTA_REVERSED_REF,TODO_VERIFY", enabled,
+                 SAMP_TEXTDRAW_COMPAT_GTA_FONT_ENV);
+  return enabled;
+}
+
+static void textdraw_compat_prepare_gta_text(const char *input, char *output, size_t output_size) {
+  const char *read_cursor = input;
+  char *write_cursor = output;
+  char *write_end = output != NULL && output_size > 0u ? output + output_size - 1u : NULL;
+
+  if (output == NULL || output_size == 0u) {
+    return;
+  }
+  output[0] = '\0';
+  if (input == NULL) {
+    return;
+  }
+
+  while (*read_cursor != '\0' && write_cursor < write_end) {
+    unsigned char ch = (unsigned char)*read_cursor;
+    if (ch < ' ' && ch != '\n' && ch != '\r' && ch != '\t') {
+      *write_cursor++ = ' ';
+      ++read_cursor;
+      continue;
+    }
+    if (*read_cursor == '_') {
+      *write_cursor++ = ' ';
+      ++read_cursor;
+      continue;
+    }
+    *write_cursor++ = *read_cursor++;
+  }
+  *write_cursor = '\0';
+  chat_compat_strip_samp_color_tags(output);
+}
+
+static int textdraw_compat_draw_gta_font_slot(const samp_textdraw_slot_compat *slot) {
+  samp_gta_font_set_scale_fn set_scale = (samp_gta_font_set_scale_fn)(uintptr_t)SAMP_ADDR_FONT_SET_SCALE;
+  samp_gta_font_set_color_fn set_color = (samp_gta_font_set_color_fn)(uintptr_t)SAMP_ADDR_FONT_SET_COLOR;
+  samp_gta_font_set_int_fn set_style = (samp_gta_font_set_int_fn)(uintptr_t)SAMP_ADDR_FONT_SET_STYLE;
+  samp_gta_font_set_float_fn set_line_width = (samp_gta_font_set_float_fn)(uintptr_t)SAMP_ADDR_FONT_SET_LINE_WIDTH;
+  samp_gta_font_set_float_fn set_line_height = (samp_gta_font_set_float_fn)(uintptr_t)SAMP_ADDR_FONT_SET_LINE_HEIGHT;
+  samp_gta_font_set_color_fn set_drop_color = (samp_gta_font_set_color_fn)(uintptr_t)SAMP_ADDR_FONT_SET_DROPCOLOR;
+  samp_gta_font_set_int_fn set_shadow = (samp_gta_font_set_int_fn)(uintptr_t)SAMP_ADDR_FONT_SET_SHADOW;
+  samp_gta_font_set_int_fn set_outline = (samp_gta_font_set_int_fn)(uintptr_t)SAMP_ADDR_FONT_SET_OUTLINE;
+  samp_gta_font_set_int_fn set_proportional = (samp_gta_font_set_int_fn)(uintptr_t)SAMP_ADDR_FONT_SET_PROPORTIONAL;
+  samp_gta_font_use_box_fn use_box = (samp_gta_font_use_box_fn)(uintptr_t)SAMP_ADDR_FONT_USE_BOX;
+  samp_gta_font_set_color_fn use_box_color = (samp_gta_font_set_color_fn)(uintptr_t)SAMP_ADDR_FONT_USE_BOX_COLOR;
+  samp_gta_font_set_int_fn unk12 = (samp_gta_font_set_int_fn)(uintptr_t)SAMP_ADDR_FONT_UNK12;
+  samp_gta_font_set_int_fn set_justify = (samp_gta_font_set_int_fn)(uintptr_t)SAMP_ADDR_FONT_SET_JUSTIFY;
+  samp_gta_font_print_string_fn print_string = (samp_gta_font_print_string_fn)(uintptr_t)SAMP_ADDR_FONT_PRINT_STRING;
+  float screen_width = 0.0f;
+  float screen_height = 0.0f;
+  float hud_horiz = 0.0f;
+  float hud_vert = 0.0f;
+  float scale_x = 0.0f;
+  float scale_y = 0.0f;
+  float use_x = 0.0f;
+  float use_y = 0.0f;
+  char text[SAMP_TEXTDRAW_COMPAT_MAX_TEXT_BYTES];
+  int proportional = 0;
+
+  if (slot == NULL || textdraw_compat_is_preview_like(slot)) {
+    return 0;
+  }
+  if (!textdraw_compat_gta_font_enabled()) {
+    return 0;
+  }
+  if (!isfinite(slot->transmit.x) || !isfinite(slot->transmit.y) || !isfinite(slot->transmit.letter_width) ||
+      !isfinite(slot->transmit.letter_height) || !isfinite(slot->transmit.line_width) ||
+      !isfinite(slot->transmit.line_height)) {
+    return 0;
+  }
+  if (!textdraw_compat_gta_font_ready() ||
+      !textdraw_compat_read_gta_screen(&screen_width, &screen_height, &hud_horiz, &hud_vert)) {
+    return 0;
+  }
+
+  textdraw_compat_prepare_gta_text(slot->text, text, sizeof(text));
+  if (text[0] == '\0' && !textdraw_compat_has_box(slot)) {
+    return 1;
+  }
+
+  /* OLD_02X_REF + GTA_REVERSED_REF + TODO_VERIFY:
+   * Mirrors CTextDraw::Draw scaling/positioning. The old source routes text
+   * through GTA message helpers, but gta-reversed identifies 0x69E160 as
+   * InsertPlayerControlKeysInString. We avoid that call here until OBSERVED_037
+   * validates the exact 0.3.7 buffer contract.
+   */
+  scale_y = screen_height * hud_vert * slot->transmit.letter_height * 0.5f;
+  scale_x = screen_width * hud_horiz * slot->transmit.letter_width;
+  use_y = screen_height - ((SAMP_TEXTDRAW_COMPAT_SCRIPT_HEIGHT - slot->transmit.y) * (screen_height * hud_vert));
+  use_x = screen_width - ((SAMP_TEXTDRAW_COMPAT_SCRIPT_WIDTH - slot->transmit.x) * (screen_width * hud_horiz));
+  proportional = (slot->transmit.flags & 0x10u) != 0u ? 1 : 0;
+
+  set_scale(scale_x, scale_y);
+  set_color(slot->transmit.letter_color);
+  unk12(0);
+  if ((slot->transmit.flags & 0x04u) != 0u) {
+    set_justify(2);
+  } else if ((slot->transmit.flags & 0x08u) != 0u) {
+    set_justify(0);
+  } else {
+    set_justify(1);
+  }
+  set_line_width(screen_width * hud_horiz * slot->transmit.line_width);
+  set_line_height(screen_width * hud_horiz * slot->transmit.line_height);
+  use_box(textdraw_compat_has_box(slot), 0);
+  use_box_color(slot->transmit.box_color);
+  set_proportional(proportional);
+  set_drop_color(slot->transmit.background_color);
+  if (slot->transmit.outline != 0u) {
+    set_outline(slot->transmit.outline);
+  } else {
+    set_shadow(slot->transmit.shadow);
+  }
+  set_style(slot->transmit.style);
+  print_string(use_x, use_y, text);
+  set_outline(0);
+  set_shadow(0);
+  return 1;
+}
+
 static void textdraw_compat_prepare_text(const char *input, char *output, size_t output_size) {
   const char *read_cursor = input;
   char *write_cursor = output;
@@ -4112,6 +4514,14 @@ static void textdraw_compat_prepare_text(const char *input, char *output, size_t
       }
     }
     if ((unsigned char)*read_cursor < ' ' && *read_cursor != '\n' && *read_cursor != '\r' && *read_cursor != '\t') {
+      *write_cursor++ = ' ';
+      ++read_cursor;
+      continue;
+    }
+    /* OLD_02X_REF:
+       GTA's CFont conversion path treats '_' in script text as a visible space.
+       Our D3DX fallback has to normalize this before drawing. */
+    if (*read_cursor == '_') {
       *write_cursor++ = ' ';
       ++read_cursor;
       continue;
@@ -4162,7 +4572,21 @@ static int textdraw_compat_has_box(const samp_textdraw_slot_compat *slot) {
 }
 
 static int textdraw_compat_is_box_marker_text(const char *text) {
-  return text != NULL && (lstrcmpiA(text, "box") == 0 || lstrcmpiA(text, "_") == 0);
+  const char *cursor = text;
+
+  if (text == NULL) {
+    return 0;
+  }
+  if (lstrcmpiA(text, "box") == 0 || lstrcmpiA(text, "_") == 0) {
+    return 1;
+  }
+  while (*cursor != '\0') {
+    if (*cursor != ' ' && *cursor != '\t') {
+      return 0;
+    }
+    ++cursor;
+  }
+  return cursor != text;
 }
 
 static samp_id3dx_font_compat *textdraw_compat_ensure_font(void *device, int bucket) {
@@ -4435,6 +4859,9 @@ static void textdraw_compat_draw_slot(void *device, samp_textdraw_slot_compat *s
   int use_box = 0;
 
   if (device == NULL || slot == NULL || InterlockedCompareExchange(&slot->active, 0, 0) == 0) {
+    return;
+  }
+  if (textdraw_compat_draw_gta_font_slot(slot)) {
     return;
   }
   textdraw_compat_prepare_text(slot->text, text, sizeof(text));
@@ -4751,9 +5178,9 @@ static int chat_compat_draw_d3dx_overlay(void *device) {
     rect.top = y + (i * SAMP_CHAT_COMPAT_LINE_HEIGHT);
     rect.right = x + 900;
     rect.bottom = rect.top + SAMP_CHAT_COMPAT_LINE_HEIGHT + 4;
-    chat_compat_d3dx_draw_text_outline(g_runtime.chat_d3dx_font, rect, g_runtime.chat_overlay_lines[i],
-                                       g_runtime.chat_overlay_colors[i] != 0u ? g_runtime.chat_overlay_colors[i]
-                                                                              : SAMP_CHAT_COMPAT_COLOR_INFO);
+    chat_compat_d3dx_draw_text_outline_segments(
+        g_runtime.chat_d3dx_font, rect, g_runtime.chat_overlay_lines[i],
+        g_runtime.chat_overlay_colors[i] != 0u ? g_runtime.chat_overlay_colors[i] : SAMP_CHAT_COMPAT_COLOR_INFO);
   }
   if (input_active != 0) {
     char input_line[SAMP_CHAT_INPUT_DRAW_BYTES];
@@ -4950,9 +5377,10 @@ static void chat_compat_draw_overlay(void) {
 
   SetBkMode(dc, TRANSPARENT);
   for (i = 0; i < count; ++i) {
-    chat_compat_draw_text_outline(dc, x, y + (i * SAMP_CHAT_COMPAT_LINE_HEIGHT), g_runtime.chat_overlay_lines[i],
-                                  g_runtime.chat_overlay_colors[i] != 0u ? g_runtime.chat_overlay_colors[i]
-                                                                         : SAMP_CHAT_COMPAT_COLOR_INFO);
+    chat_compat_draw_text_outline_segments(dc, x, y + (i * SAMP_CHAT_COMPAT_LINE_HEIGHT),
+                                           g_runtime.chat_overlay_lines[i],
+                                           g_runtime.chat_overlay_colors[i] != 0u ? g_runtime.chat_overlay_colors[i]
+                                                                                  : SAMP_CHAT_COMPAT_COLOR_INFO);
   }
   if (input_active != 0) {
     char input_line[SAMP_CHAT_INPUT_DRAW_BYTES];
@@ -6776,6 +7204,16 @@ static uint32_t refresh_raknet_rpc_snapshot_compat(void) {
   LONG previous_player_health_seq = 0;
   LONG previous_player_controllable_seq = 0;
   LONG previous_camera_behind_seq = 0;
+  LONG previous_player_armour_seq = 0;
+  LONG previous_player_armed_weapon_seq = 0;
+  LONG previous_reset_player_weapons_seq = 0;
+  LONG previous_reset_player_money_seq = 0;
+  LONG previous_play_sound_seq = 0;
+  LONG previous_stop_audio_stream_seq = 0;
+  LONG previous_player_color_seq = 0;
+  LONG previous_player_team_seq = 0;
+  LONG previous_apply_animation_seq = 0;
+  LONG previous_world_visual_event_seq = 0;
   LONG previous_spawn_info_seq = 0;
   uint32_t previous_chat_seq = 0u;
   uint32_t game_rpc_flags = 0;
@@ -6865,6 +7303,112 @@ static uint32_t refresh_raknet_rpc_snapshot_compat(void) {
     InterlockedExchange(&g_runtime.raknet_camera_behind_seq, (LONG)snapshot.camera_behind_seq);
     runtime_tracef("network_prepare: camera_behind seq=%lu previous=%ld",
                    (unsigned long)snapshot.camera_behind_seq, (long)previous_camera_behind_seq);
+  }
+  previous_player_armour_seq = InterlockedCompareExchange(&g_runtime.raknet_player_armour_seq, 0, 0);
+  if (snapshot.player_armour_seq != 0u && snapshot.player_armour_seq != (uint32_t)previous_player_armour_seq) {
+    g_runtime.raknet_player_armour = snapshot.player_armour;
+    InterlockedExchange(&g_runtime.raknet_player_armour_seq, (LONG)snapshot.player_armour_seq);
+    runtime_tracef("network_prepare: player_armour seq=%lu previous=%ld armour=%.3f",
+                   (unsigned long)snapshot.player_armour_seq, (long)previous_player_armour_seq,
+                   (double)snapshot.player_armour);
+  }
+  previous_player_armed_weapon_seq = InterlockedCompareExchange(&g_runtime.raknet_player_armed_weapon_seq, 0, 0);
+  if (snapshot.player_armed_weapon_seq != 0u &&
+      snapshot.player_armed_weapon_seq != (uint32_t)previous_player_armed_weapon_seq) {
+    g_runtime.raknet_player_armed_weapon = snapshot.player_armed_weapon;
+    InterlockedExchange(&g_runtime.raknet_player_armed_weapon_seq, (LONG)snapshot.player_armed_weapon_seq);
+    runtime_tracef("network_prepare: armed_weapon seq=%lu previous=%ld weapon=%lu",
+                   (unsigned long)snapshot.player_armed_weapon_seq, (long)previous_player_armed_weapon_seq,
+                   (unsigned long)snapshot.player_armed_weapon);
+  }
+  previous_reset_player_weapons_seq = InterlockedCompareExchange(&g_runtime.raknet_reset_player_weapons_seq, 0, 0);
+  if (snapshot.reset_player_weapons_seq != 0u &&
+      snapshot.reset_player_weapons_seq != (uint32_t)previous_reset_player_weapons_seq) {
+    InterlockedExchange(&g_runtime.raknet_reset_player_weapons_seq, (LONG)snapshot.reset_player_weapons_seq);
+    runtime_tracef("network_prepare: reset_weapons seq=%lu previous=%ld",
+                   (unsigned long)snapshot.reset_player_weapons_seq, (long)previous_reset_player_weapons_seq);
+  }
+  previous_reset_player_money_seq = InterlockedCompareExchange(&g_runtime.raknet_reset_player_money_seq, 0, 0);
+  if (snapshot.reset_player_money_seq != 0u &&
+      snapshot.reset_player_money_seq != (uint32_t)previous_reset_player_money_seq) {
+    InterlockedExchange(&g_runtime.raknet_reset_player_money_seq, (LONG)snapshot.reset_player_money_seq);
+    runtime_tracef("network_prepare: reset_money seq=%lu previous=%ld",
+                   (unsigned long)snapshot.reset_player_money_seq, (long)previous_reset_player_money_seq);
+  }
+  previous_play_sound_seq = InterlockedCompareExchange(&g_runtime.raknet_play_sound_seq, 0, 0);
+  if (snapshot.play_sound_seq != 0u && snapshot.play_sound_seq != (uint32_t)previous_play_sound_seq) {
+    g_runtime.raknet_play_sound_id = snapshot.play_sound_id;
+    memcpy(g_runtime.raknet_play_sound_pos, snapshot.play_sound_pos, sizeof(g_runtime.raknet_play_sound_pos));
+    InterlockedExchange(&g_runtime.raknet_play_sound_seq, (LONG)snapshot.play_sound_seq);
+    runtime_tracef("network_prepare: play_sound seq=%lu previous=%ld sound=%lu pos=(%.3f,%.3f,%.3f)",
+                   (unsigned long)snapshot.play_sound_seq, (long)previous_play_sound_seq,
+                   (unsigned long)snapshot.play_sound_id, (double)snapshot.play_sound_pos[0],
+                   (double)snapshot.play_sound_pos[1], (double)snapshot.play_sound_pos[2]);
+  }
+  previous_stop_audio_stream_seq = InterlockedCompareExchange(&g_runtime.raknet_stop_audio_stream_seq, 0, 0);
+  if (snapshot.stop_audio_stream_seq != 0u &&
+      snapshot.stop_audio_stream_seq != (uint32_t)previous_stop_audio_stream_seq) {
+    InterlockedExchange(&g_runtime.raknet_stop_audio_stream_seq, (LONG)snapshot.stop_audio_stream_seq);
+    runtime_tracef("network_prepare: stop_audio_stream seq=%lu previous=%ld decoded_only=1",
+                   (unsigned long)snapshot.stop_audio_stream_seq, (long)previous_stop_audio_stream_seq);
+  }
+  previous_player_color_seq = InterlockedCompareExchange(&g_runtime.raknet_player_color_seq, 0, 0);
+  if (snapshot.player_color_seq != 0u && snapshot.player_color_seq != (uint32_t)previous_player_color_seq) {
+    g_runtime.raknet_player_color_player_id = snapshot.player_color_player_id;
+    g_runtime.raknet_player_color = snapshot.player_color;
+    InterlockedExchange(&g_runtime.raknet_player_color_seq, (LONG)snapshot.player_color_seq);
+    runtime_tracef("network_prepare: player_color seq=%lu previous=%ld player=%u color=0x%08lx decoded_only=1",
+                   (unsigned long)snapshot.player_color_seq, (long)previous_player_color_seq,
+                   (unsigned)snapshot.player_color_player_id, (unsigned long)snapshot.player_color);
+  }
+  previous_player_team_seq = InterlockedCompareExchange(&g_runtime.raknet_player_team_seq, 0, 0);
+  if (snapshot.player_team_seq != 0u && snapshot.player_team_seq != (uint32_t)previous_player_team_seq) {
+    g_runtime.raknet_player_team_player_id = snapshot.player_team_player_id;
+    g_runtime.raknet_player_team = snapshot.player_team;
+    InterlockedExchange(&g_runtime.raknet_player_team_seq, (LONG)snapshot.player_team_seq);
+    runtime_tracef("network_prepare: player_team seq=%lu previous=%ld player=%u team=%u decoded_only=1",
+                   (unsigned long)snapshot.player_team_seq, (long)previous_player_team_seq,
+                   (unsigned)snapshot.player_team_player_id, (unsigned)snapshot.player_team);
+  }
+  previous_apply_animation_seq = InterlockedCompareExchange(&g_runtime.raknet_apply_animation_seq, 0, 0);
+  if (snapshot.apply_animation_seq != 0u && snapshot.apply_animation_seq != (uint32_t)previous_apply_animation_seq) {
+    g_runtime.raknet_apply_animation_player_id = snapshot.apply_animation_player_id;
+    strncpy(g_runtime.raknet_apply_animation_lib, snapshot.apply_animation_lib,
+            sizeof(g_runtime.raknet_apply_animation_lib) - 1u);
+    g_runtime.raknet_apply_animation_lib[sizeof(g_runtime.raknet_apply_animation_lib) - 1u] = '\0';
+    strncpy(g_runtime.raknet_apply_animation_name, snapshot.apply_animation_name,
+            sizeof(g_runtime.raknet_apply_animation_name) - 1u);
+    g_runtime.raknet_apply_animation_name[sizeof(g_runtime.raknet_apply_animation_name) - 1u] = '\0';
+    g_runtime.raknet_apply_animation_delta = snapshot.apply_animation_delta;
+    g_runtime.raknet_apply_animation_loop = snapshot.apply_animation_loop;
+    g_runtime.raknet_apply_animation_lock_x = snapshot.apply_animation_lock_x;
+    g_runtime.raknet_apply_animation_lock_y = snapshot.apply_animation_lock_y;
+    g_runtime.raknet_apply_animation_freeze = snapshot.apply_animation_freeze;
+    g_runtime.raknet_apply_animation_time = snapshot.apply_animation_time;
+    InterlockedExchange(&g_runtime.raknet_apply_animation_seq, (LONG)snapshot.apply_animation_seq);
+    runtime_tracef("network_prepare: apply_animation seq=%lu previous=%ld player=%u lib='%s' name='%s' decoded_only=1",
+                   (unsigned long)snapshot.apply_animation_seq, (long)previous_apply_animation_seq,
+                   (unsigned)snapshot.apply_animation_player_id, snapshot.apply_animation_lib,
+                   snapshot.apply_animation_name);
+  }
+  previous_world_visual_event_seq = InterlockedCompareExchange(&g_runtime.raknet_world_visual_event_seq, 0, 0);
+  if (snapshot.world_visual_event_seq != 0u &&
+      snapshot.world_visual_event_seq != (uint32_t)previous_world_visual_event_seq) {
+    g_runtime.raknet_world_visual_event_type = snapshot.world_visual_event_type;
+    g_runtime.raknet_world_visual_id = snapshot.world_visual_id;
+    g_runtime.raknet_world_visual_model = snapshot.world_visual_model;
+    g_runtime.raknet_world_visual_color = snapshot.world_visual_color;
+    memcpy(g_runtime.raknet_world_visual_pos, snapshot.world_visual_pos,
+           sizeof(g_runtime.raknet_world_visual_pos));
+    strncpy(g_runtime.raknet_world_visual_text, snapshot.world_visual_text,
+            sizeof(g_runtime.raknet_world_visual_text) - 1u);
+    g_runtime.raknet_world_visual_text[sizeof(g_runtime.raknet_world_visual_text) - 1u] = '\0';
+    InterlockedExchange(&g_runtime.raknet_world_visual_event_seq, (LONG)snapshot.world_visual_event_seq);
+    runtime_tracef("network_prepare: world_visual seq=%lu previous=%ld type=%u id=%u model=%ld color=0x%08lx text='%.96s'",
+                   (unsigned long)snapshot.world_visual_event_seq, (long)previous_world_visual_event_seq,
+                   (unsigned)snapshot.world_visual_event_type, (unsigned)snapshot.world_visual_id,
+                   (long)snapshot.world_visual_model, (unsigned long)snapshot.world_visual_color,
+                   snapshot.world_visual_text);
   }
   if ((snapshot.flags & SAMP_RAKNET_RPC_FLAG_WEATHER) != 0u) {
     g_runtime.raknet_weather = snapshot.weather;
@@ -7983,6 +8527,26 @@ static void apply_multiplayer_session_bridge_compat(void) {
   LONG applied_player_controllable_seq = 0;
   LONG camera_behind_seq = 0;
   LONG applied_camera_behind_seq = 0;
+  LONG player_armour_seq = 0;
+  LONG applied_player_armour_seq = 0;
+  LONG player_armed_weapon_seq = 0;
+  LONG applied_player_armed_weapon_seq = 0;
+  LONG reset_player_weapons_seq = 0;
+  LONG applied_reset_player_weapons_seq = 0;
+  LONG reset_player_money_seq = 0;
+  LONG applied_reset_player_money_seq = 0;
+  LONG play_sound_seq = 0;
+  LONG applied_play_sound_seq = 0;
+  LONG stop_audio_stream_seq = 0;
+  LONG applied_stop_audio_stream_seq = 0;
+  LONG player_color_seq = 0;
+  LONG applied_player_color_seq = 0;
+  LONG player_team_seq = 0;
+  LONG applied_player_team_seq = 0;
+  LONG apply_animation_seq = 0;
+  LONG applied_apply_animation_seq = 0;
+  LONG world_visual_event_seq = 0;
+  LONG observed_world_visual_seq = 0;
   LONG spawn_info_seq = 0;
   LONG finalized_spawn_seq = 0;
   int spawn_finalized = 0;
@@ -8159,6 +8723,145 @@ static void apply_multiplayer_session_bridge_compat(void) {
       runtime_tracef("mp_session_bridge: apply_camera_behind seq=%ld previous=%ld", (long)camera_behind_seq,
                      (long)applied_camera_behind_seq);
     }
+
+    /*
+     * OLD_02X_REF + OPENMP_REF + TODO_VERIFY:
+     * These server-triggered local-player state RPCs match the legacy server/client payload shape. Apply only
+     * bounded values and keep non-rendering semantic state (team/color/animations) as sequenced observations until
+     * the original 0.3.7-R5 path is traced.
+     */
+    player_armour_seq = InterlockedCompareExchange(&g_runtime.raknet_player_armour_seq, 0, 0);
+    applied_player_armour_seq = InterlockedCompareExchange(&g_runtime.mp_session_applied_player_armour_seq, 0, 0);
+    if (player_armour_seq != 0 && player_armour_seq != applied_player_armour_seq) {
+      float armour = g_runtime.raknet_player_armour;
+      if (isfinite(armour) && armour >= 0.0f && armour <= 10000.0f) {
+        memcpy((void *)(ped + SAMP_PED_OFFSET_ARMOUR), &armour, sizeof(armour));
+        InterlockedExchange(&g_runtime.mp_session_applied_player_armour_seq, player_armour_seq);
+        runtime_tracef("mp_session_bridge: apply_player_armour seq=%ld previous=%ld armour=%.3f",
+                       (long)player_armour_seq, (long)applied_player_armour_seq, (double)armour);
+      } else {
+        runtime_tracef("mp_session_bridge: skip_invalid_player_armour seq=%ld armour=%.3f",
+                       (long)player_armour_seq, (double)armour);
+      }
+    }
+
+    player_armed_weapon_seq = InterlockedCompareExchange(&g_runtime.raknet_player_armed_weapon_seq, 0, 0);
+    applied_player_armed_weapon_seq =
+        InterlockedCompareExchange(&g_runtime.mp_session_applied_player_armed_weapon_seq, 0, 0);
+    if (player_armed_weapon_seq != 0 && player_armed_weapon_seq != applied_player_armed_weapon_seq) {
+      uint32_t weapon = g_runtime.raknet_player_armed_weapon;
+      if (weapon <= 255u) {
+        if (!gta_script_command_compat(0x01B9u, "ii", SAMP_GTA_ACTOR_LOCAL_ID, (int)weapon)) {
+          mp_bridge_record_script_failure("set_armed_weapon_rpc", 0x01B9u);
+        }
+        InterlockedExchange(&g_runtime.mp_session_applied_player_armed_weapon_seq, player_armed_weapon_seq);
+        runtime_tracef("mp_session_bridge: apply_armed_weapon seq=%ld previous=%ld weapon=%lu",
+                       (long)player_armed_weapon_seq, (long)applied_player_armed_weapon_seq,
+                       (unsigned long)weapon);
+      }
+    }
+
+    reset_player_weapons_seq = InterlockedCompareExchange(&g_runtime.raknet_reset_player_weapons_seq, 0, 0);
+    applied_reset_player_weapons_seq =
+        InterlockedCompareExchange(&g_runtime.mp_session_applied_reset_player_weapons_seq, 0, 0);
+    if (reset_player_weapons_seq != 0 && reset_player_weapons_seq != applied_reset_player_weapons_seq) {
+      if (!gta_script_command_compat(0x03B8u, "i", SAMP_GTA_PLAYER_LOCAL_ID)) {
+        mp_bridge_record_script_failure("reset_player_weapons_rpc", 0x03B8u);
+      }
+      InterlockedExchange(&g_runtime.mp_session_applied_reset_player_weapons_seq, reset_player_weapons_seq);
+      runtime_tracef("mp_session_bridge: apply_reset_weapons seq=%ld previous=%ld",
+                     (long)reset_player_weapons_seq, (long)applied_reset_player_weapons_seq);
+    }
+
+    reset_player_money_seq = InterlockedCompareExchange(&g_runtime.raknet_reset_player_money_seq, 0, 0);
+    applied_reset_player_money_seq =
+        InterlockedCompareExchange(&g_runtime.mp_session_applied_reset_player_money_seq, 0, 0);
+    if (reset_player_money_seq != 0 && reset_player_money_seq != applied_reset_player_money_seq) {
+      int32_t money = 0;
+      if (memory_is_readable_compat((const void *)(uintptr_t)SAMP_ADDR_MONEY, sizeof(money))) {
+        memcpy(&money, (const void *)(uintptr_t)SAMP_ADDR_MONEY, sizeof(money));
+      }
+      if (money != 0) {
+        if (!gta_script_command_compat(0x0109u, "ii", SAMP_GTA_PLAYER_LOCAL_ID, -money)) {
+          mp_bridge_record_script_failure("reset_player_money_rpc", 0x0109u);
+        }
+      }
+      InterlockedExchange(&g_runtime.mp_session_applied_reset_player_money_seq, reset_player_money_seq);
+      runtime_tracef("mp_session_bridge: apply_reset_money seq=%ld previous=%ld previous_money=%ld",
+                     (long)reset_player_money_seq, (long)applied_reset_player_money_seq, (long)money);
+    }
+
+    play_sound_seq = InterlockedCompareExchange(&g_runtime.raknet_play_sound_seq, 0, 0);
+    applied_play_sound_seq = InterlockedCompareExchange(&g_runtime.mp_session_applied_play_sound_seq, 0, 0);
+    if (play_sound_seq != 0 && play_sound_seq != applied_play_sound_seq) {
+      float x = g_runtime.raknet_play_sound_pos[0];
+      float y = g_runtime.raknet_play_sound_pos[1];
+      float z = g_runtime.raknet_play_sound_pos[2];
+      if (isfinite(x) && isfinite(y) && isfinite(z)) {
+        if (!gta_script_command_compat(0x018Cu, "fffi", x, y, z, (int)g_runtime.raknet_play_sound_id)) {
+          mp_bridge_record_script_failure("play_sound_rpc", 0x018Cu);
+        }
+        InterlockedExchange(&g_runtime.mp_session_applied_play_sound_seq, play_sound_seq);
+        runtime_tracef("mp_session_bridge: apply_play_sound seq=%ld previous=%ld sound=%lu pos=(%.3f,%.3f,%.3f)",
+                       (long)play_sound_seq, (long)applied_play_sound_seq,
+                       (unsigned long)g_runtime.raknet_play_sound_id, (double)x, (double)y, (double)z);
+      }
+    }
+
+    stop_audio_stream_seq = InterlockedCompareExchange(&g_runtime.raknet_stop_audio_stream_seq, 0, 0);
+    applied_stop_audio_stream_seq =
+        InterlockedCompareExchange(&g_runtime.mp_session_applied_stop_audio_stream_seq, 0, 0);
+    if (stop_audio_stream_seq != 0 && stop_audio_stream_seq != applied_stop_audio_stream_seq) {
+      InterlockedExchange(&g_runtime.mp_session_applied_stop_audio_stream_seq, stop_audio_stream_seq);
+      runtime_tracef("mp_session_bridge: observe_stop_audio_stream seq=%ld previous=%ld backend=not_wired TODO_VERIFY=1",
+                     (long)stop_audio_stream_seq, (long)applied_stop_audio_stream_seq);
+    }
+
+    player_color_seq = InterlockedCompareExchange(&g_runtime.raknet_player_color_seq, 0, 0);
+    applied_player_color_seq = InterlockedCompareExchange(&g_runtime.mp_session_applied_player_color_seq, 0, 0);
+    if (player_color_seq != 0 && player_color_seq != applied_player_color_seq) {
+      InterlockedExchange(&g_runtime.mp_session_applied_player_color_seq, player_color_seq);
+      runtime_tracef("mp_session_bridge: observe_player_color seq=%ld previous=%ld player=%u color=0x%08lx TODO_VERIFY=1",
+                     (long)player_color_seq, (long)applied_player_color_seq,
+                     (unsigned)g_runtime.raknet_player_color_player_id,
+                     (unsigned long)g_runtime.raknet_player_color);
+    }
+
+    player_team_seq = InterlockedCompareExchange(&g_runtime.raknet_player_team_seq, 0, 0);
+    applied_player_team_seq = InterlockedCompareExchange(&g_runtime.mp_session_applied_player_team_seq, 0, 0);
+    if (player_team_seq != 0 && player_team_seq != applied_player_team_seq) {
+      InterlockedExchange(&g_runtime.mp_session_applied_player_team_seq, player_team_seq);
+      runtime_tracef("mp_session_bridge: observe_player_team seq=%ld previous=%ld player=%u team=%u TODO_VERIFY=1",
+                     (long)player_team_seq, (long)applied_player_team_seq,
+                     (unsigned)g_runtime.raknet_player_team_player_id, (unsigned)g_runtime.raknet_player_team);
+    }
+
+    apply_animation_seq = InterlockedCompareExchange(&g_runtime.raknet_apply_animation_seq, 0, 0);
+    applied_apply_animation_seq =
+        InterlockedCompareExchange(&g_runtime.mp_session_applied_apply_animation_seq, 0, 0);
+    if (apply_animation_seq != 0 && apply_animation_seq != applied_apply_animation_seq) {
+      InterlockedExchange(&g_runtime.mp_session_applied_apply_animation_seq, apply_animation_seq);
+      runtime_tracef(
+          "mp_session_bridge: observe_apply_animation seq=%ld previous=%ld player=%u lib='%s' name='%s' delta=%.3f "
+          "flags=%u/%u/%u/%u time=%ld apply_deferred=1 TODO_VERIFY=1",
+          (long)apply_animation_seq, (long)applied_apply_animation_seq,
+          (unsigned)g_runtime.raknet_apply_animation_player_id, g_runtime.raknet_apply_animation_lib,
+          g_runtime.raknet_apply_animation_name, (double)g_runtime.raknet_apply_animation_delta,
+          (unsigned)g_runtime.raknet_apply_animation_loop, (unsigned)g_runtime.raknet_apply_animation_lock_x,
+          (unsigned)g_runtime.raknet_apply_animation_lock_y, (unsigned)g_runtime.raknet_apply_animation_freeze,
+          (long)g_runtime.raknet_apply_animation_time);
+    }
+  }
+
+  world_visual_event_seq = InterlockedCompareExchange(&g_runtime.raknet_world_visual_event_seq, 0, 0);
+  observed_world_visual_seq = InterlockedCompareExchange(&g_runtime.mp_session_observed_world_visual_seq, 0, 0);
+  if (world_visual_event_seq != 0 && world_visual_event_seq != observed_world_visual_seq) {
+    InterlockedExchange(&g_runtime.mp_session_observed_world_visual_seq, world_visual_event_seq);
+    runtime_tracef("mp_session_bridge: observe_world_visual seq=%ld previous=%ld type=%u id=%u model=%ld color=0x%08lx text='%.96s' TODO_VERIFY=1",
+                   (long)world_visual_event_seq, (long)observed_world_visual_seq,
+                   (unsigned)g_runtime.raknet_world_visual_event_type, (unsigned)g_runtime.raknet_world_visual_id,
+                   (long)g_runtime.raknet_world_visual_model,
+                   (unsigned long)g_runtime.raknet_world_visual_color, g_runtime.raknet_world_visual_text);
   }
 
   if (ped != 0u && class_outcome == 1 && !spawn_ready && (rpc_flags & SAMP_RAKNET_RPC_FLAG_REQUEST_SPAWN_SENT) == 0u) {
@@ -8653,6 +9356,16 @@ static void launch_prepare_network_compat(void) {
     InterlockedExchange(&g_runtime.mp_session_applied_player_health_seq, 0);
     InterlockedExchange(&g_runtime.mp_session_applied_player_controllable_seq, 0);
     InterlockedExchange(&g_runtime.mp_session_applied_camera_behind_seq, 0);
+    InterlockedExchange(&g_runtime.mp_session_applied_player_armour_seq, 0);
+    InterlockedExchange(&g_runtime.mp_session_applied_player_armed_weapon_seq, 0);
+    InterlockedExchange(&g_runtime.mp_session_applied_reset_player_weapons_seq, 0);
+    InterlockedExchange(&g_runtime.mp_session_applied_reset_player_money_seq, 0);
+    InterlockedExchange(&g_runtime.mp_session_applied_play_sound_seq, 0);
+    InterlockedExchange(&g_runtime.mp_session_applied_stop_audio_stream_seq, 0);
+    InterlockedExchange(&g_runtime.mp_session_applied_player_color_seq, 0);
+    InterlockedExchange(&g_runtime.mp_session_applied_player_team_seq, 0);
+    InterlockedExchange(&g_runtime.mp_session_applied_apply_animation_seq, 0);
+    InterlockedExchange(&g_runtime.mp_session_observed_world_visual_seq, 0);
     InterlockedExchange(&g_runtime.mp_session_script_failures, 0);
     InterlockedExchange(&g_runtime.mp_session_frontend_hold_logged, 0);
     InterlockedExchange(&g_runtime.mp_session_spawn_finalized, 0);
@@ -8669,6 +9382,12 @@ static void launch_prepare_network_compat(void) {
     g_runtime.raknet_interior = 0u;
     g_runtime.raknet_camera_look_at_type = 0u;
     g_runtime.raknet_player_controllable = 1u;
+    g_runtime.raknet_player_team = 0u;
+    g_runtime.raknet_apply_animation_loop = 0u;
+    g_runtime.raknet_apply_animation_lock_x = 0u;
+    g_runtime.raknet_apply_animation_lock_y = 0u;
+    g_runtime.raknet_apply_animation_freeze = 0u;
+    g_runtime.raknet_world_visual_event_type = 0u;
     g_runtime.raknet_init_world_time = 0u;
     g_runtime.raknet_init_weather = 0u;
     g_runtime.raknet_init_lan_mode = 0u;
@@ -8676,9 +9395,17 @@ static void launch_prepare_network_compat(void) {
     g_runtime.raknet_init_stunt_bonus = 0u;
     g_runtime.raknet_init_spawns_available = 0u;
     g_runtime.raknet_init_local_player_id = 0u;
+    g_runtime.raknet_player_color_player_id = 0u;
+    g_runtime.raknet_player_team_player_id = 0u;
+    g_runtime.raknet_apply_animation_player_id = 0u;
+    g_runtime.raknet_world_visual_id = 0u;
     g_runtime.raknet_init_death_drop_money = 0;
+    g_runtime.raknet_apply_animation_time = 0;
+    g_runtime.raknet_world_visual_model = 0;
     g_runtime.raknet_player_facing_angle = 0.0f;
     g_runtime.raknet_player_health = 100.0f;
+    g_runtime.raknet_player_armour = 0.0f;
+    g_runtime.raknet_apply_animation_delta = 0.0f;
     g_runtime.local_stream_refresh_last_tick = 0u;
     InterlockedExchange(&g_runtime.raknet_logon_marked, 0);
     InterlockedExchange(&g_runtime.raknet_player_pos_seq, 0);
@@ -8686,7 +9413,21 @@ static void launch_prepare_network_compat(void) {
     InterlockedExchange(&g_runtime.raknet_player_health_seq, 0);
     InterlockedExchange(&g_runtime.raknet_player_controllable_seq, 0);
     InterlockedExchange(&g_runtime.raknet_camera_behind_seq, 0);
+    InterlockedExchange(&g_runtime.raknet_player_armour_seq, 0);
+    InterlockedExchange(&g_runtime.raknet_player_armed_weapon_seq, 0);
+    InterlockedExchange(&g_runtime.raknet_reset_player_weapons_seq, 0);
+    InterlockedExchange(&g_runtime.raknet_reset_player_money_seq, 0);
+    InterlockedExchange(&g_runtime.raknet_play_sound_seq, 0);
+    InterlockedExchange(&g_runtime.raknet_stop_audio_stream_seq, 0);
+    InterlockedExchange(&g_runtime.raknet_player_color_seq, 0);
+    InterlockedExchange(&g_runtime.raknet_player_team_seq, 0);
+    InterlockedExchange(&g_runtime.raknet_apply_animation_seq, 0);
+    InterlockedExchange(&g_runtime.raknet_world_visual_event_seq, 0);
     InterlockedExchange(&g_runtime.raknet_spawn_info_seq, 0);
+    g_runtime.raknet_player_armed_weapon = 0u;
+    g_runtime.raknet_play_sound_id = 0u;
+    g_runtime.raknet_player_color = 0u;
+    g_runtime.raknet_world_visual_color = 0u;
     g_runtime.raknet_init_gravity = 0.0f;
     g_runtime.raknet_init_name_tag_draw_distance = 0.0f;
     g_runtime.raknet_init_global_chat_radius = 0.0f;
@@ -8694,6 +9435,11 @@ static void launch_prepare_network_compat(void) {
     memset(g_runtime.local_stream_refresh_pos, 0, sizeof(g_runtime.local_stream_refresh_pos));
     memset(g_runtime.raknet_camera_pos, 0, sizeof(g_runtime.raknet_camera_pos));
     memset(g_runtime.raknet_camera_look_at, 0, sizeof(g_runtime.raknet_camera_look_at));
+    memset(g_runtime.raknet_play_sound_pos, 0, sizeof(g_runtime.raknet_play_sound_pos));
+    memset(g_runtime.raknet_world_visual_pos, 0, sizeof(g_runtime.raknet_world_visual_pos));
+    memset(g_runtime.raknet_apply_animation_lib, 0, sizeof(g_runtime.raknet_apply_animation_lib));
+    memset(g_runtime.raknet_apply_animation_name, 0, sizeof(g_runtime.raknet_apply_animation_name));
+    memset(g_runtime.raknet_world_visual_text, 0, sizeof(g_runtime.raknet_world_visual_text));
     memset(g_runtime.raknet_init_send_rates, 0, sizeof(g_runtime.raknet_init_send_rates));
     memset(g_runtime.raknet_init_vehicle_models, 0, sizeof(g_runtime.raknet_init_vehicle_models));
     memset(g_runtime.raknet_init_hostname, 0, sizeof(g_runtime.raknet_init_hostname));

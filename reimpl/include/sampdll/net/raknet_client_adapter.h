@@ -75,6 +75,8 @@ typedef struct samp_raknet_join_profile {
 #define SAMP_RAKNET_RPC_FLAG_PLAYER_HEALTH 0x00400000u
 #define SAMP_RAKNET_RPC_FLAG_PLAYER_CONTROLLABLE 0x00800000u
 #define SAMP_RAKNET_RPC_FLAG_CAMERA_BEHIND 0x01000000u
+#define SAMP_RAKNET_RPC_FLAG_PLAYER_SCRIPT_EVENT 0x02000000u
+#define SAMP_RAKNET_RPC_FLAG_WORLD_VISUAL_EVENT 0x04000000u
 
 #define SAMP_RAKNET_CLIENT_MESSAGE_RING 8u
 #define SAMP_RAKNET_CLIENT_MESSAGE_BYTES 256u
@@ -103,6 +105,13 @@ typedef struct samp_raknet_join_profile {
 #define SAMP_RAKNET_VEHICLE_MOD_SLOTS 14u
 #define SAMP_RAKNET_VEHICLE_ACTION_CREATE 1u
 #define SAMP_RAKNET_VEHICLE_ACTION_DESTROY 2u
+#define SAMP_RAKNET_ANIM_LIB_BYTES 64u
+#define SAMP_RAKNET_ANIM_NAME_BYTES 64u
+#define SAMP_RAKNET_WORLD_VISUAL_TEXT_BYTES 256u
+#define SAMP_RAKNET_WORLD_VISUAL_SET_OBJECT_MATERIAL 1u
+#define SAMP_RAKNET_WORLD_VISUAL_CREATE_3D_TEXT_LABEL 2u
+#define SAMP_RAKNET_WORLD_VISUAL_GANG_ZONE_CREATE 3u
+#define SAMP_RAKNET_WORLD_VISUAL_REMOVE_BUILDING 4u
 
 typedef struct samp_raknet_client_message_probe {
   uint32_t seq;
@@ -226,7 +235,40 @@ typedef struct samp_raknet_rpc_probe_snapshot {
   uint32_t player_health_seq;
   uint32_t player_controllable_seq;
   uint32_t camera_behind_seq;
+  uint32_t player_armour_seq;
+  uint32_t player_armed_weapon_seq;
+  uint32_t reset_player_weapons_seq;
+  uint32_t reset_player_money_seq;
+  uint32_t play_sound_seq;
+  uint32_t stop_audio_stream_seq;
+  uint32_t player_color_seq;
+  uint32_t player_team_seq;
+  uint32_t apply_animation_seq;
+  uint32_t world_visual_event_seq;
   uint8_t player_controllable;
+  float player_armour;
+  uint32_t player_armed_weapon;
+  uint32_t play_sound_id;
+  float play_sound_pos[3];
+  uint16_t player_color_player_id;
+  uint32_t player_color;
+  uint16_t player_team_player_id;
+  uint8_t player_team;
+  uint16_t apply_animation_player_id;
+  char apply_animation_lib[SAMP_RAKNET_ANIM_LIB_BYTES];
+  char apply_animation_name[SAMP_RAKNET_ANIM_NAME_BYTES];
+  float apply_animation_delta;
+  uint8_t apply_animation_loop;
+  uint8_t apply_animation_lock_x;
+  uint8_t apply_animation_lock_y;
+  uint8_t apply_animation_freeze;
+  int32_t apply_animation_time;
+  uint8_t world_visual_event_type;
+  uint16_t world_visual_id;
+  int32_t world_visual_model;
+  uint32_t world_visual_color;
+  float world_visual_pos[4];
+  char world_visual_text[SAMP_RAKNET_WORLD_VISUAL_TEXT_BYTES];
   uint8_t weather;
   uint8_t world_time_hour;
   uint8_t world_time_minute;
