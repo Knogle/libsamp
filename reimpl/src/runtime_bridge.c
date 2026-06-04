@@ -4007,7 +4007,8 @@ static void chat_compat_d3dx_draw_text_outline_segments(samp_id3dx_font_compat *
   }
 }
 
-static int chat_compat_d3dx_measure_text_width(samp_id3dx_font_compat *font, const char *text, int fallback_width) {
+static int chat_compat_d3dx_measure_raw_text_width(samp_id3dx_font_compat *font, const char *text,
+                                                   int fallback_width) {
   RECT rect;
 
   if (font == NULL || font->lpVtbl == NULL || font->lpVtbl->DrawTextA == NULL || text == NULL || text[0] == '\0') {
@@ -4023,6 +4024,54 @@ static int chat_compat_d3dx_measure_text_width(samp_id3dx_font_compat *font, con
     return (int)(rect.right - rect.left);
   }
   return fallback_width > 0 ? fallback_width : 0;
+}
+
+static int chat_compat_d3dx_measure_space_width(samp_id3dx_font_compat *font) {
+  int with_space = chat_compat_d3dx_measure_raw_text_width(font, "x x", 18);
+  int without_space = chat_compat_d3dx_measure_raw_text_width(font, "xx", 12);
+  int width = with_space - without_space;
+
+  if (width < 3) {
+    return 4;
+  }
+  if (width > 16) {
+    return 8;
+  }
+  return width;
+}
+
+static int chat_compat_d3dx_measure_text_width(samp_id3dx_font_compat *font, const char *text, int fallback_width) {
+  size_t len = 0u;
+  size_t left = 0u;
+  size_t right = 0u;
+  int edge_space_units = 0;
+  int width = 0;
+
+  if (font == NULL || font->lpVtbl == NULL || font->lpVtbl->DrawTextA == NULL || text == NULL || text[0] == '\0') {
+    return fallback_width > 0 ? fallback_width : 0;
+  }
+
+  width = chat_compat_d3dx_measure_raw_text_width(font, text, fallback_width);
+
+  /* INFERRED + TODO_VERIFY:
+   * D3DX DrawText(DT_CALCRECT) can trim leading/trailing whitespace. Chat color
+   * segments often split exactly around spaces, so restore that advance locally
+   * to avoid rendering "command /mode" as "command/mode".
+   */
+  len = strlen(text);
+  while (left < len && (text[left] == ' ' || text[left] == '\t')) {
+    edge_space_units += text[left] == '\t' ? 4 : 1;
+    ++left;
+  }
+  right = len;
+  while (right > left && (text[right - 1u] == ' ' || text[right - 1u] == '\t')) {
+    edge_space_units += text[right - 1u] == '\t' ? 4 : 1;
+    --right;
+  }
+  if (edge_space_units > 0) {
+    width += edge_space_units * chat_compat_d3dx_measure_space_width(font);
+  }
+  return width;
 }
 
 static void dialog_compat_d3d_fill_rect(void *device, int x, int y, int w, int h, DWORD argb_color) {
