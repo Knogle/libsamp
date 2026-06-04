@@ -239,7 +239,9 @@
 #define SAMP_DIALOG_COMPAT_COLOR_BUTTON 0xFF171717u
 #define SAMP_DIALOG_COMPAT_COLOR_TEXT 0xFFFFFFFFu
 #define SAMP_DIALOG_COMPAT_COLOR_MUTED 0xFFB8B8B8u
-#define SAMP_TEXTDRAW_COMPAT_FONT_BUCKETS 4
+#define SAMP_TEXTDRAW_COMPAT_FONT_BUCKETS 16
+#define SAMP_TEXTDRAW_COMPAT_FONT_MIN_HEIGHT 10
+#define SAMP_TEXTDRAW_COMPAT_FONT_STEP 4
 #define SAMP_TEXTDRAW_COMPAT_SCRIPT_WIDTH 640.0f
 #define SAMP_TEXTDRAW_COMPAT_SCRIPT_HEIGHT 448.0f
 #define SAMP_TEXTDRAW_COMPAT_MIN_WIDTH 48
@@ -5185,35 +5187,100 @@ static void textdraw_compat_prepare_text(const char *input, char *output, size_t
   chat_compat_strip_samp_color_tags(output);
 }
 
-static int textdraw_compat_font_bucket(const samp_textdraw_slot_compat *slot) {
-  float height = 1.0f;
+static void textdraw_compat_prepare_render_text(const char *input, char *output, size_t output_size) {
+  const char *read_cursor = input;
+  char *write_cursor = output;
+  char *write_end = output != NULL && output_size > 0u ? output + output_size - 1u : NULL;
 
-  if (slot != NULL && slot->transmit.letter_height > 0.0f) {
-    height = slot->transmit.letter_height;
+  if (output == NULL || output_size == 0u) {
+    return;
   }
-  if (height >= 2.0f) {
-    return 3;
+  output[0] = '\0';
+  if (input == NULL) {
+    return;
   }
-  if (height >= 1.2f) {
-    return 2;
+
+  while (*read_cursor != '\0' && write_cursor < write_end) {
+    if (read_cursor[0] == '~') {
+      const char *end = strchr(read_cursor + 1, '~');
+      if (end != NULL) {
+        size_t token_len = (size_t)(end - read_cursor + 1);
+        if (token_len == 3u && (read_cursor[1] == 'n' || read_cursor[1] == 'N')) {
+          *write_cursor++ = '\n';
+          read_cursor = end + 1;
+          continue;
+        }
+        if (token_len <= 7u && (size_t)(write_end - write_cursor) >= token_len) {
+          memcpy(write_cursor, read_cursor, token_len);
+          write_cursor += token_len;
+        }
+        read_cursor = end + 1;
+        continue;
+      }
+    }
+    if ((unsigned char)*read_cursor < ' ' && *read_cursor != '\n' && *read_cursor != '\r' && *read_cursor != '\t') {
+      *write_cursor++ = ' ';
+      ++read_cursor;
+      continue;
+    }
+    if (*read_cursor == '_') {
+      *write_cursor++ = ' ';
+      ++read_cursor;
+      continue;
+    }
+    *write_cursor++ = *read_cursor++;
   }
-  if (height >= 0.7f) {
-    return 1;
+  *write_cursor = '\0';
+}
+
+static int textdraw_compat_clamp_int(int value, int min_value, int max_value) {
+  if (value < min_value) {
+    return min_value;
   }
-  return 0;
+  if (value > max_value) {
+    return max_value;
+  }
+  return value;
+}
+
+static int textdraw_compat_font_pixel_height(const samp_textdraw_slot_compat *slot) {
+  int viewport_x = 0;
+  int viewport_y = 0;
+  int viewport_w = 0;
+  int viewport_h = 0;
+  float letter_height = 1.0f;
+  int height = 14;
+
+  if (slot != NULL && isfinite(slot->transmit.letter_height) && slot->transmit.letter_height > 0.0f) {
+    letter_height = slot->transmit.letter_height;
+  }
+  chat_compat_viewport_rect(&viewport_x, &viewport_y, &viewport_w, &viewport_h);
+  if (viewport_h <= 0) {
+    viewport_h = 600;
+  }
+
+  /* OLD_02X_REF + GTA_REVERSED_REF + INFERRED:
+   * Legacy CTextDraw feeds CFont scale_y = screenH * hudVert * letterHeight * 0.5.
+   * GTA's visible glyph height is roughly 18x that scale. In our D3DX fallback
+   * this collapses to viewportH / 448 * letterHeight * 9.
+   */
+  height = (int)((((float)viewport_h / SAMP_TEXTDRAW_COMPAT_SCRIPT_HEIGHT) * letter_height * 9.0f) + 0.5f);
+  return textdraw_compat_clamp_int(height, SAMP_TEXTDRAW_COMPAT_FONT_MIN_HEIGHT,
+                                   SAMP_TEXTDRAW_COMPAT_FONT_MIN_HEIGHT +
+                                       ((SAMP_TEXTDRAW_COMPAT_FONT_BUCKETS - 1) * SAMP_TEXTDRAW_COMPAT_FONT_STEP));
+}
+
+static int textdraw_compat_font_bucket(const samp_textdraw_slot_compat *slot) {
+  int height = textdraw_compat_font_pixel_height(slot);
+  int bucket = (height - SAMP_TEXTDRAW_COMPAT_FONT_MIN_HEIGHT + (SAMP_TEXTDRAW_COMPAT_FONT_STEP / 2)) /
+               SAMP_TEXTDRAW_COMPAT_FONT_STEP;
+
+  return textdraw_compat_clamp_int(bucket, 0, SAMP_TEXTDRAW_COMPAT_FONT_BUCKETS - 1);
 }
 
 static int textdraw_compat_font_height_for_bucket(int bucket) {
-  switch (bucket) {
-    case 3:
-      return 46;
-    case 2:
-      return 32;
-    case 1:
-      return 20;
-    default:
-      return 14;
-  }
+  bucket = textdraw_compat_clamp_int(bucket, 0, SAMP_TEXTDRAW_COMPAT_FONT_BUCKETS - 1);
+  return SAMP_TEXTDRAW_COMPAT_FONT_MIN_HEIGHT + (bucket * SAMP_TEXTDRAW_COMPAT_FONT_STEP);
 }
 
 static int textdraw_compat_is_preview_like(const samp_textdraw_slot_compat *slot) {
@@ -5297,6 +5364,9 @@ static int textdraw_compat_slot_rect(const samp_textdraw_slot_compat *slot, int 
   int w = SAMP_TEXTDRAW_COMPAT_MIN_WIDTH;
   int h = 22;
   int preview_like = 0;
+  int center_align = 0;
+  int right_align = 0;
+  int line_height_used_as_width = 0;
 
   if (slot == NULL) {
     return 0;
@@ -5310,32 +5380,41 @@ static int textdraw_compat_slot_rect(const samp_textdraw_slot_compat *slot, int 
   x = viewport_x + (int)(slot->transmit.x * scale_x);
   y = viewport_y + (int)(slot->transmit.y * scale_y);
   preview_like = textdraw_compat_is_preview_like(slot);
+  center_align = (slot->transmit.flags & 0x08u) != 0u;
+  right_align = (slot->transmit.flags & 0x04u) != 0u;
   if (preview_like && slot->transmit.line_width > 0.0f) {
     w = (int)(slot->transmit.line_width * scale_x);
+  } else if (center_align && slot->transmit.line_height > 0.0f) {
+    w = (int)(slot->transmit.line_height * scale_x);
+    line_height_used_as_width = 1;
   } else if (slot->transmit.line_width > slot->transmit.x) {
     w = (int)((slot->transmit.line_width - slot->transmit.x) * scale_x);
   }
   if (preview_like && slot->transmit.line_height > 0.0f) {
     h = (int)(slot->transmit.line_height * scale_y);
-  } else if (slot->transmit.line_height > slot->transmit.y) {
+  } else if (!line_height_used_as_width && slot->transmit.line_height > slot->transmit.y) {
     h = (int)((slot->transmit.line_height - slot->transmit.y) * scale_y);
   }
   if (w < SAMP_TEXTDRAW_COMPAT_MIN_WIDTH) {
     w = SAMP_TEXTDRAW_COMPAT_MIN_WIDTH;
   }
+  if (!preview_like && (center_align || right_align) && w <= SAMP_TEXTDRAW_COMPAT_MIN_WIDTH) {
+    w = viewport_w / 2;
+  }
   if (w > viewport_w) {
     w = viewport_w;
   }
-  if (h < 18) {
+  if ((!preview_like && line_height_used_as_width) || h < 18 ||
+      (!preview_like && slot->transmit.line_height <= 0.0f && slot->transmit.letter_height > 2.0f)) {
     h = textdraw_compat_font_height_for_bucket(textdraw_compat_font_bucket(slot)) + 6;
   }
   if (h > viewport_h) {
     h = viewport_h;
   }
 
-  if ((slot->transmit.flags & 0x08u) != 0u) {
+  if (center_align) {
     x -= w / 2;
-  } else if ((slot->transmit.flags & 0x04u) != 0u) {
+  } else if (right_align) {
     x -= w;
   }
   if (x < viewport_x) {
@@ -5497,10 +5576,275 @@ static void textdraw_compat_draw_preview_placeholder(void *device, const samp_te
   textdraw_compat_draw_rect_outline(device, x, y, w, h, border);
 }
 
+static DWORD textdraw_compat_color_with_rgb(DWORD current_color, DWORD rgb) {
+  DWORD alpha = current_color & 0xFF000000u;
+  if (alpha == 0u) {
+    alpha = 0xFF000000u;
+  }
+  return alpha | (rgb & 0x00FFFFFFu);
+}
+
+static DWORD textdraw_compat_brighten_color(DWORD color) {
+  DWORD alpha = color & 0xFF000000u;
+  DWORD red = (color >> 16u) & 0xFFu;
+  DWORD green = (color >> 8u) & 0xFFu;
+  DWORD blue = color & 0xFFu;
+
+  if (alpha == 0u) {
+    alpha = 0xFF000000u;
+  }
+  red = red + (red / 2u);
+  green = green + (green / 2u);
+  blue = blue + (blue / 2u);
+  if (red > 255u) {
+    red = 255u;
+  }
+  if (green > 255u) {
+    green = 255u;
+  }
+  if (blue > 255u) {
+    blue = 255u;
+  }
+  return alpha | (red << 16u) | (green << 8u) | blue;
+}
+
+static int textdraw_compat_parse_gta_token(const char *text, DWORD *inout_color, size_t *out_len) {
+  const char *end = NULL;
+  char token = '\0';
+
+  if (out_len != NULL) {
+    *out_len = 0u;
+  }
+  if (text == NULL || text[0] != '~') {
+    return 0;
+  }
+  end = strchr(text + 1, '~');
+  if (end == NULL) {
+    return 0;
+  }
+  if (out_len != NULL) {
+    *out_len = (size_t)(end - text + 1);
+  }
+  if ((end - text) != 2) {
+    return 1;
+  }
+
+  token = text[1];
+  if (token >= 'A' && token <= 'Z') {
+    token = (char)(token - 'A' + 'a');
+  }
+
+  /* GTA_REVERSED_REF:
+   * Mirrors CFont::ParseToken color tokens closely enough for the D3DX fallback.
+   * Button/image tokens are consumed but not rendered here. TODO_VERIFY against 0.3.7 traces.
+   */
+  switch (token) {
+    case 'b':
+      if (inout_color != NULL) {
+        *inout_color = textdraw_compat_color_with_rgb(*inout_color, 0x000060D0u);
+      }
+      break;
+    case 'g':
+      if (inout_color != NULL) {
+        *inout_color = textdraw_compat_color_with_rgb(*inout_color, 0x0000C000u);
+      }
+      break;
+    case 'h':
+      if (inout_color != NULL) {
+        *inout_color = textdraw_compat_brighten_color(*inout_color);
+      }
+      break;
+    case 'l':
+      if (inout_color != NULL) {
+        *inout_color = textdraw_compat_color_with_rgb(*inout_color, 0x00000000u);
+      }
+      break;
+    case 'p':
+      if (inout_color != NULL) {
+        *inout_color = textdraw_compat_color_with_rgb(*inout_color, 0x00C060D0u);
+      }
+      break;
+    case 'r':
+      if (inout_color != NULL) {
+        *inout_color = textdraw_compat_color_with_rgb(*inout_color, 0x00E02020u);
+      }
+      break;
+    case 's':
+    case 'w':
+      if (inout_color != NULL) {
+        *inout_color = textdraw_compat_color_with_rgb(*inout_color, 0x00D8D8D8u);
+      }
+      break;
+    case 'y':
+      if (inout_color != NULL) {
+        *inout_color = textdraw_compat_color_with_rgb(*inout_color, 0x00E8C020u);
+      }
+      break;
+    default:
+      break;
+  }
+  return 1;
+}
+
+static int textdraw_compat_measure_render_line_width(samp_id3dx_font_compat *font, const char *text,
+                                                     size_t text_len) {
+  size_t offset = 0u;
+  int width = 0;
+
+  if (font == NULL || text == NULL || text_len == 0u) {
+    return 0;
+  }
+
+  while (offset < text_len) {
+    char segment[SAMP_TEXTDRAW_COMPAT_MAX_TEXT_BYTES];
+    DWORD tag_color = 0u;
+    size_t token_len = 0u;
+    size_t len = 0u;
+
+    if (chat_compat_parse_color_tag(text + offset, &tag_color)) {
+      offset += 8u;
+      continue;
+    }
+    if (textdraw_compat_parse_gta_token(text + offset, NULL, &token_len) && token_len > 0u) {
+      offset += token_len;
+      continue;
+    }
+    while (offset + len < text_len && text[offset + len] != '\n' &&
+           !chat_compat_parse_color_tag(text + offset + len, &tag_color) &&
+           !textdraw_compat_parse_gta_token(text + offset + len, NULL, &token_len) &&
+           len + 1u < sizeof(segment)) {
+      ++len;
+    }
+    if (len == 0u) {
+      ++offset;
+      continue;
+    }
+    memcpy(segment, text + offset, len);
+    segment[len] = '\0';
+    width += chat_compat_d3dx_measure_text_width(font, segment, (int)len * 8);
+    offset += len;
+  }
+  return width;
+}
+
+static void textdraw_compat_draw_text_segment(samp_id3dx_font_compat *font, RECT rect, const char *text, DWORD color,
+                                              DWORD outline_color, int outline_pixels) {
+  int offset = 1;
+
+  if (font == NULL || text == NULL || text[0] == '\0') {
+    return;
+  }
+  if (outline_pixels > 0) {
+    if (outline_pixels > 2) {
+      outline_pixels = 2;
+    }
+    for (offset = 1; offset <= outline_pixels; ++offset) {
+      RECT shadow_rect = rect;
+      OffsetRect(&shadow_rect, -offset, 0);
+      chat_compat_d3dx_draw_text(font, shadow_rect, text, outline_color, DT_NOCLIP | DT_SINGLELINE | DT_LEFT);
+      shadow_rect = rect;
+      OffsetRect(&shadow_rect, offset, 0);
+      chat_compat_d3dx_draw_text(font, shadow_rect, text, outline_color, DT_NOCLIP | DT_SINGLELINE | DT_LEFT);
+      shadow_rect = rect;
+      OffsetRect(&shadow_rect, 0, -offset);
+      chat_compat_d3dx_draw_text(font, shadow_rect, text, outline_color, DT_NOCLIP | DT_SINGLELINE | DT_LEFT);
+      shadow_rect = rect;
+      OffsetRect(&shadow_rect, 0, offset);
+      chat_compat_d3dx_draw_text(font, shadow_rect, text, outline_color, DT_NOCLIP | DT_SINGLELINE | DT_LEFT);
+    }
+  }
+  chat_compat_d3dx_draw_text(font, rect, text, color, DT_NOCLIP | DT_SINGLELINE | DT_LEFT);
+}
+
+static void textdraw_compat_draw_render_line(samp_id3dx_font_compat *font, RECT rect, const char *text,
+                                             size_t text_len, DWORD default_color, DWORD flags, DWORD outline_color,
+                                             int outline_pixels) {
+  DWORD color = default_color;
+  size_t offset = 0u;
+  int line_width = 0;
+
+  if (font == NULL || text == NULL || text_len == 0u) {
+    return;
+  }
+
+  line_width = textdraw_compat_measure_render_line_width(font, text, text_len);
+  if ((flags & DT_CENTER) != 0u && rect.right > rect.left + line_width) {
+    rect.left += ((rect.right - rect.left) - line_width) / 2;
+  } else if ((flags & DT_RIGHT) != 0u && rect.right > rect.left + line_width) {
+    rect.left = rect.right - line_width;
+  }
+
+  while (offset < text_len) {
+    char segment[SAMP_TEXTDRAW_COMPAT_MAX_TEXT_BYTES];
+    DWORD tag_color = 0u;
+    size_t token_len = 0u;
+    size_t len = 0u;
+    int width = 0;
+
+    if (chat_compat_parse_color_tag(text + offset, &tag_color)) {
+      color = tag_color;
+      offset += 8u;
+      continue;
+    }
+    if (textdraw_compat_parse_gta_token(text + offset, &color, &token_len) && token_len > 0u) {
+      offset += token_len;
+      continue;
+    }
+    while (offset + len < text_len && text[offset + len] != '\n' &&
+           !chat_compat_parse_color_tag(text + offset + len, &tag_color) &&
+           !textdraw_compat_parse_gta_token(text + offset + len, NULL, &token_len) &&
+           len + 1u < sizeof(segment)) {
+      ++len;
+    }
+    if (len == 0u) {
+      ++offset;
+      continue;
+    }
+    memcpy(segment, text + offset, len);
+    segment[len] = '\0';
+    textdraw_compat_draw_text_segment(font, rect, segment, color, outline_color, outline_pixels);
+    width = chat_compat_d3dx_measure_text_width(font, segment, (int)len * 8);
+    rect.left += width;
+    rect.right += width;
+    offset += len;
+  }
+}
+
+static void textdraw_compat_draw_text_segments(samp_id3dx_font_compat *font, RECT rect, const char *text,
+                                               DWORD default_color, DWORD flags, DWORD outline_color,
+                                               int outline_pixels, int line_height) {
+  const char *line_start = text;
+  const char *cursor = text;
+  RECT line_rect = rect;
+
+  if (font == NULL || text == NULL || text[0] == '\0') {
+    return;
+  }
+  if (line_height < 10) {
+    line_height = 10;
+  }
+
+  while (*cursor != '\0') {
+    if (*cursor == '\n') {
+      textdraw_compat_draw_render_line(font, line_rect, line_start, (size_t)(cursor - line_start), default_color, flags,
+                                       outline_color, outline_pixels);
+      line_rect.top += line_height;
+      line_rect.bottom += line_height;
+      line_start = cursor + 1;
+    }
+    ++cursor;
+  }
+  if (cursor != line_start) {
+    textdraw_compat_draw_render_line(font, line_rect, line_start, (size_t)(cursor - line_start), default_color, flags,
+                                     outline_color, outline_pixels);
+  }
+}
+
 static void textdraw_compat_draw_slot(void *device, samp_textdraw_slot_compat *slot) {
   samp_id3dx_font_compat *font = NULL;
   RECT rect;
-  char text[SAMP_TEXTDRAW_COMPAT_MAX_TEXT_BYTES];
+  char plain_text[SAMP_TEXTDRAW_COMPAT_MAX_TEXT_BYTES];
+  char render_text[SAMP_TEXTDRAW_COMPAT_MAX_TEXT_BYTES];
   DWORD color = 0xFFFFFFFFu;
   DWORD flags = DT_NOCLIP | DT_LEFT;
   int x = 0;
@@ -5508,6 +5852,7 @@ static void textdraw_compat_draw_slot(void *device, samp_textdraw_slot_compat *s
   int w = 0;
   int h = 0;
   int bucket = 0;
+  int font_height = 0;
   int draw_text = 0;
   int use_box = 0;
 
@@ -5517,14 +5862,15 @@ static void textdraw_compat_draw_slot(void *device, samp_textdraw_slot_compat *s
   if (textdraw_compat_draw_gta_font_slot(slot)) {
     return;
   }
-  textdraw_compat_prepare_text(slot->text, text, sizeof(text));
+  textdraw_compat_prepare_text(slot->text, plain_text, sizeof(plain_text));
+  textdraw_compat_prepare_render_text(slot->text, render_text, sizeof(render_text));
   if (!textdraw_compat_slot_rect(slot, &x, &y, &w, &h)) {
     return;
   }
 
   use_box = textdraw_compat_has_box(slot);
-  draw_text = text[0] != '\0';
-  if (use_box && textdraw_compat_is_box_marker_text(text)) {
+  draw_text = plain_text[0] != '\0' || render_text[0] != '\0';
+  if (use_box && textdraw_compat_is_box_marker_text(plain_text)) {
     draw_text = 0;
   }
   if (slot->transmit.style == 4u) {
@@ -5535,8 +5881,7 @@ static void textdraw_compat_draw_slot(void *device, samp_textdraw_slot_compat *s
     textdraw_compat_draw_preview_placeholder(device, slot, x, y, w, h);
     return;
   }
-  if (use_box && slot->transmit.line_width > 0.0f && slot->transmit.line_height > 0.0f &&
-      (slot->transmit.box_color & 0x00FFFFFFu) != 0u) {
+  if (use_box && (slot->transmit.box_color & 0x00FFFFFFu) != 0u) {
     dialog_compat_d3d_fill_rect(device, x, y, w, h, textdraw_compat_abgr_to_argb(slot->transmit.box_color));
   }
   if (!draw_text) {
@@ -5544,6 +5889,7 @@ static void textdraw_compat_draw_slot(void *device, samp_textdraw_slot_compat *s
   }
 
   bucket = textdraw_compat_font_bucket(slot);
+  font_height = textdraw_compat_font_height_for_bucket(bucket);
   font = textdraw_compat_ensure_font(device, bucket);
   if (font == NULL) {
     return;
@@ -5559,31 +5905,24 @@ static void textdraw_compat_draw_slot(void *device, samp_textdraw_slot_compat *s
   } else if ((slot->transmit.flags & 0x04u) != 0u) {
     flags = DT_NOCLIP | DT_RIGHT;
   }
-  if (strchr(text, '\n') != NULL) {
+  if (strchr(render_text, '\n') != NULL) {
     flags |= DT_WORDBREAK;
   } else {
     flags |= DT_SINGLELINE;
   }
-  if (slot->transmit.outline != 0u || slot->transmit.shadow != 0u) {
-    RECT shadow_rect = rect;
+  if (render_text[0] != '\0') {
     DWORD outline_color = textdraw_compat_abgr_to_argb(slot->transmit.background_color);
+    int outline_pixels = 0;
     if (outline_color == color) {
       outline_color = 0xFF000000u;
     }
-    OffsetRect(&shadow_rect, -1, 0);
-    chat_compat_d3dx_draw_text(font, shadow_rect, text, outline_color, flags);
-    shadow_rect = rect;
-    OffsetRect(&shadow_rect, 1, 0);
-    chat_compat_d3dx_draw_text(font, shadow_rect, text, outline_color, flags);
-    shadow_rect = rect;
-    OffsetRect(&shadow_rect, 0, -1);
-    chat_compat_d3dx_draw_text(font, shadow_rect, text, outline_color, flags);
-    shadow_rect = rect;
-    OffsetRect(&shadow_rect, 0, 1);
-    chat_compat_d3dx_draw_text(font, shadow_rect, text, outline_color, flags);
-    chat_compat_d3dx_draw_text(font, rect, text, color, flags);
-  } else {
-    chat_compat_d3dx_draw_text(font, rect, text, color, flags);
+    if (slot->transmit.outline != 0u) {
+      outline_pixels = (int)slot->transmit.outline;
+    } else if (slot->transmit.shadow != 0u) {
+      outline_pixels = 1;
+    }
+    textdraw_compat_draw_text_segments(font, rect, render_text, color, flags, outline_color, outline_pixels,
+                                       font_height + 2);
   }
 }
 
