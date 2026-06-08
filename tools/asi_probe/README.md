@@ -38,13 +38,13 @@ Through the reverse-engineering toolbox:
 
 ```bash
 toolboxes/reverse-engineering/run.sh \
-  bash -lc 'cd /home/chairman/Projects/sa-mp.dll-rebuild && tools/asi_probe/build_win32.sh'
+  bash -lc 'cd /path/to/libsamp && tools/asi_probe/build_win32.sh'
 ```
 
 Debug build through the `devbuild` toolbox, with DWARF debug sections and a linker map:
 
 ```bash
-toolbox run -c devbuild bash -lc 'cd /home/chairman/Projects/sa-mp.dll-rebuild && \
+toolbox run -c devbuild bash -lc 'cd /path/to/libsamp && \
   SAMP_PROBE_BUILD_DIR=build-asi-probe-debug \
   SAMP_PROBE_BUILD_TYPE=Debug \
   SAMP_PROBE_STRIP=0 \

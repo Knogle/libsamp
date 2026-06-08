@@ -10,7 +10,7 @@ Deliver a clean-room `samp.dll` rebuild that is behavior-compatible with the cur
 
 Target reference:
 
-- `/home/chairman/Projects/sa-mp.dll-rebuild/samp.dll`
+- `path/to/original/samp.dll`
 - SHA-256: `b72b5dbe725f81864ca3f78bc7063bda56cc05fc7188af822fa7a754432553a2`
 
 ## 2. Non-Negotiable Constraints

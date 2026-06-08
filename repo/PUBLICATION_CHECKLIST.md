@@ -5,24 +5,25 @@ oeffentlich sichtbar gemacht wird.
 
 ## P0 - Muss vor Public erledigt sein
 
-- [ ] Projektname ueberall konsistent: `libsamp` als Repository/Artefaktname,
+- [x] Projektname ueberall konsistent: `libsamp` als Repository/Artefaktname,
       `Libre-SAMP` als ausgeschriebener Name.
-- [ ] Zielsetzung klar formuliert: Drop-in-Replacement fuer `samp.dll`, kein
+- [x] Zielsetzung klar formuliert: Drop-in-Replacement fuer `samp.dll`, kein
       vollstaendiger Client-Installer und keine proprietaeren Assets.
-- [ ] Keine proprietaeren Binaries oder Assets im Index.
-- [ ] Keine lokalen Prefix-Pfade, privaten Nutzernamen oder absoluten Home-Pfade in
+- [x] Keine proprietaeren Binaries oder Assets im Index. Projektgenerierte
+      Loading-Screen-Assets sind in `NOTICE.md` dokumentiert.
+- [x] Keine lokalen Prefix-Pfade, privaten Nutzernamen oder absoluten Home-Pfade in
       dokumentierten Beispielkommandos.
-- [ ] Keine nicht-oeffentlichen Referenzquellen im Repository.
-- [ ] Keine alten Referenzpfadnamen oder nicht mehr genutzten Crosswalk-Dateien.
-- [ ] `.gitignore` deckt lokale Traces, Builds, Prefix-Kopien, ZIPs und
+- [x] Keine nicht-oeffentlichen Referenzquellen im Repository.
+- [x] Keine alten Referenzpfadnamen oder nicht mehr genutzten Crosswalk-Dateien.
+- [x] `.gitignore` deckt lokale Traces, Builds, Prefix-Kopien, ZIPs und
       Arbeitsassets ab.
-- [ ] README benennt klar: Reverse Engineering der originalen 0.3.7-DLL,
+- [x] README benennt klar: Reverse Engineering der originalen 0.3.7-DLL,
       Golden-Traces, open.mp, gta-reversed und eigene Probe-Logs als Quellen.
-- [ ] Build-Anleitung beschreibt reproduzierbar den Devbuild-Pfad.
-- [ ] Runtime-Debug-Logs sind standardmaessig begrenzt und enthalten keine
+- [x] Build-Anleitung beschreibt reproduzierbar den Devbuild-Pfad.
+- [x] Runtime-Debug-Logs sind standardmaessig begrenzt und enthalten keine
       sensitiven Pfade, sofern sie nicht explizit fuer lokale Analyse aktiviert
       werden.
-- [ ] Lizenzstatus klaeren: eigener Code, eingebundene Third-Party-Komponenten,
+- [x] Lizenzstatus klaeren: eigener Code, eingebundene Third-Party-Komponenten,
       generierte Daten und Assets getrennt dokumentieren.
 
 ## P1 - Stark empfohlen

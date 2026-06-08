@@ -27,13 +27,18 @@ gta-reversed-Engine-Referenzen und projektinternen Laufzeitbeobachtungen.
 - Unklare Semantik als Stub mit Log markieren, nicht spekulativ nachbauen.
 - Jede technische Aussage mit Evidence-Tags kennzeichnen, wo sie nicht direkt aus
   dem Code ersichtlich ist.
-- Keine proprietaeren Assets oder Binaries einchecken.
+- Keine proprietaeren Assets oder Binaries einchecken. Projektgenerierte Assets
+  muessen in `NOTICE.md` dokumentiert sein.
 
 ## Wichtige Dateien
 
 - `TASK_TRACKER.md`: Umfassender Task-Tracker ab aktuellem Meilenstein.
 - `PUBLICATION_CHECKLIST.md`: Checkliste fuer den ersten Public-Repo-Stand.
 - `RE_EVIDENCE_GUIDE.md`: Evidence- und Trace-Regeln fuer zukuenftige Arbeit.
+- `../LICENSE`: MIT-Lizenz fuer den Projektcode.
+- `../NOTICE.md`: Third-Party- und Asset-Provenienz.
+- `../SECURITY.md`: Security Policy und Nutzungsgrenzen.
+- `../CONTRIBUTING.md`: Beitragsregeln und Build-Hinweise.
 
 ## Aktueller Meilenstein
 

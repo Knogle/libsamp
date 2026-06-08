@@ -13,7 +13,7 @@ and an ASI probe for reproducible client-side instrumentation.
 [![target](https://img.shields.io/badge/target-SA--MP%200.3.7--R5-blue)](#what-it-is)
 [![platform](https://img.shields.io/badge/platform-Windows%20x86-informational)](#build-from-source)
 [![evidence](https://img.shields.io/badge/evidence-RE%20%7C%20traces%20%7C%20open.mp-success)](repo/RE_EVIDENCE_GUIDE.md)
-[![license](https://img.shields.io/badge/license-TBD-lightgrey)](#license)
+[![license](https://img.shields.io/badge/license-MIT-green)](#license)
 
 </div>
 
@@ -164,9 +164,11 @@ unverified semantics.
 
 ## License
 
-License is still to be finalized before the first public release. Third-party
-license notices and submodule license review are tracked in
-[repo/PUBLICATION_CHECKLIST.md](repo/PUBLICATION_CHECKLIST.md).
+Libre-SAMP is licensed under the MIT License. See [LICENSE](LICENSE).
+
+Third-party components and generated asset provenance are documented in
+[NOTICE.md](NOTICE.md). The repository MIT License does not relicense
+third-party submodules.
 
 ## Credits
 

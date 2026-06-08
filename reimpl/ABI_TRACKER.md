@@ -2,7 +2,7 @@
 
 ## Target
 
-- Input reference: `/home/chairman/Projects/sa-mp.dll-rebuild/samp.dll`
+- Input reference: `path/to/original/samp.dll`
 - Goal: clean-room replacement with compatible load/runtime behavior.
 
 ## Current Status

@@ -92,7 +92,7 @@ LIEF-based post-link shaper inside the reverse-engineering toolbox:
 
 ```bash
 toolboxes/reverse-engineering/run.sh \
-  bash -lc 'cd /home/chairman/Projects/sa-mp.dll-rebuild && \
+  bash -lc 'cd /path/to/libsamp && \
     python3 tools/shape_pe_imports.py samp.dll build-win32-socket-fallback/samp.dll build-win32-socket-fallback/samp-shaped.dll'
 ```
 

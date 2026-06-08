@@ -160,7 +160,7 @@ This gives us dynamic loader behavior the static import table cannot show.
 
 1. Install WinDbg Preview or classic WinDbg.
 2. Create `C:\samp-collect`.
-3. Edit the first line of [`windbg_original_run.txt`](/home/chairman/Projects/sa-mp.dll-rebuild/tools/windows/windbg_original_run.txt) so `.logopen` points to a real path on your machine.
+3. Edit the first line of [`windbg_original_run.txt`](windbg_original_run.txt) so `.logopen` points to a real path on your machine.
 
 ### Launch Command
 

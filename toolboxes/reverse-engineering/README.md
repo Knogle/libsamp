@@ -37,14 +37,14 @@ Run a strict PE diff inside the toolbox:
 
 ```bash
 toolboxes/reverse-engineering/run.sh \
-  bash -lc 'cd /home/chairman/Projects/sa-mp.dll-rebuild && tools/check_pe_abi_strict.sh samp.dll build-win32/samp.dll'
+  bash -lc 'cd /path/to/libsamp && tools/check_pe_abi_strict.sh samp.dll build-win32/samp.dll'
 ```
 
 Run the existing Win32 build inside the toolbox:
 
 ```bash
 toolboxes/reverse-engineering/run.sh \
-  bash -lc 'cd /home/chairman/Projects/sa-mp.dll-rebuild && reimpl/scripts/build_win32.sh'
+  bash -lc 'cd /path/to/libsamp && reimpl/scripts/build_win32.sh'
 ```
 
 ## Recommended Workflow

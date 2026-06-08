@@ -91,11 +91,9 @@ Keep and extend these existing assets:
 8. `reimpl/scripts/build_win32.sh` and `reimpl/scripts/build_in_devbuild_toolbox.sh`
    - keep them as the candidate production loop,
    - add stricter validation after build instead of inventing a second disconnected build path.
-9. Local source bases in:
-   - `/home/chairman/Projects/sa-mp.dll-rebuild/samp`
-   - `/home/chairman/Projects/sa-mp-legacy-rebuild/samp`
-   - inventory recorded in `analysis/metadata/LOCAL_SOURCE_BASES.md`
-   - use them as broad architecture references for Team A clustering and spec extraction, especially for bootstrap, `CNetGame`, D3D/UI, archive, and RakNet layers.
+9. Reverse-engineering source inventory recorded in `analysis/metadata/LOCAL_SOURCE_BASES.md`
+   - use it only as broad architecture context for Team A clustering and spec extraction,
+   - prioritize OBSERVED_037/PROBE_TRACE evidence for bootstrap, `CNetGame`, D3D/UI, archive, and RakNet layers.
 
 ## 4. Non-Negotiable Rules
 
