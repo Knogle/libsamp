@@ -25,7 +25,7 @@
 #include "raknet/RakNetworkFactory.h"
 #include "raknet/StringCompressor.h"
 
-extern char AuthKeyTable[512][2][128];
+extern "C" const char *samp_raknet_knogle_auth_response(const char *challenge);
 
 namespace {
 constexpr unsigned char kPacketIdInvalid = 0xFFu;
@@ -3502,13 +3502,11 @@ const char *find_auth_response(const char *challenge) {
     return nullptr;
   }
 
-  for (int i = 0; i < 512; ++i) {
-    if (std::strcmp(AuthKeyTable[i][0], challenge) == 0) {
-      return AuthKeyTable[i][1];
-    }
-  }
-
-  return nullptr;
+  // OPENMP_REF + INFERRED:
+  // The SA-MP auth challenge/response table is generated from vendored
+  // Knogle/RakNet at configure time so public builds do not depend on local
+  // reverse-engineering workspaces. TODO_VERIFY against a fresh 0.3.7 trace.
+  return samp_raknet_knogle_auth_response(challenge);
 }
 
 int send_auth_key_response(RakNet::RakClientInterface *rak_client, const RakNet::Packet *packet) {

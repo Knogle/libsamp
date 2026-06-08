@@ -14,7 +14,7 @@
 5. `devbuild` toolbox build is working (`build-win32/samp.dll` generated).
 6. Candidate currently matches image base/subsystem/no-exports and differs in sections/import set.
 7. Entry boot-path analysis documented (`SPEC-ABI-001`).
-8. Legacy 0.2x structural crosswalk documented (`analysis/metadata/LEGACY_0_2X_CROSSWALK.md`).
+8. Original-DLL boot/runtime analysis documented (`SPEC-ABI-001`, `analysis/metadata/CURRENT_DLL_DETAILED_MAP.md`).
 9. Phased boot runtime scaffold implemented (`BOOT_PHASE_1..6` attach/detach dispatch).
 10. Boot sequence cross-checked with local confirmed-working client source (`samp/client/main.cpp`).
 11. Runtime now includes settings parser + LaunchMonitor-thread + entry-gate wait + init-tick flow.
@@ -26,12 +26,12 @@
 17. Network object lifecycle/connect-worker cluster formalized as `SPEC-NET-006`.
 18. Scope decision: `d3d9`/`d3dx9_25` and `BASS.dll` are treated as external runtime dependencies for now; primary compatibility target is `samp.dll` lifecycle + networking/state behavior.
 19. Candidate PE now matches reference `FileAlignment` (`0x1000`) and carries a `.rsrc` section again.
-20. Win32 compatibility experiment with `SAMPDLL_ENABLE_RAKNET_KNOGLE=OFF` removes `libwinpthread-1.dll`, proving that dependency is packaging-optional rather than fundamental.
+20. Win32 socket-fallback compatibility experiment with `SAMPDLL_ENABLE_RAKNET_KNOGLE=OFF` removes `libwinpthread-1.dll`, proving that dependency is packaging-optional rather than fundamental.
 21. The same experiment shows `.eh_frame` and `.tls` persist even without the C++ RakNet path, so those deltas come from the MinGW/CRT path and need a separate packaging strategy.
-22. The `SAMPDLL_ENABLE_RAKNET_KNOGLE=OFF` Win32 build now links its static socket surface through `WSOCK32.DLL`; `getaddrinfo`/`freeaddrinfo` are resolved dynamically from `ws2_32.dll` at runtime so the no-RakNet candidate no longer needs a static `WS2_32.dll` import.
-23. A LIEF-based post-link import shaper now exists (`tools/shape_pe_imports.py`) and can append missing reference DLL families to the `no-rak` artifact while preserving the existing runtime-facing import groups.
+22. The socket-fallback Win32 build now links its static socket surface through `WSOCK32.DLL`; `getaddrinfo`/`freeaddrinfo` are resolved dynamically from `ws2_32.dll` at runtime so the fallback candidate no longer needs a static `WS2_32.dll` import.
+23. A LIEF-based post-link import shaper now exists (`tools/shape_pe_imports.py`) and can append missing reference DLL families to the socket-fallback artifact while preserving the existing runtime-facing import groups.
 24. The shaper now also preserves/regrafts the COFF string-table tail needed for the long `"/4"` section-name indirection, so the shaped output remains readable by `objdump`.
-25. Current strict-check result for `build-win32-norak/samp-shaped.dll`: DLL-family mismatch is reduced to one extra `msvcrt.dll`, import-symbol count rises from `87` to `247`, and missing import symbols drop to `107`.
+25. Current strict-check result for `build-win32-socket-fallback/samp-shaped.dll`: DLL-family mismatch is reduced to one extra `msvcrt.dll`, import-symbol count rises from `87` to `247`, and missing import symbols drop to `107`.
 26. The experimental `--extend-existing-libraries` mode is currently not a win: it over-expands existing import groups and regresses the strict import-symbol totals.
 
 ## Pending ABI Work

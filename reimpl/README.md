@@ -11,7 +11,7 @@ This folder contains Team B implementation artifacts derived from specs.
 - Dual-stack endpoint parsing and connect core (`SPEC-NET-001` foundation).
 - Legacy IPv4 socket primitive compatibility layer (`SPEC-NET-003` foundation).
 - TCP bootstrap manager lifecycle scaffold (`SPEC-NET-004` foundation).
-- Optional integration of vendored Knogle RakNet variant (`SPEC-NET-005` foundation).
+- Default integration of vendored Knogle RakNet variant (`SPEC-NET-005` foundation).
 - SA-MP legacy client UDP datagram transform for RakNet outbound traffic, validated against original `samp.dll` capture bytes.
 - Network object worker-cluster mapping guide (`SPEC-NET-006` foundation).
 - Host-side parser tests for deterministic validation.
@@ -32,15 +32,16 @@ cmake -S reimpl -B build-host -G Ninja \
   -DSAMPDLL_ENABLE_RAKNET_KNOGLE=OFF
 ```
 
-For Win32 ABI-shaping work, the corresponding `OFF` build now links the legacy
-socket surface through `WSOCK32` and resolves `getaddrinfo`/`freeaddrinfo`
-dynamically at runtime. This keeps the dual-stack path available without
-forcing a static `WS2_32.dll` import into the no-RakNet candidate.
+For Win32 ABI-shaping fallback experiments, the corresponding `OFF` build links
+the static socket surface through `WSOCK32` and resolves
+`getaddrinfo`/`freeaddrinfo` dynamically at runtime. This keeps the dual-stack
+path available without forcing a static `WS2_32.dll` import into the socket-only
+candidate.
 
 Variant Win32 builds can also be produced through the wrapper script:
 
 ```bash
-SAMPDLL_BUILD_DIR=build-win32-norak \
+SAMPDLL_BUILD_DIR=build-win32-socket-fallback \
 SAMPDLL_ENABLE_RAKNET_KNOGLE=OFF \
 reimpl/scripts/build_win32.sh
 ```
@@ -86,20 +87,20 @@ Then run stricter PE checks against the packaged DLL:
 tools/check_pe_abi_strict.sh samp.dll build-win32/samp.dll
 ```
 
-For import-surface experiments on the `no-rak` Win32 artifact, use the
+For import-surface experiments on the socket-fallback Win32 artifact, use the
 LIEF-based post-link shaper inside the reverse-engineering toolbox:
 
 ```bash
 toolboxes/reverse-engineering/run.sh \
   bash -lc 'cd /home/chairman/Projects/sa-mp.dll-rebuild && \
-    python3 tools/shape_pe_imports.py samp.dll build-win32-norak/samp.dll build-win32-norak/samp-shaped.dll'
+    python3 tools/shape_pe_imports.py samp.dll build-win32-socket-fallback/samp.dll build-win32-socket-fallback/samp-shaped.dll'
 ```
 
 The shaper preserves the original COFF string-table tail used for long section
 names (for example `"/4"` -> `.eh_frame`), so the resulting DLL remains
 readable by the repository's `objdump`-based ABI checker.
 
-Current measured result for `build-win32-norak/samp-shaped.dll`:
+Current measured result for `build-win32-socket-fallback/samp-shaped.dll`:
 
 - imported DLL set now matches the reference set plus one extra `msvcrt.dll`,
 - import symbol count improves from `87` to `247`,

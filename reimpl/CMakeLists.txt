@@ -27,10 +27,54 @@ if(SAMPDLL_ENABLE_RAKNET_KNOGLE AND EXISTS "${SAMPDLL_RAKNET_KNOGLE_DIR}/CMakeLi
     target_compile_definitions(raknet PUBLIC RAKNET_ENABLE_LEGACY_SAMP_CLIENT_TRANSPORT=1)
   endif()
 
+  set(SAMPDLL_RAKNET_KNOGLE_GLUE "${SAMPDLL_RAKNET_KNOGLE_DIR}/SAMPRakNet.cpp")
+  set(SAMPDLL_RAKNET_AUTH_SOURCE "${CMAKE_BINARY_DIR}/raknet_knogle_auth_table.cpp")
+  file(READ "${SAMPDLL_RAKNET_KNOGLE_GLUE}" SAMPDLL_RAKNET_KNOGLE_GLUE_TEXT)
+  set(SAMPDLL_RAKNET_AUTH_BEGIN "} static const AuthTable[UCHAR_MAX + 1] = {")
+  set(SAMPDLL_RAKNET_AUTH_END "\n};\n\nPair<uint8_t, StringView> SAMPRakNet::GenerateAuth")
+  string(FIND "${SAMPDLL_RAKNET_KNOGLE_GLUE_TEXT}" "${SAMPDLL_RAKNET_AUTH_BEGIN}" SAMPDLL_RAKNET_AUTH_BEGIN_POS)
+  string(FIND "${SAMPDLL_RAKNET_KNOGLE_GLUE_TEXT}" "${SAMPDLL_RAKNET_AUTH_END}" SAMPDLL_RAKNET_AUTH_END_POS)
+  if(SAMPDLL_RAKNET_AUTH_BEGIN_POS EQUAL -1 OR SAMPDLL_RAKNET_AUTH_END_POS EQUAL -1)
+    message(FATAL_ERROR "Could not locate Knogle RakNet SA-MP auth table in ${SAMPDLL_RAKNET_KNOGLE_GLUE}")
+  endif()
+  string(LENGTH "${SAMPDLL_RAKNET_AUTH_BEGIN}" SAMPDLL_RAKNET_AUTH_BEGIN_LEN)
+  math(EXPR SAMPDLL_RAKNET_AUTH_ENTRIES_POS "${SAMPDLL_RAKNET_AUTH_BEGIN_POS} + ${SAMPDLL_RAKNET_AUTH_BEGIN_LEN}")
+  math(EXPR SAMPDLL_RAKNET_AUTH_ENTRIES_LEN "${SAMPDLL_RAKNET_AUTH_END_POS} - ${SAMPDLL_RAKNET_AUTH_ENTRIES_POS}")
+  string(SUBSTRING "${SAMPDLL_RAKNET_KNOGLE_GLUE_TEXT}" "${SAMPDLL_RAKNET_AUTH_ENTRIES_POS}" "${SAMPDLL_RAKNET_AUTH_ENTRIES_LEN}" SAMPDLL_RAKNET_AUTH_ENTRIES)
+  file(WRITE "${SAMPDLL_RAKNET_AUTH_SOURCE}" "/* Generated at configure time from third_party/raknet-knogle/SAMPRakNet.cpp.
+ * OPENMP_REF + INFERRED:
+ * Knogle/RakNet is the vendored protocol source for this auth table. Keep this
+ * generated instead of depending on local-only reverse-engineering workspaces.
+ */
+#include <cstring>
+
+struct SampKnogleAuthEntry {
+  const char *send;
+  const char *recv;
+};
+
+static const SampKnogleAuthEntry kSampKnogleAuthTable[] = {${SAMPDLL_RAKNET_AUTH_ENTRIES}
+};
+
+extern \"C\" const char *samp_raknet_knogle_auth_response(const char *challenge) {
+  if (challenge == nullptr || challenge[0] == '\\0') {
+    return nullptr;
+  }
+
+  for (const auto &entry : kSampKnogleAuthTable) {
+    if (entry.send != nullptr && std::strcmp(entry.send, challenge) == 0) {
+      return entry.recv;
+    }
+  }
+
+  return nullptr;
+}
+")
+
   list(APPEND SAMPDLL_NET_SOURCES
     src/net/raknet_bridge.cpp
     src/net/raknet_client_adapter.cpp
-    ../samp/raknet/SAMP/samp_auth.cpp
+    "${SAMPDLL_RAKNET_AUTH_SOURCE}"
   )
 elseif(SAMPDLL_ENABLE_RAKNET_KNOGLE)
   message(WARNING "SAMPDLL_ENABLE_RAKNET_KNOGLE=ON but vendored path not found: ${SAMPDLL_RAKNET_KNOGLE_DIR}")

@@ -1,0 +1,62 @@
+name: build
+
+on:
+  push:
+    branches:
+      - main
+      - master
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  win32:
+    name: win32 dll and asi
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Install toolchain
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            cmake \
+            ninja-build \
+            gcc-mingw-w64-i686 \
+            g++-mingw-w64-i686 \
+            binutils-mingw-w64-i686 \
+            file
+
+      - name: Build samp.dll
+        env:
+          SAMPDLL_BUILD_DIR: build-win32-ci
+        run: reimpl/scripts/build_win32.sh
+
+      - name: Build ASI probe
+        env:
+          SAMP_PROBE_BUILD_DIR: build-asi-probe-ci
+        run: tools/asi_probe/build_win32.sh
+
+      - name: Collect artifacts
+        run: |
+          mkdir -p dist
+          cp build-win32-ci/samp.dll dist/samp.dll
+          cp build-asi-probe-ci/samp_probe.asi dist/samp_probe.asi
+          if [ -f build-asi-probe-ci/samp_probe.map ]; then
+            cp build-asi-probe-ci/samp_probe.map dist/samp_probe.map
+          fi
+          sha256sum dist/* > dist/SHA256SUMS.txt
+          file dist/*
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: retromp-win32-${{ github.sha }}
+          path: dist/
+          if-no-files-found: error
