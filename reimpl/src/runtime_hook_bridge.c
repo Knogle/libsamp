@@ -10,8 +10,8 @@
 
 #include "sampdll/runtime/hook_bridge.h"
 
-#define SAMP_LEGACY_GRAPHICS_CALL_DISP_ADDR 0x53EB13u
-#define SAMP_LEGACY_GRAPHICS_CALL_DISP_ADDR_SECONDARY 0x53EB1Au
+#define SAMP_RE_GRAPHICS_CALL_DISP_ADDR 0x53EB13u
+#define SAMP_RE_GRAPHICS_CALL_DISP_ADDR_SECONDARY 0x53EB1Au
 
 typedef void(__cdecl *samp_graphics_target_fn)(void);
 
@@ -244,8 +244,8 @@ int samp_hook_bridge_configure_from_env(samp_runtime_hook_bridge *bridge) {
   uint32_t custom_addr_secondary = 0;
   const char *custom_text_primary = NULL;
   const char *custom_text_secondary = NULL;
-  int legacy_mode = 0;
-  int legacy_secondary_mode = 0;
+  int re_graphics_mode = 0;
+  int re_graphics_secondary_mode = 0;
 
   if (bridge == NULL) {
     return -1;
@@ -253,9 +253,9 @@ int samp_hook_bridge_configure_from_env(samp_runtime_hook_bridge *bridge) {
 
   memset(bridge, 0, sizeof(*bridge));
 
-  legacy_mode = env_flag_is_enabled("SAMPDLL_ENABLE_LEGACY_02X_HOOKS");
-  legacy_secondary_mode = env_flag_is_enabled("SAMPDLL_ENABLE_LEGACY_02X_HOOKS_SECONDARY");
-  bridge->enabled = legacy_mode || env_flag_is_enabled("SAMPDLL_ENABLE_RUNTIME_HOOKS");
+  re_graphics_mode = env_flag_is_enabled("SAMPDLL_ENABLE_RE_GRAPHICS_HOOKS");
+  re_graphics_secondary_mode = env_flag_is_enabled("SAMPDLL_ENABLE_RE_GRAPHICS_HOOKS_SECONDARY");
+  bridge->enabled = re_graphics_mode || env_flag_is_enabled("SAMPDLL_ENABLE_RUNTIME_HOOKS");
 
   custom_text_primary = getenv("SAMPDLL_HOOK_GRAPHICS_CALL_DISP");
   if (custom_text_primary != NULL && *custom_text_primary != '\0') {
@@ -277,16 +277,16 @@ int samp_hook_bridge_configure_from_env(samp_runtime_hook_bridge *bridge) {
     bridge->secondary_configured = 1;
   }
 
-  if (legacy_mode) {
+  if (re_graphics_mode) {
     if (!bridge->configured) {
-      bridge->graphics_call_disp_addr = (uintptr_t)SAMP_LEGACY_GRAPHICS_CALL_DISP_ADDR;
+      bridge->graphics_call_disp_addr = (uintptr_t)SAMP_RE_GRAPHICS_CALL_DISP_ADDR;
       bridge->configured = 1;
     }
-    if (!bridge->secondary_configured && legacy_secondary_mode) {
-      bridge->graphics_call_disp_addr_secondary = (uintptr_t)SAMP_LEGACY_GRAPHICS_CALL_DISP_ADDR_SECONDARY;
+    if (!bridge->secondary_configured && re_graphics_secondary_mode) {
+      bridge->graphics_call_disp_addr_secondary = (uintptr_t)SAMP_RE_GRAPHICS_CALL_DISP_ADDR_SECONDARY;
       bridge->secondary_configured = 1;
     }
-    hook_tracef("configure: legacy disp=0x%08lx disp2=0x%08lx enabled=%d secondary=%d",
+    hook_tracef("configure: re_graphics disp=0x%08lx disp2=0x%08lx enabled=%d secondary=%d",
                 (unsigned long)bridge->graphics_call_disp_addr, (unsigned long)bridge->graphics_call_disp_addr_secondary,
                 bridge->enabled, bridge->secondary_configured ? 1 : 0);
     return 0;
