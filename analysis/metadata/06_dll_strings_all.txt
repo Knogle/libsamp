@@ -129,7 +129,7 @@ Accept: */*
 User-Agent: %s
 Referer: http://%s
 Host: %s
-SAMP/0.2.0
+SAMP/<protocol-string-redacted>
 CHttpClient::ProcessURL %s
 FollowPedSA
 ?Stay within the ~r~world boundries
@@ -627,7 +627,7 @@ shell32.dlTEXT(
 readme.txt
 readme.htm
 {%8X-%4X-%4X-%2X%2X-%2X%2X%2X%2X%2X%2X}
-{%0.8X-%0.4X-%0.4X-%0.2X%0.2X-%0.2X%0.2X%0.2X%0.2X%0.2X%0.2X}
+{<guid-format-redacted>}
 media\%s
 EnumDisplayDevicesA
 GetMonitorInfoA

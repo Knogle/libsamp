@@ -10,30 +10,23 @@
 
 Define the minimum boot/init behavior required for an ABI-compatible, functionally loadable `samp.dll` replacement.
 
-## Old 0.2x Reference Boot Path (Confirmed)
+## Original 0.3.7-R5 Boot Path (Recovered)
 
-The legacy source has a complete and explicit boot chain:
+The current minimum path is derived from static original-DLL analysis plus ASI
+probe/golden-trace observations:
 
-1. `DllMain` on `DLL_PROCESS_ATTACH`:
-2. `InitSettings()`
-3. `SetUnhandledExceptionFilter(...)`
-4. archive path build via `GetModuleFileNameA`, load `samp.saa`
-5. file system hook install
-6. `_beginthread(LaunchMonitor, ...)`
-7. `LaunchMonitor`:
-8. `new CGame()`
-9. `CGame::InitGame()`
-10. poll until `ADDR_ENTRY == 7`
-11. `CGame::StartGame()`
-12. `CGame::InitGame`:
-13. `ApplyPreGamePatches()`
-14. `CGame::StartGame`:
-15. `ApplyInGamePatches()`
-16. `GameInstallHooks()`
-17. `InitScripting()`
-18. graphics hook calls `TheGraphicsLoop()`
-19. `TheGraphicsLoop()` calls `DoInitStuff()`
-20. `DoInitStuff()` first initializes D3D/UI objects, then instantiates `CNetGame(...)`.
+1. `DllMain`/entry wrapper receives `DLL_PROCESS_ATTACH`.
+2. CRT/runtime guard and reason dispatch run through `entry0`, `fcn.100cbb0f`
+   and `fcn.100c50c0`.
+3. `SetUnhandledExceptionFilter(...)` is installed.
+4. module-path-based asset/config resolution runs via `GetModuleFileNameA(...)`.
+5. archive/font/config bootstrap objects are initialized.
+6. a long-lived launch monitor owns the GTA game-state transition.
+7. the monitor waits for the GTA entry state where online bootstrap is safe.
+8. pre-game patches and game-state clamps are applied.
+9. runtime/game hooks are installed after target bytes are validated.
+10. D3D/UI objects are initialized from the render path.
+11. the network/session object is created and connect-state banners begin.
 
 ## Current 0.3.7-R5 Binary Boot Path (Mapped)
 
@@ -51,11 +44,13 @@ The legacy source has a complete and explicit boot chain:
 10. detach-side cleanup call path for `reason == 0`
 11. returns through runtime teardown (`fcn.100ce46b`)
 
-## Structural Crosswalk (Legacy -> Current)
+## Structural Crosswalk (Recovered Current Path)
 
-1. Legacy `DllMain` (`saco/main.cpp`) maps to current `entry0@0x100cbc90` + `0x100c50c0` dispatch core.
-2. Legacy `LaunchMonitor`/`CGame::InitGame`/`CGame::StartGame` maps to current internal startup calls reachable from `0x100c50c0` attach branch.
-3. Legacy hook install + graphics/net loop maps to current callbacks and loop function pointers set in attach path.
+1. `entry0@0x100cbc90` + `0x100c50c0` form the current attach/detach dispatch core.
+2. Internal startup calls reachable from `0x100c50c0` feed the launch monitor,
+   game-state gate and startup UI setup.
+3. Hook install + graphics/net loop ownership is recovered from original-DLL
+   call-site analysis and replacement-vs-original traces.
 
 ## Required Reimplementation Behavior
 
@@ -82,12 +77,5 @@ The legacy source has a complete and explicit boot chain:
 - `analysis/notes/fcn_100c5270_entry_dispatch.txt`
 - `analysis/notes/fcn_100c50c0_dispatch_core.txt`
 - `/tmp/obj_100c50c0.txt`
-- Legacy reference checkout:
-- `/tmp/samp-0.2x-ref/saco/main.cpp`
-- `/tmp/samp-0.2x-ref/saco/game/game.cpp`
-- `/tmp/samp-0.2x-ref/saco/game/hooks.cpp`
-- `/tmp/samp-0.2x-ref/saco/game/patches.cpp`
-- Confirmed working local client reference:
-- `/home/chairman/Projects/sa-mp.dll-rebuild/samp/client/main.cpp`
-- `/home/chairman/Projects/sa-mp.dll-rebuild/samp/client/game/game.cpp`
-- `/home/chairman/Projects/sa-mp.dll-rebuild/samp/client/game/hooks.cpp`
+- `docs/traces/`
+- `analysis/generated/original_trace_20260602_2115_after_freeroam_spawn/`

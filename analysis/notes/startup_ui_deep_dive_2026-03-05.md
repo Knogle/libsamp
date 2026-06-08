@@ -327,27 +327,22 @@ Meaning:
 - current runtime diff does not tell us when the original applies patch/protect sequences
 - static bootstrap evidence is stronger than runtime patch evidence for this question
 
-## 7. Crosswalk to Old 0.2x Source
+## 7. Original-DLL Runtime Crosswalk
 
-Useful structural anchors in the old source:
+Useful structural anchors from current 0.3.7-R5 RE and traces:
 
-- `saco/main.cpp`
-  - `LaunchMonitor`
-  - `SetupGameUI`
-  - `DoInitStuff`
-  - `TheGraphicsLoop`
-- `saco/net/netgame.cpp`
-  - `GAMESTATE_WAIT_CONNECT`
+- `entry0` / `0x100c50c0`: process attach and archive/bootstrap setup
+- `0x100990f0`: startup UI/game-state transition cluster
+- `0x1007fcf0`, `0x10073550`, `0x10093ee0`: USER32/DXUT-heavy UI control clusters
+- original-DLL strings:
   - `Connecting to %s:%d...`
-  - `UpdateNetwork`
-  - `ID_CONNECTION_REQUEST_ACCEPTED`
-- `saco/net/netrpc.cpp`
   - `Connected to %.64s`
+  - `Lost connection to the server. Reconnecting..`
 
 Best current mapping:
 
-- old `DllMain` archive/bootstrap ~= `0x100c50c0`
-- old `DoInitStuff` / `SetupGameUI` ~= `0x100990f0` + `0x1007fcf0` + `0x10073550` + `0x10093ee0`
+- attach archive/bootstrap ~= `0x100c50c0`
+- startup UI / render hook preparation ~= `0x100990f0` + `0x1007fcf0` + `0x10073550` + `0x10093ee0`
 - old connect-wait / connected messages ~= `0x10008940` and `0x10010a40`
 
 ## 8. Implementation Consequence

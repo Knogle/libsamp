@@ -2,7 +2,7 @@
 
 ## Ziel
 
-Dieses Projekt entwickelt ein möglichst kompatibles Drop-in-Replacement für die legacy SA-MP 0.3.7 `samp.dll`.
+Dieses Projekt entwickelt ein möglichst kompatibles Drop-in-Replacement für die SA-MP 0.3.7 `samp.dll`.
 
 Modernisierungen etc. wenn sinnvoll gerne machen. Es soll kompatibel jedoch mit dem 0.3.7 Server bzw. open.mp Server bleiben.
 
@@ -20,7 +20,7 @@ Modernisierungen etc. wenn sinnvoll gerne machen. Es soll kompatibel jedoch mit 
 
 1. **Originale SA-MP 0.3.7 `samp.dll`**
 
-   * Exports, Imports, Ordinals, RVAs, Calling Conventions, Speicherlayouts, Runtime-Verhalten. Jedoch beachten dass es LEGACY Code ist. Muss nicht den aktuellen Stand widerspiegeln.
+   * Exports, Imports, Ordinals, RVAs, Calling Conventions, Speicherlayouts, Runtime-Verhalten.
 
 2. **ASI-Probe / Golden Traces**
 
@@ -31,31 +31,27 @@ Modernisierungen etc. wenn sinnvoll gerne machen. Es soll kompatibel jedoch mit 
 
    * `docs/re/`, `docs/traces/`, `symbols/`, `tests/`, vorhandene Header/Code.
 
-4. **Alte SA-MP-0.2x-Source**
-
-   * Nur als Namens-, Struktur- und Ablaufreferenz. Nicht blind auf 0.3.7 übertragen.
-
-5. **open.mp**
+4. **open.mp**
 
    * API-/Semantik-/Kompatibilitätsreferenz:
    * https://github.com/openmultiplayer/open.mp
    * https://open.mp/docs
 
-6. **gta-reversed**
+5. **gta-reversed**
 
    * GTA-SA-Engine-Referenz für Klassen, Hooks, Pools, Render/Ped/Vehicle/Camera:
    * https://github.com/gta-reversed/gta-reversed
 
-7. **Ultimate ASI Loader**
+6. **Ultimate ASI Loader**
 
    * Referenz für ASI-Loading, Plugin-Umgebung und Debugging:
    * https://github.com/ThirteenAG/Ultimate-ASI-Loader/tree/master
 
-8. **SAMPFUNCS**
+7. **SAMPFUNCS**
 
    * SAMP Functions, russischer Modding, SDK Guide etc., liegt lokal in sampfuncs, dient dazu um Mods in SAMP zu machen, z.B. Cheats, hilft uns aber ggf. weiter
 
-9. **MTA:SA**
+8. **MTA:SA**
 
    * Niedrige Priorität, nur konzeptionell verwenden:
    * https://github.com/multitheftauto/mtasa-blue
@@ -67,7 +63,6 @@ Nutze diese Tags in Kommentaren, Doku oder Commit-Kontext:
 * `OBSERVED_037` — direkt an originaler 0.3.7-DLL beobachtet.
 * `PROBE_TRACE` — durch ASI-Probe/Runtime-Log belegt.
 * `STATIC_037` — statisch aus originaler DLL analysiert.
-* `OLD_02X_REF` — aus alter 0.2x-Quelle abgeleitet.
 * `OPENMP_REF` — aus open.mp abgeleitet.
 * `GTA_REVERSED_REF` — aus gta-reversed abgeleitet.
 * `MTA_REF` — aus MTA abgeleitet, nur low priority.

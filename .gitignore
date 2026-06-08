@@ -7,11 +7,14 @@
 /*.map
 /libwinpthread-1.dll
 /sa-mp-0.3.7-R5-1-install.exe
-/gta-samp-0.2x-source-code/
+/local_reference_sources/
+/sampfuncs/
 /samp/
 /analysis/generated/
 /analysis/metadata/installer_extract/
 /artifacts/
+/reimpl.zip
+/*.xcf
 
 *.o
 *.obj

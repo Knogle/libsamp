@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 """Build the SA-MP loading-screen TXD from the local JPG.
 
-OLD_02X_REF:
-The 0.2x client patches GTA SA's LOADSCS texture lookup to "title" and ships a
-LOADSCS.txd with a single 1024x1024 DXT1 texture by that name. We keep that TXD
-header/name/footer and only replace the raster payload.
+STATIC_037 + PROBE_TRACE:
+Original 0.3.7 loading-screen traces use GTA SA's LOADSCS texture lookup with a
+single 1024x1024 DXT1 texture named "title". We keep the known-good TXD
+header/name/footer shape and only replace the raster payload.
 """
 
 from __future__ import annotations
@@ -33,7 +33,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--template",
         type=Path,
-        default=root / "gta-samp-0.2x-source-code" / "archive" / "files" / "LOADSCS.txd",
+        default=root / "assets" / "LOADSCS.txd",
     )
     parser.add_argument("--output", type=Path, default=root / "assets" / "LOADSCS.txd")
     return parser.parse_args()
@@ -83,7 +83,7 @@ def main() -> int:
 
     txd = bytearray(template.read_bytes())
     if b"title" not in txd[:0x80] or txd[0x80:0x84] != b"DXT1":
-        raise RuntimeError(f"{template} does not look like the legacy SA-MP LOADSCS.txd template")
+        raise RuntimeError(f"{template} does not look like the SA-MP LOADSCS.txd template")
     if len(txd) < RASTER_OFFSET + DXT1_1024_PAYLOAD_BYTES:
         raise RuntimeError(f"{template} is too small for a 1024x1024 DXT1 raster")
 

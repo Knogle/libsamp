@@ -1,4 +1,4 @@
-132:SAMP/0.2.0
+132:SAMP/<protocol-string-redacted>
 142:Connecting to %s:%d...
 145:Server has accepted the connection.
 147:Server closed the connection.

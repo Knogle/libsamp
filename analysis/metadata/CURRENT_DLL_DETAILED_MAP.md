@@ -1,6 +1,6 @@
 # Current `samp.dll` Detailed Function Map (2026-03-05)
 
-Purpose: consolidate current reverse-analysis evidence for `samp.dll` (SHA-256 `b72b5dbe725f81864ca3f78bc7063bda56cc05fc7188af822fa7a754432553a2`) and map it against the legacy 0.2x source tree.
+Purpose: consolidate current reverse-analysis evidence for `samp.dll` (SHA-256 `b72b5dbe725f81864ca3f78bc7063bda56cc05fc7188af822fa7a754432553a2`) and map it into implementation-facing subsystem notes.
 
 This document is Team-A output and may be consumed by Team B only as behavioral/spec guidance.
 
@@ -46,30 +46,30 @@ Evidence:
 - `analysis/notes/fcn_100c5270_entry_dispatch.txt`
 - `analysis/notes/fcn_100c50c0_dispatch_core.txt`
 
-Legacy analogs:
+Implementation-facing anchors:
 
-- `samp/client/main.cpp` (`DllMain`, launch/bootstrap orchestration)
-- `samp/client/game/game.cpp` (`InitGame`, `StartGame`, flow gating)
-- `samp/client/game/hooks.cpp` (hook installation chain)
+- attach/dispatch: `entry0`, `fcn.100c50c0`, `fcn.100cbb0f`
+- startup game-state gates: `0x100990f0` and related UI clusters
+- hook installation evidence: runtime hook traces and D3D call-site probes
 
 ## 3. Network Subsystem Map (Extended)
 
 ### 3.1 Winsock primitive helpers
 
-| Current function | Behavior evidence | Legacy analog |
+| Current function | Behavior evidence | Implementation note |
 |---|---|---|
-| `fcn.10053820` | guarded `WSAStartup(2.2)` | `raknet/TCPInterface.cpp`, `raknet/SocketLayer.cpp` init pattern |
-| `fcn.10053850` | guarded `WSACleanup()` | same shutdown pattern |
-| `fcn.100539c0` | `gethostbyname` -> first addr -> `inet_ntoa` | `SocketLayer::DomainNameToIP` |
-| `fcn.10053870` | IPv4 `sockaddr_in` + `connect` helper | `SocketLayer::Connect` style helper |
-| `fcn.100538b0` | `socket` + `setsockopt` + `ioctlsocket(FIONBIO)` + `bind` | `SocketLayer::CreateBoundSocket` |
+| `fcn.10053820` | guarded `WSAStartup(2.2)` | WinSock init primitive |
+| `fcn.10053850` | guarded `WSACleanup()` | WinSock shutdown primitive |
+| `fcn.100539c0` | `gethostbyname` -> first addr -> `inet_ntoa` | hostname resolution helper |
+| `fcn.10053870` | IPv4 `sockaddr_in` + `connect` helper | TCP/UDP connect helper |
+| `fcn.100538b0` | `socket` + `setsockopt` + `ioctlsocket(FIONBIO)` + `bind` | bound nonblocking socket helper |
 
 ### 3.2 Additional mapped network cluster
 
-| Current function | Observed behavior | Likely legacy family |
+| Current function | Observed behavior | Implementation note |
 |---|---|---|
-| `fcn.10053a00` | `recvfrom`, `ntohs`, packet handoff via internal parser | `SocketLayer::RecvFrom` / packet ingest |
-| `fcn.10053ab0` | `htons`, repeated `sendto`, failure via `WSAGetLastError` | `SocketLayer::SendTo` |
+| `fcn.10053a00` | `recvfrom`, `ntohs`, packet handoff via internal parser | packet ingest |
+| `fcn.10053ab0` | `htons`, repeated `sendto`, failure via `WSAGetLastError` | packet send path |
 | `fcn.10053b40` | wrapper: `inet_addr` then forwards to send helper | send path adapter |
 | `fcn.10053b70` | `gethostname` + `gethostbyname` + `inet_ntoa`, enumerates addresses | local-address resolution helper |
 | `fcn.10053bf0` | `getsockname` + `ntohs` | `SocketLayer::GetLocalPort` |
@@ -92,14 +92,14 @@ Artifacts:
 - `analysis/notes/fcn_10055f30_auto.txt`
 - `analysis/notes/fcn_10056300_auto.txt`
 
-### 3.3 Connection UX and legacy source anchors
+### 3.3 Connection UX and original-DLL anchors
 
 High-confidence retained user-facing flow:
 
-- `"Connecting to %s:%d..."` -> `samp/client/net/netgame.cpp`
-- `"Lost connection to the server. Reconnecting.."` -> `samp/client/net/netgame.cpp`
-- `"Server has accepted the connection."` -> `samp/client/net/netgame.cpp`
-- `"Connected to %.64s"` -> `samp/client/net/netrpc.cpp`
+- `"Connecting to %s:%d..."`
+- `"Lost connection to the server. Reconnecting.."`
+- `"Server has accepted the connection."`
+- `"Connected to %.64s"`
 
 This strongly supports continuity of the `CNetGame` wait/connect/connected/reconnect state machine across versions.
 
@@ -120,9 +120,9 @@ Artifacts:
 - `analysis/generated/d3dx_wrapper_xrefs.txt`
 - `analysis/generated/d3dx_wrapper_callers.tsv`
 
-Legacy mapping signal:
+Implementation signal:
 
-- aligns with old `samp/client/d3dhook/*`, `samp/client/gui/*`, `samp/client/game/*`, and DXUT-backed rendering utility layers.
+- aligns with the current replacement's D3D overlay, dialog, chat and textdraw renderer ownership.
 
 ### 4.2 USER32-heavy UI cluster
 
@@ -148,9 +148,9 @@ Artifacts:
 - `analysis/generated/bass_wrapper_xrefs.txt`
 - `analysis/generated/bass_wrapper_callers.tsv`
 
-Legacy mapping signal:
+Implementation signal:
 
-- old client BASS usage for stream/music/sound control is retained in structure.
+- BASS usage is retained for stream/music/sound control and should stay isolated behind audio RPC handlers.
 
 ## 6. Code Density / Priority Regions
 
@@ -168,7 +168,7 @@ Interpretation:
 - `0x1005****` and `0x10056***`: strong networking/TCP control concentration.
 - `0x1006****`, `0x1007****`, `0x1009****`: render/audio/UI-heavy call patterns.
 
-## 7. Crosswalk Status vs 0.2x Source
+## 7. Current Confidence
 
 Current confidence:
 
@@ -179,7 +179,7 @@ Current confidence:
   - D3DX/BASS wrapper surfaces.
 - Medium:
   - exact object/class layout around the `0x10055e60..0x10057200` network manager cluster,
-  - mapping of major render-callers to concrete old class names.
+  - mapping of major render-callers to concrete replacement modules.
 - Low:
   - full callgraph ownership of giant functions (`0x10002340`, `0x100af280`, `0x100c3f50`, `0x10008060`, `0x10014950`),
   - anti-cheat / exception / patch internals not yet behavior-specified.
@@ -187,7 +187,7 @@ Current confidence:
 ## 8. Immediate Reverse Priorities (Next Iteration)
 
 1. Name and map the `0x10055e60..0x10057200` object cluster end-to-end (ctor/dtor/start/stop/connect/listen state machine).
-2. Build structured callgraph slices for top render callers (`10095d10`, `1006b8e0`, `10092370`) to old `game/gui/d3dhook` modules.
+2. Build structured callgraph slices for top render callers (`10095d10`, `1006b8e0`, `10092370`) to replacement overlay/dialog/textdraw modules.
 3. Capture runtime traces for connect/lost/reconnect transitions and correlate to function addresses.
 4. Convert each mapped cluster into spec IDs under `specs/` before Team-B implementation expansion.
 

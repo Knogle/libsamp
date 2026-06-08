@@ -11,8 +11,8 @@ Current project mode is compatibility-first.
 Priority order for the current phase:
 
 1. reproducibly build a fully ABI-compatible `samp.dll`,
-2. accept use of existing/leaked/legacy source bases to accelerate recovery,
-3. treat clean-room separation as optional future hardening work, not as the primary constraint right now.
+2. ground behavior in original 0.3.7-DLL reverse engineering, Golden Traces, and public references,
+3. keep provenance explicit so public-release hardening is part of the normal implementation workflow.
 
 ## 1. Mission
 
@@ -79,9 +79,9 @@ Keep and extend these existing assets:
 4. `analysis/generated/runtime_baseline_bigone`
    - keep as the current behavioral seed baseline,
    - treat it as scenario coverage number one, not as the only scenario.
-5. `analysis/metadata/LEGACY_0_2X_CROSSWALK.md`
-   - keep as a structural orientation aid for Team A,
-   - do not let it become a substitute for current-binary evidence.
+5. Original-DLL static notes and golden traces under `analysis/metadata/` and `docs/traces/`
+   - keep as the structural orientation aid for Team A,
+   - do not let inferred behavior become a substitute for current-binary evidence.
 6. `SPEC-NET-001` through `SPEC-NET-006`
    - keep them as recovered network knowledge,
    - use them as the nucleus of the broader subsystem-spec inventory.

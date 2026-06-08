@@ -296,30 +296,26 @@ Important caution:
 - that window activity is likely from the launcher/browser process, not from the in-game DLL UI path
 - do not use those lines as proof for the in-game connect screen
 
-## Old 0.2x Crosswalk
+## Original-DLL Runtime Crosswalk
 
-The old source still matches the staged structure well:
+The current startup model is based on the original 0.3.7-R5 DLL disassembly,
+ASI probe traces and replacement-vs-original runtime comparisons:
 
-1. `DllMain` + archive bootstrap
-2. `LaunchMonitor`
-3. `DoInitStuff`
-4. `SetupGameUI`
-5. `IDirect3DDevice9Hook` / render hooks
-6. `CNetGame`
+1. `DllMain` / attach dispatch
+2. archive/font/config bootstrap
+3. long-lived launch monitor
+4. game-state gate and startup UI setup
+5. D3D render hook / overlay loop
+6. network session object and connect-state banners
 
-Relevant old-source anchors:
+Relevant observed anchors:
 
-- `saco/main.cpp`
-  - `LaunchMonitor`
-  - `SetupGameUI`
-  - `DoInitStuff`
-  - `TheGraphicsLoop`
-- `saco/net/netgame.cpp`
-  - `GAMESTATE_WAIT_CONNECT`
+- attach dispatch: `entry0`, `fcn.100c50c0`, `fcn.100cbb0f`
+- UI/control setup clusters: `0x100990f0`, `0x1007fcf0`, `0x10073550`, `0x10093ee0`
+- user-facing connect strings from the original DLL:
   - `Connecting to %s:%d...`
-  - `ID_CONNECTION_REQUEST_ACCEPTED`
-- `saco/net/netrpc.cpp`
   - `Connected to %.64s`
+  - `Lost connection to the server. Reconnecting..`
 
 ## Rebuild Order Implied by the Original Binary
 
