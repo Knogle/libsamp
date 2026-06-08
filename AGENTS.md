@@ -19,7 +19,6 @@ servers and open.mp servers comes first.
   protocol formats unless explicitly justified.
 * If behavior is unclear, prefer a stub plus log plus `TODO_VERIFY` over wrong
   semantics.
-* Reply to the maintainer in German.
 
 ## Source Priority
 
@@ -144,7 +143,7 @@ Example:
 * No mass formatting.
 * No unnecessary dependencies.
 * No speculative offsets presented as facts.
-* Do not "fix" compatibility quirks without a compatibility mode or rationale.
+* Do not change compatibility behavior without a compatibility mode or rationale.
 
 ## Completion Format
 
