@@ -1,5 +1,7 @@
 <div align="center">
 
+<img src="libresamp_logo_transparent_exact_cropped.png" alt="Libre-SAMP logo" width="620">
+
 # libsamp
 
 **Libre-SAMP: experimental drop-in replacement for the SA-MP 0.3.7-R5
