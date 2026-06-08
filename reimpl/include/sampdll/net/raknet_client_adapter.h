@@ -80,6 +80,8 @@ typedef struct samp_raknet_join_profile {
 #define SAMP_RAKNET_RPC_FLAG_PLAYER_POOL_EVENT 0x08000000u
 #define SAMP_RAKNET_RPC_FLAG_SCOREBOARD_UPDATE 0x10000000u
 #define SAMP_RAKNET_RPC_FLAG_AUTH_LOCAL_PLAYER 0x20000000u
+#define SAMP_RAKNET_RPC_FLAG_REMOTE_PLAYER_EVENT 0x40000000u
+#define SAMP_RAKNET_RPC_FLAG_REMOTE_PLAYER_SYNC 0x80000000u
 
 #define SAMP_RAKNET_CLIENT_MESSAGE_RING 8u
 #define SAMP_RAKNET_CLIENT_MESSAGE_BYTES 256u
@@ -90,6 +92,11 @@ typedef struct samp_raknet_join_profile {
 #define SAMP_RAKNET_SCORE_PING_MAX_ENTRIES SAMP_RAKNET_MAX_PLAYERS
 #define SAMP_RAKNET_PLAYER_POOL_ACTION_JOIN 1u
 #define SAMP_RAKNET_PLAYER_POOL_ACTION_QUIT 2u
+#define SAMP_RAKNET_REMOTE_PLAYER_EVENT_RING 64u
+#define SAMP_RAKNET_REMOTE_PLAYER_SYNC_RING 128u
+#define SAMP_RAKNET_REMOTE_PLAYER_ACTION_ADD 1u
+#define SAMP_RAKNET_REMOTE_PLAYER_ACTION_REMOVE 2u
+#define SAMP_RAKNET_REMOTE_PLAYER_ACTION_DEATH 3u
 #define SAMP_RAKNET_REQUIRED_VEHICLE_MODELS 212u
 #define SAMP_RAKNET_DIALOG_TITLE_BYTES 256u
 #define SAMP_RAKNET_DIALOG_INFO_BYTES 4096u
@@ -114,9 +121,11 @@ typedef struct samp_raknet_join_profile {
 #define SAMP_RAKNET_VEHICLE_MOD_SLOTS 14u
 #define SAMP_RAKNET_VEHICLE_ACTION_CREATE 1u
 #define SAMP_RAKNET_VEHICLE_ACTION_DESTROY 2u
+#define SAMP_RAKNET_VEHICLE_ACTION_SET_HEALTH 3u
 #define SAMP_RAKNET_ANIM_LIB_BYTES 64u
 #define SAMP_RAKNET_ANIM_NAME_BYTES 64u
 #define SAMP_RAKNET_WORLD_VISUAL_TEXT_BYTES 256u
+#define SAMP_RAKNET_WORLD_VISUAL_NAME_BYTES 64u
 #define SAMP_RAKNET_WORLD_VISUAL_SET_OBJECT_MATERIAL 1u
 #define SAMP_RAKNET_WORLD_VISUAL_CREATE_3D_TEXT_LABEL 2u
 #define SAMP_RAKNET_WORLD_VISUAL_GANG_ZONE_CREATE 3u
@@ -143,6 +152,37 @@ typedef struct samp_raknet_score_ping_entry {
   int32_t score;
   uint32_t ping;
 } samp_raknet_score_ping_entry;
+
+typedef struct samp_raknet_remote_player_event {
+  uint32_t seq;
+  uint8_t action;
+  uint8_t team;
+  uint8_t fighting_style;
+  uint8_t visible;
+  uint8_t death_reason;
+  uint16_t player_id;
+  int32_t skin;
+  uint32_t color;
+  float pos[3];
+  float rotation;
+} samp_raknet_remote_player_event;
+
+typedef struct samp_raknet_remote_onfoot_sync {
+  uint32_t seq;
+  uint16_t player_id;
+  uint16_t left_right_keys;
+  uint16_t up_down_keys;
+  uint16_t keys;
+  uint8_t health;
+  uint8_t armour;
+  uint8_t current_weapon;
+  uint8_t special_action;
+  uint16_t surfing_vehicle_id;
+  float position[3];
+  float rotation;
+  float move_speed[3];
+  float surfing_offsets[3];
+} samp_raknet_remote_onfoot_sync;
 
 #pragma pack(push, 1)
 typedef struct samp_raknet_textdraw_transmit {
@@ -221,6 +261,8 @@ typedef struct samp_raknet_rpc_probe_snapshot {
   uint32_t vehicle_event_count;
   uint32_t player_pool_event_count;
   uint32_t score_ping_count;
+  uint32_t remote_player_event_count;
+  uint32_t remote_player_sync_count;
   uint8_t textdraw_select_active;
   uint32_t textdraw_select_color;
   uint16_t init_spawns_available;
@@ -298,8 +340,17 @@ typedef struct samp_raknet_rpc_probe_snapshot {
   uint16_t world_visual_id;
   int32_t world_visual_model;
   uint32_t world_visual_color;
+  uint32_t world_visual_material_background;
   float world_visual_pos[4];
+  uint8_t world_visual_material_type;
+  uint8_t world_visual_material_slot;
+  uint8_t world_visual_material_size;
+  uint8_t world_visual_material_font_size;
+  uint8_t world_visual_material_bold;
+  uint8_t world_visual_material_alignment;
   char world_visual_text[SAMP_RAKNET_WORLD_VISUAL_TEXT_BYTES];
+  char world_visual_material_txd[SAMP_RAKNET_WORLD_VISUAL_NAME_BYTES];
+  char world_visual_material_texture[SAMP_RAKNET_WORLD_VISUAL_NAME_BYTES];
   uint8_t weather;
   uint8_t world_time_hour;
   uint8_t world_time_minute;
@@ -321,6 +372,8 @@ typedef struct samp_raknet_rpc_probe_snapshot {
   samp_raknet_vehicle_event vehicle_events[SAMP_RAKNET_VEHICLE_EVENT_RING];
   samp_raknet_player_pool_event player_pool_events[SAMP_RAKNET_PLAYER_POOL_EVENT_RING];
   samp_raknet_score_ping_entry score_ping_entries[SAMP_RAKNET_SCORE_PING_MAX_ENTRIES];
+  samp_raknet_remote_player_event remote_player_events[SAMP_RAKNET_REMOTE_PLAYER_EVENT_RING];
+  samp_raknet_remote_onfoot_sync remote_player_syncs[SAMP_RAKNET_REMOTE_PLAYER_SYNC_RING];
 } samp_raknet_rpc_probe_snapshot;
 
 /*

@@ -42,6 +42,24 @@ int samp_raknet_client_mark_logged_on(void *client) {
   return -1;
 }
 
+int samp_raknet_client_send_chat(void *client, const char *text) {
+  (void)client;
+  (void)text;
+  return -1;
+}
+
+int samp_raknet_client_send_server_command(void *client, const char *command) {
+  (void)client;
+  (void)command;
+  return -1;
+}
+
+int samp_raknet_client_send_textdraw_click(void *client, uint16_t textdraw_id) {
+  (void)client;
+  (void)textdraw_id;
+  return -1;
+}
+
 int samp_raknet_client_drain_packets(void *client, int max_packets) {
   (void)client;
   if (max_packets < 0) {
@@ -92,5 +110,15 @@ int samp_raknet_client_send_spawn_notification_for_seq(void *client, uint32_t sp
 int samp_raknet_client_send_onfoot_sync(void *client, const samp_raknet_onfoot_sync *sync) {
   (void)client;
   (void)sync;
+  return -1;
+}
+
+int samp_raknet_client_queue_dialog_response(void *client, uint16_t dialog_id, uint8_t button, int16_t listitem,
+                                             const char *input) {
+  (void)client;
+  (void)dialog_id;
+  (void)button;
+  (void)listitem;
+  (void)input;
   return -1;
 }
