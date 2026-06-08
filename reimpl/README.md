@@ -46,8 +46,10 @@ SAMPDLL_ENABLE_RAKNET_KNOGLE=OFF \
 reimpl/scripts/build_win32.sh
 ```
 
-Hinweis: `test_legacy_ipv4_compat` kann in stark sandboxed Umgebungen mit blockierten AF_INET-Sockets als `SKIP` (Exit 0) enden.
-Hinweis: `test_tcp_bootstrap_manager` kann in stark sandboxed Umgebungen ebenfalls als `SKIP` enden.
+Note: `test_legacy_ipv4_compat` can end as `SKIP` (exit 0) in heavily
+sandboxed environments with blocked AF_INET sockets.
+Note: `test_tcp_bootstrap_manager` can also end as `SKIP` in heavily sandboxed
+environments.
 
 ## Build (Windows 32-bit DLL via MinGW)
 

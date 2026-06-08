@@ -26,6 +26,23 @@ For the currently observed packed prefix DLL, the probe keeps guarded internal h
 
 The hook matcher supports both named imports and selected `WSOCK32.dll` ordinals. This matters for packed/protected SA-MP DLLs that expose only sparse ordinal imports such as `WSOCK32 ordinal 17` (`recvfrom`).
 
+## Goals And Non-Goals
+
+The probe is meant to answer concrete compatibility questions:
+
+- Which original-DLL callsites touch the network, loader, file, and patching
+  APIs?
+- Which GTA-SA state changes happen during load, connect, spawn, dialog,
+  TextDraw, vehicle, object, and shutdown scenarios?
+- Which runtime calls are unique to `samp.dll` and which are process-global
+  loader/Wine noise?
+- Does the rebuilt DLL produce the same high-level sequence under the same
+  scenario?
+
+The probe is not a gameplay feature, not a public-server tool, and not a
+replacement for protocol bounds checks inside the rebuilt client. Keep it for
+local original-vs-rebuild comparisons.
+
 ## Build
 
 On a host with MinGW:
@@ -76,6 +93,28 @@ samp_probe.log
 
 The log is written next to the ASI file when that path can be resolved.
 
+Recommended scenario names:
+
+```text
+load_init
+connect_handshake
+spawn
+chat_dialog_textdraw
+vehicle_state
+remote_player_state
+object_state
+disconnect
+```
+
+For a golden trace, keep the run short and deterministic:
+
+1. clear the previous `samp_probe.log`,
+2. start the original DLL or rebuilt DLL with the same server and nickname,
+3. perform exactly one scenario,
+4. stop the client cleanly,
+5. normalize pointers, module bases, timestamps, and random values before
+   comparing runs.
+
 ## Kill Switches
 
 Create this file next to the ASI to disable IAT patching while keeping passive PE/import/watch dumps:
@@ -108,6 +147,49 @@ samp_probe_samp_code_hooks.flag
 ```
 
 Use `samp_probe_asset_paths.flag` for normal original-DLL golden traces. It logs interesting SA-MP asset opens, size queries, seeks, and closes. `samp_probe_file_hooks.flag` additionally hooks `ReadFile`; keep that for short, targeted runs only because original 0.3.7 performs large overlapped reads against the SAMP archives.
+
+## Example Log Output
+
+The exact format can evolve, but stable lines should remain module-attributed
+and include RVAs where possible.
+
+PE/module identity:
+
+```text
+[probe] loaded module=samp.dll base=0x10000000 size=0x003a0000 path=C:\Games\GTA San Andreas\samp.dll
+[probe] pe sha256=<normalized-sha256> image_base=0x10000000 entry_rva=0x000cbc90
+[probe] section name=.text rva=0x00001000 size=0x001d7000 characteristics=0x60000020
+```
+
+IAT and Winsock attribution:
+
+```text
+[probe] iat module=samp.dll dll=WSOCK32.dll import=recvfrom slot_rva=0x002f1234 target=0x7bc12345
+[api] recvfrom caller=samp.dll+0x00053b19 socket=924 len=146 flags=0 ret=42 data=84e1...
+[api] sendto caller=samp.dll+0x00053a57 socket=924 len=22 flags=0 ret=22 data=53414d50...
+```
+
+State snapshots:
+
+```text
+[state] phase=preconnect menu=0 hud=0 paused=0 camera_mode=2 player_ptr=0x00000000
+[state] phase=spawn menu=0 hud=1 paused=0 local_player=0x1a2b3c00 ped=0x1a300000 vehicle=0x00000000
+```
+
+Asset/file tracing:
+
+```text
+[asset] CreateFileA caller=samp.dll+0x0004a210 path=C:\Games\GTA San Andreas\SAMP\samp.img access=0x80000000
+[asset] GetFileSize caller=samp.dll+0x0004a2c1 handle=0x00000124 size=10485760
+```
+
+Unknown or stale hook candidates must be logged as evidence gaps, not treated as
+facts:
+
+```text
+[probe] samp-code-hooks disabled: stale candidate rva=0x0004ffc0 evidence=PROBE_TRACE run=golden_037_20260605_pre_sampimg
+[probe] TODO_VERIFY unknown state transition: phase=post_load expected=preconnect
+```
 
 ## First Questions This Should Answer
 

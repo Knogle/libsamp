@@ -1,75 +1,81 @@
-# AGENTS.md — SA-MP 0.3.7 `samp.dll` RE Kurzvariante
+# AGENTS.md - SA-MP 0.3.7 `samp.dll` RE Short Guide
 
-## Ziel
+## Goal
 
-Dieses Projekt entwickelt ein möglichst kompatibles Drop-in-Replacement für die SA-MP 0.3.7 `samp.dll`.
+This project develops a compatibility-focused drop-in replacement for the
+SA-MP 0.3.7 `samp.dll`.
 
-Modernisierungen etc. wenn sinnvoll gerne machen. Es soll kompatibel jedoch mit dem 0.3.7 Server bzw. open.mp Server bleiben.
+Modernization is welcome when it is useful, but compatibility with 0.3.7
+servers and open.mp servers comes first.
 
-## Arbeitsweise
+## Working Mode
 
-* Arbeite konservativ und in kleinen, reviewbaren Änderungen.
-* Vor Implementierung zuerst vorhandene RE-Doku, Traces, Probe-Logs und relevante Quellen prüfen.
-* Direkte Beobachtungen der originalen 0.3.7-DLL schlagen alle anderen Quellen.
-* Jede Annahme markieren: beobachtet, abgeleitet oder noch zu prüfen.
-* Keine öffentlichen APIs, Exports, Calling Conventions, Struct-Layouts oder Protokollformate ändern, außer explizit begründet.
-* Wenn Verhalten unklar ist: lieber Stub + Log + `TODO_VERIFY` als falsche Semantik.
-* Antworte dem Maintainer auf Deutsch.
+* Work conservatively and in small, reviewable changes.
+* Before implementation, check existing RE documentation, traces, probe logs,
+  and relevant references.
+* Direct observations from the original 0.3.7 DLL override every other source.
+* Mark each assumption as observed, inferred, or still to be verified.
+* Do not change public APIs, exports, calling conventions, struct layouts, or
+  protocol formats unless explicitly justified.
+* If behavior is unclear, prefer a stub plus log plus `TODO_VERIFY` over wrong
+  semantics.
+* Reply to the maintainer in German.
 
-## Quellenpriorität
+## Source Priority
 
-1. **Originale SA-MP 0.3.7 `samp.dll`**
+1. **Original SA-MP 0.3.7 `samp.dll`**
 
-   * Exports, Imports, Ordinals, RVAs, Calling Conventions, Speicherlayouts, Runtime-Verhalten.
+   * Exports, imports, ordinals, RVAs, calling conventions, memory layouts,
+     runtime behavior.
 
-2. **ASI-Probe / Golden Traces**
+2. **ASI probe / golden traces**
 
-   * Memory-Inhalte, Game States, Hook-Events, Netzwerk-/RPC-Beobachtungen.
+   * Memory contents, game states, hook events, network/RPC observations.
 
+3. **Internal project documentation and current implementation**
 
-3. **Projektinterne Doku und bisherige Implementierung**
-
-   * `docs/re/`, `docs/traces/`, `symbols/`, `tests/`, vorhandene Header/Code.
+   * `docs/re/`, `docs/traces/`, `symbols/`, `tests/`, existing headers/code.
 
 4. **open.mp**
 
-   * API-/Semantik-/Kompatibilitätsreferenz:
+   * API/semantic/compatibility reference:
    * https://github.com/openmultiplayer/open.mp
    * https://open.mp/docs
 
 5. **gta-reversed**
 
-   * GTA-SA-Engine-Referenz für Klassen, Hooks, Pools, Render/Ped/Vehicle/Camera:
+   * GTA-SA engine reference for classes, hooks, pools, render/ped/vehicle/camera:
    * https://github.com/gta-reversed/gta-reversed
 
 6. **Ultimate ASI Loader**
 
-   * Referenz für ASI-Loading, Plugin-Umgebung und Debugging:
+   * Reference for ASI loading, plugin environment, and debugging:
    * https://github.com/ThirteenAG/Ultimate-ASI-Loader/tree/master
 
 7. **SAMPFUNCS**
 
-   * SAMP Functions, russischer Modding, SDK Guide etc., liegt lokal in sampfuncs, dient dazu um Mods in SAMP zu machen, z.B. Cheats, hilft uns aber ggf. weiter
+   * SAMP functions, modding references, and SDK guides. Use only as a
+     compatibility/modding reference, not as proof of original-DLL behavior.
 
 8. **MTA:SA**
 
-   * Niedrige Priorität, nur konzeptionell verwenden:
+   * Low priority, conceptual reference only:
    * https://github.com/multitheftauto/mtasa-blue
 
-## Evidenz-Tags
+## Evidence Tags
 
-Nutze diese Tags in Kommentaren, Doku oder Commit-Kontext:
+Use these tags in comments, documentation, or commit context:
 
-* `OBSERVED_037` — direkt an originaler 0.3.7-DLL beobachtet.
-* `PROBE_TRACE` — durch ASI-Probe/Runtime-Log belegt.
-* `STATIC_037` — statisch aus originaler DLL analysiert.
-* `OPENMP_REF` — aus open.mp abgeleitet.
-* `GTA_REVERSED_REF` — aus gta-reversed abgeleitet.
-* `MTA_REF` — aus MTA abgeleitet, nur low priority.
-* `INFERRED` — plausible, aber unbewiesene Annahme.
-* `TODO_VERIFY` — muss noch gegen 0.3.7 validiert werden.
+* `OBSERVED_037` - directly observed with the original 0.3.7 DLL.
+* `PROBE_TRACE` - backed by ASI probe/runtime log evidence.
+* `STATIC_037` - statically analyzed from the original DLL.
+* `OPENMP_REF` - derived from open.mp.
+* `GTA_REVERSED_REF` - derived from gta-reversed.
+* `MTA_REF` - derived from MTA, low priority only.
+* `INFERRED` - plausible but unproven assumption.
+* `TODO_VERIFY` - must still be validated against 0.3.7.
 
-Beispiel:
+Example:
 
 ```cpp
 // OBSERVED_037 + PROBE_TRACE:
@@ -77,21 +83,21 @@ Beispiel:
 // Called after local player spawn, before first chat render.
 ```
 
-## ABI- und Layout-Regeln
+## ABI And Layout Rules
 
-* Immer RVAs statt absoluter Adressen dokumentieren: `samp.dll+0x...`.
-* Zu wichtigen Aussagen Hash/Build/Version notieren.
-* Für binär relevante Structs `sizeof` und `offsetof` per `static_assert` absichern.
-* Calling Conventions explizit halten.
-* Keine Exceptions über DLL-/C-/WinAPI-Grenzen leaken.
-* Rückgabewerte von Allocations, WinAPI, Datei-IO und Netzwerkfunktionen prüfen.
+* Always document RVAs instead of absolute addresses: `samp.dll+0x...`.
+* Record hash/build/version for important claims.
+* Guard binary-relevant structs with `sizeof` and `offsetof` `static_assert`s.
+* Keep calling conventions explicit.
+* Do not leak exceptions across DLL/C/WinAPI boundaries.
+* Check return values from allocations, WinAPI, file I/O, and networking calls.
 
-## ASI-Probe und Traces
+## ASI Probe And Traces
 
-* Probe-Logs sind primäre Evidenz.
-* Original-Run und Replacement-Run vergleichbar halten.
-* Pointer, Modulbasis, Timestamps und Zufallswerte beim Diff normalisieren.
-* Wichtige Szenarien als Golden Traces dokumentieren:
+* Probe logs are primary evidence.
+* Keep original-DLL and replacement-DLL runs comparable.
+* Normalize pointers, module bases, timestamps, and random values before diffing.
+* Document important scenarios as golden traces:
 
   * Load/Init
   * Connect/Handshake
@@ -100,55 +106,57 @@ Beispiel:
   * Vehicle/Ped/Object State
   * Disconnect/Shutdown
 
-## Hooking und Loader
+## Hooking And Loader
 
-* `DllMain` minimal halten.
-* Hooks nur setzen, wenn Zielbytes/Version validiert sind.
-* Hook-Doku muss enthalten:
+* Keep `DllMain` minimal.
+* Install hooks only when target bytes/version are validated.
+* Hook documentation must include:
 
-  * Modul + RVA
-  * Originalbytes
-  * Patchbytes
-  * Patchlänge
-  * Restore-Pfad
-* `VirtualProtect`, Instruction-Cache-Flush und Restore sauber kapseln.
-* Keine fremden Hooks blind überschreiben.
+  * Module + RVA
+  * Original bytes
+  * Patch bytes
+  * Patch length
+  * Restore path
 
-## Netcode und Protokoll
+* Wrap `VirtualProtect`, instruction-cache flush, and restore cleanly.
+* Do not blindly overwrite third-party hooks.
 
-* Packet-/RPC-IDs, Bitstream-Layouts, String-Encoding, Limits und Reihenfolge gegen 0.3.7-Traces validieren.
-* Serverdaten nie vertrauen.
-* Alle Reads bounds-checken.
-* open.mp als Semantikreferenz nutzen, aber 0.3.7-Beobachtung entscheidet.
+## Netcode And Protocol
 
-## GTA-SA-Integration
+* Validate packet/RPC IDs, bitstream layouts, string encoding, limits, and order
+  against 0.3.7 traces.
+* Never trust server data.
+* Bounds-check every read.
+* Use open.mp as the semantic reference, but 0.3.7 observations decide conflicts.
 
-* GTA-SA-Adressen immer mit Build/Hash/RVA dokumentieren.
-* gta-reversed als Engine-Referenz nutzen, aber nichts ungeprüft übernehmen.
-* Game-State-Zugriffe defensiv machen: Loading Screen, Pause, Disconnect, Respawn, Nullpointer und World-Wechsel beachten.
+## GTA-SA Integration
 
-## Was vermeiden?
+* Document GTA-SA addresses with build/hash/RVA.
+* Use gta-reversed as an engine reference, but do not copy assumptions blindly.
+* Access game state defensively: loading screen, pause, disconnect, respawn,
+  null pointers, and world changes.
 
-* Keine Cheats, Anti-Cheat-Umgehung, Ban-Evasion oder Public-Server-Missbrauch.
-* Keine proprietären Binaries oder Assets einchecken.
-* Keine großen Pseudocode-Blöcke aus proprietärer Disassembly übernehmen.
-* Keine Massenformatierung.
-* Keine unnötigen Dependencies.
-* Keine spekulativen Offsets als Fakten darstellen.
-* Keine Legacy-Quirks „fixen“, ohne Kompatibilitätsmodus oder Begründung.
+## Avoid
 
-## Abschlussformat
+* No cheats, anti-cheat bypasses, ban evasion, or public-server abuse.
+* No proprietary binaries or assets in the repository.
+* No large pseudocode blocks from proprietary disassembly.
+* No mass formatting.
+* No unnecessary dependencies.
+* No speculative offsets presented as facts.
+* Do not "fix" compatibility quirks without a compatibility mode or rationale.
 
-Nach Änderungen kurz melden:
+## Completion Format
+
+After changes, report briefly:
 
 ```md
-## Ergebnis
-- Geändert: ...
-- Evidenz: OBSERVED_037 / PROBE_TRACE / ...
+## Result
+- Changed: ...
+- Evidence: OBSERVED_037 / PROBE_TRACE / ...
 - Tests/Checks: ...
-- Kompatibilitätsrisiken: ...
-- Offene Punkte: ...
+- Compatibility risks: ...
+- Open points: ...
 ```
 
-Wenn nichts getestet wurde, ehrlich sagen.
-::: 
+If nothing was tested, say so clearly.

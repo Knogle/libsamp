@@ -1,64 +1,63 @@
 # Publication Checklist
 
-Diese Checkliste beschreibt den minimal sauberen Stand, bevor das Repository
-oeffentlich sichtbar gemacht wird.
+This checklist describes the minimum clean state before the repository is made
+public.
 
-## P0 - Muss vor Public erledigt sein
+## P0 - Required Before Public
 
-- [x] Projektname ueberall konsistent: `libsamp` als Repository/Artefaktname,
-      `Libre-SAMP` als ausgeschriebener Name.
-- [x] Zielsetzung klar formuliert: Drop-in-Replacement fuer `samp.dll`, kein
-      vollstaendiger Client-Installer und keine proprietaeren Assets.
-- [x] Keine proprietaeren Binaries oder Assets im Index. Projektgenerierte
-      Loading-Screen-Assets sind in `NOTICE.md` dokumentiert.
-- [x] Keine lokalen Prefix-Pfade, privaten Nutzernamen oder absoluten Home-Pfade in
-      dokumentierten Beispielkommandos.
-- [x] Keine nicht-oeffentlichen Referenzquellen im Repository.
-- [x] Keine alten Referenzpfadnamen oder nicht mehr genutzten Crosswalk-Dateien.
-- [x] `.gitignore` deckt lokale Traces, Builds, Prefix-Kopien, ZIPs und
-      Arbeitsassets ab.
-- [x] README benennt klar: Reverse Engineering der originalen 0.3.7-DLL,
-      Golden-Traces, open.mp, gta-reversed und eigene Probe-Logs als Quellen.
-- [x] Build-Anleitung beschreibt reproduzierbar den Devbuild-Pfad.
-- [x] Runtime-Debug-Logs sind standardmaessig begrenzt und enthalten keine
-      sensitiven Pfade, sofern sie nicht explizit fuer lokale Analyse aktiviert
-      werden.
-- [x] Lizenzstatus klaeren: eigener Code, eingebundene Third-Party-Komponenten,
-      generierte Daten und Assets getrennt dokumentieren.
+- [x] Project naming is consistent: `libsamp` as repository/artifact name,
+      `Libre-SAMP` as the written-out name.
+- [x] Goal is clear: drop-in replacement for `samp.dll`, not a full client
+      installer and not a proprietary asset bundle.
+- [x] No proprietary binaries or assets in the index. Project-generated loading
+      screen assets are documented in `NOTICE.md`.
+- [x] No local prefix paths, private usernames, or absolute home paths in
+      documented example commands.
+- [x] No non-public reference source trees in the repository.
+- [x] No old reference path names or unused crosswalk files.
+- [x] `.gitignore` covers local traces, builds, prefix copies, ZIPs, and working
+      assets.
+- [x] README clearly names reverse engineering of the original 0.3.7 DLL,
+      golden traces, open.mp, gta-reversed, and ASI probe logs as sources.
+- [x] Build instructions describe the reproducible devbuild path.
+- [x] Runtime debug logs are limited by default and do not contain sensitive
+      paths unless explicitly enabled for local analysis.
+- [x] License status is clear: project-owned code, third-party components,
+      generated data, and generated assets are documented separately.
 
-## P1 - Stark empfohlen
+## P1 - Strongly Recommended
 
-- [ ] `docs/re/` auf aktuellen Stand bringen: Boot, Netcode, Spawn, TextDraw,
-      Dialog, Vehicle, Remote Player, Object Pipeline.
-- [ ] `docs/traces/` mit kurzen, normalisierten Trace-Zusammenfassungen befuellen.
-- [ ] Golden-Trace-Namen standardisieren:
+- [ ] Bring `docs/re/` up to date: boot, netcode, spawn, TextDraw, dialog,
+      vehicle, remote player, object pipeline.
+- [ ] Fill `docs/traces/` with short normalized trace summaries.
+- [ ] Standardize golden trace names:
       `load_init`, `connect_handshake`, `spawn`, `chat_dialog_textdraw`,
       `vehicle_state`, `remote_player_state`, `object_state`, `disconnect`.
-- [ ] Kompatibilitaetsmatrix fuer getestete Server und Szenarien anlegen.
-- [ ] Bekannte Risiken im README verlinken statt in Chatverlauf/Wiki zu belassen.
-- [ ] Build-Artefakte klar von Quellcode trennen.
+- [ ] Add a compatibility matrix for tested servers and scenarios.
+- [ ] Link known risks from the README instead of leaving them in chat history
+      or external notes.
+- [ ] Keep build artifacts clearly separate from source code.
 
-## P2 - Nach Public
+## P2 - After Public
 
-- [ ] CI fuer Linux host tools und Win32 cross build.
-- [ ] Smoke-Test fuer RakNet/RPC-Decoder mit Fixture-Bitstreams.
-- [ ] Smoke-Test fuer TextDraw-Parser und Color-/Alignment-Konversion.
-- [ ] Lint/format fuer C/C++ nur auf neuem Code aktivieren, keine
-      Massenformatierung.
-- [ ] Optionaler Trace-Sanitizer fuer Logs vor dem Einchecken.
+- [ ] CI for Linux host tools and Win32 cross build.
+- [ ] Smoke test for RakNet/RPC decoder fixture bitstreams.
+- [ ] Smoke test for TextDraw parser and color/alignment conversion.
+- [ ] Enable lint/format checks for new C/C++ code only; avoid mass formatting.
+- [ ] Optional trace sanitizer for logs before committing them.
 
 ## Public Messaging
 
-Empfohlene Kurzbeschreibung:
+Recommended short description:
 
 > Libre-SAMP (`libsamp`) is an experimental drop-in replacement for the
 > SA-MP 0.3.7 `samp.dll`, based on runtime traces, original DLL reverse
 > engineering, open.mp protocol behaviour and GTA-SA engine references.
 
-Nicht versprechen:
+Do not promise:
 
-- Kein vollstaendiger SA-MP-Client-Installer.
-- Keine vollstaendige 1:1-Paritaet.
-- Keine Kompatibilitaet mit allen Mods/Scripten.
-- Keine Anti-Cheat-/Bypass-Faehigkeiten.
-- Keine proprietaeren Daten im Repository.
+- A full SA-MP client installer.
+- Complete 1:1 parity.
+- Compatibility with all mods/scripts.
+- Anti-cheat bypass capabilities.
+- Proprietary data in the repository.

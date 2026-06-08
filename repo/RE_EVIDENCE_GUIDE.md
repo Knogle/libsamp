@@ -1,38 +1,39 @@
 # RE Evidence Guide
 
-Diese Regeln halten neue Implementierungen nachvollziehbar und public-tauglich.
+These rules keep new implementation work traceable and suitable for a public
+repository.
 
-## Evidence-Tags
+## Evidence Tags
 
-- `OBSERVED_037`: Direkt mit originaler SA-MP 0.3.7-DLL beobachtet.
-- `PROBE_TRACE`: Durch ASI-Probe, Golden-Trace oder Runtime-Log belegt.
-- `STATIC_037`: Statisch aus originaler 0.3.7-DLL analysiert.
-- `OPENMP_REF`: Aus open.mp-Protokoll, Dokumentation oder Serververhalten
-  abgeleitet.
-- `GTA_REVERSED_REF`: Aus gta-reversed fuer GTA-SA Engine-Integration abgeleitet.
-- `SAMPFUNCS_REF`: Aus SAMPFUNCS/Modding-Referenzen fuer API-/Hook-Verhalten
-  abgeleitet.
-- `INFERRED`: Plausibel, aber noch nicht belegt.
-- `TODO_VERIFY`: Muss gegen Original-DLL oder Golden-Trace validiert werden.
+- `OBSERVED_037`: Directly observed with the original SA-MP 0.3.7 DLL.
+- `PROBE_TRACE`: Backed by the ASI probe, a golden trace, or a runtime log.
+- `STATIC_037`: Statically analyzed from the original 0.3.7 DLL.
+- `OPENMP_REF`: Derived from the open.mp protocol, documentation, or server
+  behavior.
+- `GTA_REVERSED_REF`: Derived from gta-reversed for GTA-SA engine integration.
+- `SAMPFUNCS_REF`: Derived from SAMPFUNCS/modding references for API or hook
+  behavior.
+- `INFERRED`: Plausible, but not proven yet.
+- `TODO_VERIFY`: Must be validated against the original DLL or a golden trace.
 
-## Wann welcher Tag?
+## Which Tag To Use
 
-- ABI, Struct-Layouts, RVAs, Calling Conventions:
-  `STATIC_037` oder `OBSERVED_037`.
-- Runtime-Reihenfolge, Game-State, Hooks:
+- ABI, struct layouts, RVAs, calling conventions:
+  `STATIC_037` or `OBSERVED_037`.
+- Runtime order, game state, hooks:
   `PROBE_TRACE` plus optional `OBSERVED_037`.
-- RPC-Semantik und Serverantworten:
-  `OPENMP_REF` plus eigene Trace-ID.
-- GTA-Pools, CFont, CCamera, CPed, CVehicle:
-  `GTA_REVERSED_REF`, aber nur defensiv einsetzen.
-- Heuristiken und Fallbacks:
-  `INFERRED` und `TODO_VERIFY`.
+- RPC semantics and server responses:
+  `OPENMP_REF` plus the local trace ID.
+- GTA pools, CFont, CCamera, CPed, CVehicle:
+  `GTA_REVERSED_REF`, applied defensively.
+- Heuristics and fallbacks:
+  `INFERRED` and `TODO_VERIFY`.
 
-## Trace-Regeln
+## Trace Rules
 
-- Original-Run und Replacement-Run vergleichbar halten.
-- Timestamps, Pointer, Modulbasis und Zufallswerte beim Diff normalisieren.
-- Wichtigste Szenarien separat speichern:
+- Keep original-DLL runs and replacement-DLL runs comparable.
+- Normalize timestamps, pointers, module bases, and random values before diffing.
+- Store key scenarios separately:
   - Load/Init
   - Connect/Handshake
   - Spawn/Respawn
@@ -41,9 +42,9 @@ Diese Regeln halten neue Implementierungen nachvollziehbar und public-tauglich.
   - Remote Player State
   - Object/Material State
   - Disconnect/Shutdown
-- Beim Uebernehmen in Doku nur normalisierte Ausschnitte verwenden.
+- Only commit normalized excerpts into documentation.
 
-## Kommentar-Beispiel
+## Comment Example
 
 ```c
 // OBSERVED_037 + PROBE_TRACE:
@@ -52,9 +53,9 @@ Diese Regeln halten neue Implementierungen nachvollziehbar und public-tauglich.
 // earlier RefreshStreamingAt calls can leave the client near stale world cells.
 ```
 
-## Was nicht einchecken
+## Do Not Commit
 
-- Proprietaere DLLs, EXEs, TXDs, IMG-Dateien oder extrahierte Assets.
-- Roh-Dumps mit privaten Prefix-Pfaden.
-- Laengere proprietaere Disassembly-/Pseudocode-Bloecke.
-- Spekulative Offsets ohne `TODO_VERIFY`.
+- Proprietary DLLs, EXEs, TXDs, IMG files, or extracted assets.
+- Raw dumps with private prefix paths.
+- Long proprietary disassembly or pseudocode blocks.
+- Speculative offsets without `TODO_VERIFY`.

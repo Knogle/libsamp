@@ -1,59 +1,59 @@
 # libsamp / Libre-SAMP - Public Working Folder
 
-Dieser Ordner ist der saubere Einstiegspunkt fuer die oeffentliche Repo-Aufbereitung.
-Er enthaelt keine proprietaeren Binaries, keine lokalen Referenzpfade und keine
-Verweise auf nicht-oeffentliche Quellbestaende.
+This folder is the clean entry point for preparing the public repository. It
+must not contain proprietary binaries, private local paths, or references to
+non-public source trees.
 
-## Projektziel
+## Project Goal
 
-libsamp, ausgeschrieben Libre-SAMP, entwickelt ein moeglichst kompatibles
-Drop-in-Replacement fuer die SA-MP 0.3.7 `samp.dll`, das mit
-0.3.7-kompatiblen Servern und open.mp zusammenarbeitet.
+libsamp, written out as Libre-SAMP, develops a compatibility-focused drop-in
+replacement for the SA-MP 0.3.7 `samp.dll` that works with 0.3.7-compatible
+servers and open.mp.
 
-Der normale SA-MP-Installer wird vorerst weiterhin gebraucht, um die
-Client-Umgebung, Assets und begleitenden Dateien bereitzustellen. Dieses
-Repository liefert keine proprietaeren Client- oder GTA-SA-Dateien aus. Das
-konkrete Ziel dieses Projekts ist die austauschbare `samp.dll` fuer eine
-vorhandene, lokal installierte Client-Umgebung.
+For now, the normal SA-MP installer is still required to provide the local
+client environment, assets, and companion files. This repository does not ship
+proprietary client or GTA-SA files. The concrete project target is the
+replaceable `samp.dll` for an existing local client installation.
 
-Die aktuelle Implementierung basiert auf Reverse Engineering der originalen
-0.3.7-DLL, Golden-Traces, ASI-Probe-Logs, open.mp-Protokollsemantik,
-gta-reversed-Engine-Referenzen und projektinternen Laufzeitbeobachtungen.
+The current implementation is based on reverse engineering of the original
+0.3.7 DLL, golden traces, ASI probe logs, open.mp protocol semantics,
+gta-reversed engine references, and project-owned runtime observations.
 
-## Oeffentlicher Arbeitsmodus
+## Public Working Mode
 
-- Kleine, reviewbare Aenderungen.
-- ABI, Exports, Calling Conventions, Struct-Layouts und RPC-Layouts stabil halten.
-- Unklare Semantik als Stub mit Log markieren, nicht spekulativ nachbauen.
-- Jede technische Aussage mit Evidence-Tags kennzeichnen, wo sie nicht direkt aus
-  dem Code ersichtlich ist.
-- Keine proprietaeren Assets oder Binaries einchecken. Projektgenerierte Assets
-  muessen in `NOTICE.md` dokumentiert sein.
+- Keep changes small and reviewable.
+- Keep ABI, exports, calling conventions, struct layouts, and RPC layouts
+  stable.
+- Mark unclear behavior as a stub with logging instead of guessing semantics.
+- Use evidence tags for technical claims that are not directly obvious from the
+  code.
+- Do not commit proprietary assets or binaries. Project-generated assets must
+  be documented in `NOTICE.md`.
 
-## Wichtige Dateien
+## Important Files
 
-- `TASK_TRACKER.md`: Umfassender Task-Tracker ab aktuellem Meilenstein.
-- `PUBLICATION_CHECKLIST.md`: Checkliste fuer den ersten Public-Repo-Stand.
-- `RE_EVIDENCE_GUIDE.md`: Evidence- und Trace-Regeln fuer zukuenftige Arbeit.
-- `../LICENSE`: MIT-Lizenz fuer den Projektcode.
-- `../NOTICE.md`: Third-Party- und Asset-Provenienz.
-- `../SECURITY.md`: Security Policy und Nutzungsgrenzen.
-- `../CONTRIBUTING.md`: Beitragsregeln und Build-Hinweise.
+- `TASK_TRACKER.md`: Full task tracker from the current playable milestone.
+- `PUBLICATION_CHECKLIST.md`: Checklist for the first public repository state.
+- `RE_EVIDENCE_GUIDE.md`: Evidence and trace rules for future work.
+- `../LICENSE`: MIT license for project-owned code and generated assets.
+- `../NOTICE.md`: Third-party and asset provenance.
+- `../SECURITY.md`: Security policy and usage boundaries.
+- `../CONTRIBUTING.md`: Contribution rules and build notes.
 
-## Aktueller Meilenstein
+## Current Milestone
 
-Der Client erreicht inzwischen einen spielbaren Grundzustand:
+The client now reaches a basic playable state:
 
-- Connect/Join/Spawn gegen open.mp-kompatiblen Server.
-- Chat senden und empfangen.
-- Ingame-Dialoge mit Mausmodus.
-- TAB-Spielerliste als SA-MP-Overlay statt Singleplayer-Stats.
-- Vehicles werden serverseitig erzeugt, angezeigt und befahrbar.
-- Spawn/Teleport-Streaming landet an plausiblen Positionen.
-- World-Time und Basis-HUD werden serverseitig beeinflusst.
-- TextDraws werden sichtbar, inklusive Transparenzverbesserungen.
-- Custom-Object-Pipeline ist begonnen, aber noch nicht korrekt vollstaendig.
+- Connect/join/spawn against an open.mp-compatible server.
+- Chat send and receive.
+- In-game dialogs with mouse mode.
+- TAB player list as a SA-MP overlay instead of single-player stats.
+- Server-created vehicles are visible and drivable.
+- Spawn/teleport streaming lands at plausible positions.
+- World time and the basic HUD are server-influenced.
+- TextDraws are visible, including transparency improvements.
+- The custom object pipeline has started, but is not complete yet.
 
-Die wichtigsten Restthemen sind Remote-Player-Sync, Object-/Material-Pipeline,
-vollstaendige RPC-Abdeckung, TextDraw-Paritaet, Disconnect-/Resync-Stabilitaet
-und systematische Golden-Trace-Vergleiche.
+The most important remaining topics are remote player sync, the object/material
+pipeline, full RPC coverage, TextDraw parity, disconnect/resync stability, and
+systematic golden-trace comparisons.
