@@ -12,8 +12,16 @@ and an ASI probe for reproducible client-side instrumentation.
 [![status](https://img.shields.io/badge/status-experimental-orange)](#current-status)
 [![target](https://img.shields.io/badge/target-SA--MP%200.3.7--R5-blue)](#what-it-is)
 [![platform](https://img.shields.io/badge/platform-Windows%20x86-informational)](#build-from-source)
+[![toolchain](https://img.shields.io/badge/toolchain-CMake%20%2B%20MinGW--w64-6f42c1)](#build-from-source)
+[![artifact](https://img.shields.io/badge/artifact-samp.dll-lightgrey)](#github-actions)
+[![probe](https://img.shields.io/badge/ASI%20probe-included-9cf)](tools/asi_probe)
+[![network](https://img.shields.io/badge/network-RakNet%20submodule-yellow)](https://github.com/Knogle/RakNet)
 [![evidence](https://img.shields.io/badge/evidence-RE%20%7C%20traces%20%7C%20open.mp-success)](repo/RE_EVIDENCE_GUIDE.md)
 [![license](https://img.shields.io/badge/license-MIT-green)](#license)
+
+<br>
+
+<img src="assets/readme/player-list.jpg" alt="Libre-SAMP gameplay with the in-game player list overlay" width="860">
 
 </div>
 
@@ -75,6 +83,49 @@ Known active work areas:
 - CI parity checks once public reference fixtures are available.
 
 See [repo/TASK_TRACKER.md](repo/TASK_TRACKER.md) for the current task tracker.
+
+## Screenshots
+
+Current development snapshots from local compatibility runs:
+
+<table>
+  <tr>
+    <td width="50%">
+      <img src="assets/readme/lv-airport.jpg" alt="LV Airport gameplay with world text and HUD">
+      <br>
+      <sub>Gameplay state, HUD, chat, and world text rendering.</sub>
+    </td>
+    <td width="50%">
+      <img src="assets/readme/dialog-renderer.jpg" alt="In-game SA-MP-style dialog renderer">
+      <br>
+      <sub>SA-MP-style dialog rendering during pre-connect flow.</sub>
+    </td>
+  </tr>
+  <tr>
+    <td width="50%">
+      <img src="assets/readme/preconnect-panorama.jpg" alt="Pre-connect panorama camera in the desert">
+      <br>
+      <sub>Pre-connect panorama camera and status overlay.</sub>
+    </td>
+    <td width="50%">
+      <img src="assets/readme/sfr-objects.jpg" alt="Gameplay scene with vehicles and server objects">
+      <br>
+      <sub>Vehicles, local world streaming, and server-driven objects.</sub>
+    </td>
+  </tr>
+  <tr>
+    <td width="50%">
+      <img src="assets/readme/loading-screen.jpg" alt="Libre-SAMP loading screen">
+      <br>
+      <sub>Custom loading screen asset path.</sub>
+    </td>
+    <td width="50%">
+      <img src="assets/readme/player-list.jpg" alt="Player list overlay with two connected players">
+      <br>
+      <sub>Player list overlay with local and remote player rows.</sub>
+    </td>
+  </tr>
+</table>
 
 ## Highlights
 
