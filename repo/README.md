@@ -1,4 +1,4 @@
-# SA-MP 0.3.7 DLL Rebuild - Public Working Folder
+# libsamp / Libre-SAMP - Public Working Folder
 
 Dieser Ordner ist der saubere Einstiegspunkt fuer die oeffentliche Repo-Aufbereitung.
 Er enthaelt keine proprietaeren Binaries, keine lokalen Referenzpfade und keine
@@ -6,8 +6,15 @@ Verweise auf nicht-oeffentliche Quellbestaende.
 
 ## Projektziel
 
-Ziel ist ein moeglichst kompatibles Drop-in-Replacement fuer die SA-MP 0.3.7
-`samp.dll`, das mit 0.3.7-kompatiblen Servern und open.mp zusammenarbeitet.
+libsamp, ausgeschrieben Libre-SAMP, entwickelt ein moeglichst kompatibles
+Drop-in-Replacement fuer die SA-MP 0.3.7 `samp.dll`, das mit
+0.3.7-kompatiblen Servern und open.mp zusammenarbeitet.
+
+Der normale SA-MP-Installer wird vorerst weiterhin gebraucht, um die
+Client-Umgebung, Assets und begleitenden Dateien bereitzustellen. Dieses
+Repository liefert keine proprietaeren Client- oder GTA-SA-Dateien aus. Das
+konkrete Ziel dieses Projekts ist die austauschbare `samp.dll` fuer eine
+vorhandene, lokal installierte Client-Umgebung.
 
 Die aktuelle Implementierung basiert auf Reverse Engineering der originalen
 0.3.7-DLL, Golden-Traces, ASI-Probe-Logs, open.mp-Protokollsemantik,

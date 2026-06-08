@@ -5,6 +5,10 @@ oeffentlich sichtbar gemacht wird.
 
 ## P0 - Muss vor Public erledigt sein
 
+- [ ] Projektname ueberall konsistent: `libsamp` als Repository/Artefaktname,
+      `Libre-SAMP` als ausgeschriebener Name.
+- [ ] Zielsetzung klar formuliert: Drop-in-Replacement fuer `samp.dll`, kein
+      vollstaendiger Client-Installer und keine proprietaeren Assets.
 - [ ] Keine proprietaeren Binaries oder Assets im Index.
 - [ ] Keine lokalen Prefix-Pfade, privaten Nutzernamen oder absoluten Home-Pfade in
       dokumentierten Beispielkommandos.
@@ -46,12 +50,13 @@ oeffentlich sichtbar gemacht wird.
 
 Empfohlene Kurzbeschreibung:
 
-> Clean-room-oriented SA-MP 0.3.7 `samp.dll` compatibility rebuild based on
-> runtime traces, original DLL reverse engineering, open.mp protocol behaviour
-> and GTA-SA engine references.
+> Libre-SAMP (`libsamp`) is an experimental drop-in replacement for the
+> SA-MP 0.3.7 `samp.dll`, based on runtime traces, original DLL reverse
+> engineering, open.mp protocol behaviour and GTA-SA engine references.
 
 Nicht versprechen:
 
+- Kein vollstaendiger SA-MP-Client-Installer.
 - Keine vollstaendige 1:1-Paritaet.
 - Keine Kompatibilitaet mit allen Mods/Scripten.
 - Keine Anti-Cheat-/Bypass-Faehigkeiten.

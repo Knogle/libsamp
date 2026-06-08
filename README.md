@@ -1,13 +1,14 @@
 <div align="center">
 
-# RetroMP
+# libsamp
 
-**Experimental SA-MP 0.3.7-R5 `samp.dll` compatibility rebuild.**
+**Libre-SAMP: experimental drop-in replacement for the SA-MP 0.3.7-R5
+`samp.dll`.**
 
 Runtime traces, original DLL reverse engineering, open.mp compatibility work,
 and an ASI probe for reproducible client-side instrumentation.
 
-[![build](https://github.com/Knogle/RetroMP/actions/workflows/build.yml/badge.svg)](https://github.com/Knogle/RetroMP/actions/workflows/build.yml)
+[![build](https://github.com/Knogle/libsamp/actions/workflows/build.yml/badge.svg)](https://github.com/Knogle/libsamp/actions/workflows/build.yml)
 [![status](https://img.shields.io/badge/status-experimental-orange)](#current-status)
 [![target](https://img.shields.io/badge/target-SA--MP%200.3.7--R5-blue)](#what-it-is)
 [![platform](https://img.shields.io/badge/platform-Windows%20x86-informational)](#build-from-source)
@@ -21,8 +22,8 @@ and an ASI probe for reproducible client-side instrumentation.
 ## TL;DR
 
 ```sh
-git clone --recurse-submodules https://github.com/Knogle/RetroMP
-cd RetroMP
+git clone --recurse-submodules https://github.com/Knogle/libsamp
+cd libsamp
 
 reimpl/scripts/build_win32.sh
 tools/asi_probe/build_win32.sh
@@ -41,10 +42,15 @@ It is not a cheat, bypass, or public-server abuse toolkit.
 
 ## What It Is
 
-RetroMP is a drop-in-oriented replacement for the SA-MP 0.3.7-R5 client DLL.
-The goal is protocol and runtime compatibility with 0.3.7-compatible servers,
-including open.mp compatibility paths, while keeping the implementation
-auditable and testable.
+libsamp, written out as Libre-SAMP, targets one concrete artifact: a compatible
+drop-in replacement for the SA-MP 0.3.7-R5 client `samp.dll`.
+
+The short-term runtime still expects an existing GTA San Andreas installation
+with the SA-MP client files installed by the normal SA-MP installer. This
+repository does not ship proprietary client assets, game files, or a complete
+client distribution. The goal is to replace the DLL in that existing install
+while preserving protocol and runtime compatibility with 0.3.7-compatible
+servers, including open.mp compatibility paths.
 
 The project is driven by observed behavior from the original DLL, ASI probe
 golden traces, and public engine/protocol references. Proprietary binaries,
@@ -72,7 +78,7 @@ See [repo/TASK_TRACKER.md](repo/TASK_TRACKER.md) for the current task tracker.
 
 ## Highlights
 
-- Win32 `samp.dll` rebuild with PE/export compatibility tracking.
+- Win32 `samp.dll` drop-in rebuild with PE/export compatibility tracking.
 - Vendored Knogle/RakNet transport path for SA-MP/open.mp-oriented networking.
 - Runtime bridge for GTA-SA state, UI, dialogs, chat, TextDraws, vehicles, and
   basic world state.

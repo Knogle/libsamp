@@ -20,6 +20,8 @@ Status:
 
 ## 1. Public Repo Hygiene
 
+- [done] `P0` Projektname und Zielsetzung auf `libsamp` / `Libre-SAMP` als
+  `samp.dll`-Drop-in-Replacement ausrichten.
 - [done] `P0` Alte Crosswalk-/Planungsdateien entfernen, die nicht public-tauglich
   sind.
 - [done] `P0` Lokale Referenzquellen aus oeffentlicher Namensgebung entfernen.
