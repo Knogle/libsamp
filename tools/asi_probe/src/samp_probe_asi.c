@@ -8,17 +8,23 @@
 
 #define PROBE_LOG_NAME "samp_probe.log"
 #define PROBE_NO_HOOKS_FLAG "samp_probe_no_hooks.flag"
+#define PROBE_ASSET_PATHS_FLAG "samp_probe_asset_paths.flag"
+#define PROBE_FILE_HOOKS_FLAG "samp_probe_file_hooks.flag"
+#define PROBE_SAMP_CODE_HOOKS_FLAG "samp_probe_samp_code_hooks.flag"
 #define PROBE_MAX_IMPORT_LOGS 4096
 #define PROBE_WATCH_INTERVAL_MS 250
 #define PROBE_WAIT_FOR_SAMP_MS 30000
 #define PROBE_INLINE_HOOK_MAX_COPY 16
 #define PROBE_PAYLOAD_PREVIEW_BYTES 256
 #define PROBE_STATE_HEARTBEAT_MS 5000
+#define PROBE_ASSET_HANDLE_SLOTS 64
 
 #if defined(__GNUC__)
 #define PROBE_ALWAYS_INLINE static __inline__ __attribute__((always_inline))
+#define PROBE_THREAD_LOCAL __thread
 #else
 #define PROBE_ALWAYS_INLINE static __inline
+#define PROBE_THREAD_LOCAL __declspec(thread)
 #endif
 
 typedef int(WINAPI *probe_WSAStartup_fn)(WORD, LPWSADATA);
@@ -42,6 +48,12 @@ typedef HMODULE(WINAPI *probe_LoadLibraryA_fn)(LPCSTR);
 typedef HMODULE(WINAPI *probe_LoadLibraryW_fn)(LPCWSTR);
 typedef FARPROC(WINAPI *probe_GetProcAddress_fn)(HMODULE, LPCSTR);
 typedef HANDLE(WINAPI *probe_CreateThread_fn)(LPSECURITY_ATTRIBUTES, SIZE_T, LPTHREAD_START_ROUTINE, LPVOID, DWORD, LPDWORD);
+typedef HANDLE(WINAPI *probe_CreateFileA_fn)(LPCSTR, DWORD, DWORD, LPSECURITY_ATTRIBUTES, DWORD, DWORD, HANDLE);
+typedef HANDLE(WINAPI *probe_CreateFileW_fn)(LPCWSTR, DWORD, DWORD, LPSECURITY_ATTRIBUTES, DWORD, DWORD, HANDLE);
+typedef BOOL(WINAPI *probe_ReadFile_fn)(HANDLE, LPVOID, DWORD, LPDWORD, LPOVERLAPPED);
+typedef DWORD(WINAPI *probe_SetFilePointer_fn)(HANDLE, LONG, PLONG, DWORD);
+typedef DWORD(WINAPI *probe_GetFileSize_fn)(HANDLE, LPDWORD);
+typedef BOOL(WINAPI *probe_CloseHandle_fn)(HANDLE);
 typedef int(WINAPI *probe_samp_socketlayer_sendto_fn)(SOCKET, const char *, int, unsigned long, unsigned short);
 typedef void(WINAPI *probe_samp_process_network_packet_fn)(unsigned long, unsigned short, const char *, int, void *);
 
@@ -118,6 +130,12 @@ typedef struct probe_code_hook {
   LONG installed;
 } probe_code_hook;
 
+typedef struct probe_asset_handle {
+  HANDLE handle;
+  char path[MAX_PATH];
+  LONG read_count;
+} probe_asset_handle;
+
 static HMODULE g_self_module;
 static HANDLE g_worker_thread;
 static HANDLE g_stop_event;
@@ -154,10 +172,22 @@ static void *g_orig_LoadLibraryA;
 static void *g_orig_LoadLibraryW;
 static void *g_orig_GetProcAddress;
 static void *g_orig_CreateThread;
+static void *g_orig_CreateFileA;
+static void *g_orig_CreateFileW;
+static void *g_orig_ReadFile;
+static void *g_orig_SetFilePointer;
+static void *g_orig_GetFileSize;
+static void *g_orig_CloseHandle;
 static void *g_orig_samp_socketlayer_sendto;
 static void *g_orig_samp_process_network_packet;
 static probe_WSAGetLastError_fn g_WSAGetLastError_ptr;
+static probe_asset_handle g_asset_handles[PROBE_ASSET_HANDLE_SLOTS];
+static PROBE_THREAD_LOCAL int g_file_hook_depth;
 
+static int env_or_flag_enabled(const char *env_name, const char *flag_name);
+static int asset_path_hooks_enabled(void);
+static int asset_read_hooks_enabled(void);
+static int samp_code_hooks_enabled(void);
 static LONG CALLBACK probe_exception_handler(PEXCEPTION_POINTERS info);
 static int WINAPI hook_WSAStartup(WORD version, LPWSADATA data);
 static int WINAPI hook_WSACleanup(void);
@@ -180,6 +210,16 @@ static HMODULE WINAPI hook_LoadLibraryW(LPCWSTR file_name);
 static FARPROC WINAPI hook_GetProcAddress(HMODULE module, LPCSTR proc_name);
 static HANDLE WINAPI hook_CreateThread(LPSECURITY_ATTRIBUTES attr, SIZE_T stack_size, LPTHREAD_START_ROUTINE start, LPVOID param,
                                        DWORD flags, LPDWORD thread_id);
+static HANDLE WINAPI hook_CreateFileA(LPCSTR file_name, DWORD desired_access, DWORD share_mode,
+                                      LPSECURITY_ATTRIBUTES security_attributes, DWORD creation_disposition,
+                                      DWORD flags_and_attributes, HANDLE template_file);
+static HANDLE WINAPI hook_CreateFileW(LPCWSTR file_name, DWORD desired_access, DWORD share_mode,
+                                      LPSECURITY_ATTRIBUTES security_attributes, DWORD creation_disposition,
+                                      DWORD flags_and_attributes, HANDLE template_file);
+static BOOL WINAPI hook_ReadFile(HANDLE file, LPVOID buffer, DWORD bytes_to_read, LPDWORD bytes_read, LPOVERLAPPED overlapped);
+static DWORD WINAPI hook_SetFilePointer(HANDLE file, LONG distance_to_move, PLONG distance_to_move_high, DWORD move_method);
+static DWORD WINAPI hook_GetFileSize(HANDLE file, LPDWORD file_size_high);
+static BOOL WINAPI hook_CloseHandle(HANDLE object);
 static int WINAPI hook_samp_socketlayer_sendto(SOCKET s, const char *buf, int len, unsigned long binary_address,
                                                unsigned short port);
 static void WINAPI hook_samp_process_network_packet(unsigned long binary_address, unsigned short port, const char *data, int len,
@@ -221,6 +261,18 @@ static probe_iat_hook g_hooks[] = {
     {"KERNEL32.dll", "LoadLibraryW", 0, (void *)hook_LoadLibraryW, &g_orig_LoadLibraryW, 0},
     {"KERNEL32.dll", "GetProcAddress", 0, (void *)hook_GetProcAddress, &g_orig_GetProcAddress, 0},
     {"KERNEL32.dll", "CreateThread", 0, (void *)hook_CreateThread, &g_orig_CreateThread, 0},
+};
+
+static probe_iat_hook g_file_path_hooks[] = {
+    {"KERNEL32.dll", "CreateFileA", 0, (void *)hook_CreateFileA, &g_orig_CreateFileA, 0},
+    {"KERNEL32.dll", "CreateFileW", 0, (void *)hook_CreateFileW, &g_orig_CreateFileW, 0},
+    {"KERNEL32.dll", "SetFilePointer", 0, (void *)hook_SetFilePointer, &g_orig_SetFilePointer, 0},
+    {"KERNEL32.dll", "GetFileSize", 0, (void *)hook_GetFileSize, &g_orig_GetFileSize, 0},
+    {"KERNEL32.dll", "CloseHandle", 0, (void *)hook_CloseHandle, &g_orig_CloseHandle, 0},
+};
+
+static probe_iat_hook g_file_read_hooks[] = {
+    {"KERNEL32.dll", "ReadFile", 0, (void *)hook_ReadFile, &g_orig_ReadFile, 0},
 };
 
 static probe_watchpoint g_watchpoints[] = {
@@ -266,6 +318,18 @@ static probe_inline_hook g_inline_hooks[] = {
     {"WSOCK32.dll", "sendto", (void *)hook_sendto, &g_orig_sendto, NULL, NULL, NULL, {0}, 0, 0},
     {"WSOCK32.dll", "recvfrom", (void *)hook_recvfrom, &g_orig_recvfrom, NULL, NULL, NULL, {0}, 0, 0},
     {"WSOCK32.dll", "select", (void *)hook_select, &g_orig_select, NULL, NULL, NULL, {0}, 0, 0},
+};
+
+static probe_inline_hook g_file_path_inline_hooks[] = {
+    {"KERNEL32.dll", "CreateFileA", (void *)hook_CreateFileA, &g_orig_CreateFileA, NULL, NULL, NULL, {0}, 0, 0},
+    {"KERNEL32.dll", "CreateFileW", (void *)hook_CreateFileW, &g_orig_CreateFileW, NULL, NULL, NULL, {0}, 0, 0},
+    {"KERNEL32.dll", "SetFilePointer", (void *)hook_SetFilePointer, &g_orig_SetFilePointer, NULL, NULL, NULL, {0}, 0, 0},
+    {"KERNEL32.dll", "GetFileSize", (void *)hook_GetFileSize, &g_orig_GetFileSize, NULL, NULL, NULL, {0}, 0, 0},
+    {"KERNEL32.dll", "CloseHandle", (void *)hook_CloseHandle, &g_orig_CloseHandle, NULL, NULL, NULL, {0}, 0, 0},
+};
+
+static probe_inline_hook g_file_read_inline_hooks[] = {
+    {"KERNEL32.dll", "ReadFile", (void *)hook_ReadFile, &g_orig_ReadFile, NULL, NULL, NULL, {0}, 0, 0},
 };
 
 static probe_code_hook g_samp_code_hooks[] = {
@@ -314,6 +378,148 @@ static LONG next_call_count(LONG *counter) {
   return InterlockedIncrement(counter);
 }
 
+static int ascii_equal_ci(char a, char b) {
+  if (a >= 'A' && a <= 'Z') {
+    a = (char)(a - 'A' + 'a');
+  }
+  if (b >= 'A' && b <= 'Z') {
+    b = (char)(b - 'A' + 'a');
+  }
+  return a == b;
+}
+
+static int ascii_contains_ci(const char *text, const char *needle) {
+  size_t i;
+  size_t j;
+  size_t text_len;
+  size_t needle_len;
+
+  if (text == NULL || needle == NULL || *needle == '\0') {
+    return 0;
+  }
+
+  text_len = strlen(text);
+  needle_len = strlen(needle);
+  if (needle_len > text_len) {
+    return 0;
+  }
+
+  for (i = 0; i + needle_len <= text_len; ++i) {
+    for (j = 0; j < needle_len; ++j) {
+      if (!ascii_equal_ci(text[i + j], needle[j])) {
+        break;
+      }
+    }
+    if (j == needle_len) {
+      return 1;
+    }
+  }
+
+  return 0;
+}
+
+static int asset_path_interesting(const char *path) {
+  if (path == NULL || *path == '\0') {
+    return 0;
+  }
+
+  return ascii_contains_ci(path, "\\SAMP\\") || ascii_contains_ci(path, "/SAMP/") ||
+         ascii_contains_ci(path, "SAMP.img") || ascii_contains_ci(path, "SAMP.ide") ||
+         ascii_contains_ci(path, "SAMPCOL.img") || ascii_contains_ci(path, "CUSTOM.ide") ||
+         ascii_contains_ci(path, "custom.img") || ascii_contains_ci(path, "samaps.txd") ||
+         ascii_contains_ci(path, "blanktex.txd") || ascii_contains_ci(path, "SAMP.ipl");
+}
+
+static int file_hook_enter(void) {
+  int nested = g_file_hook_depth;
+  ++g_file_hook_depth;
+  return nested == 0;
+}
+
+static void file_hook_leave(void) {
+  --g_file_hook_depth;
+}
+
+static void remember_asset_handle(HANDLE handle, const char *path) {
+  size_t i;
+  size_t empty = PROBE_ASSET_HANDLE_SLOTS;
+
+  if (handle == NULL || handle == INVALID_HANDLE_VALUE || path == NULL || *path == '\0') {
+    return;
+  }
+
+  EnterCriticalSection(&g_log_lock);
+  for (i = 0; i < PROBE_ASSET_HANDLE_SLOTS; ++i) {
+    if (g_asset_handles[i].handle == handle) {
+      snprintf(g_asset_handles[i].path, sizeof(g_asset_handles[i].path), "%s", path);
+      InterlockedExchange(&g_asset_handles[i].read_count, 0);
+      LeaveCriticalSection(&g_log_lock);
+      return;
+    }
+    if (empty == PROBE_ASSET_HANDLE_SLOTS && g_asset_handles[i].handle == NULL) {
+      empty = i;
+    }
+  }
+
+  if (empty != PROBE_ASSET_HANDLE_SLOTS) {
+    g_asset_handles[empty].handle = handle;
+    snprintf(g_asset_handles[empty].path, sizeof(g_asset_handles[empty].path), "%s", path);
+    InterlockedExchange(&g_asset_handles[empty].read_count, 0);
+  }
+  LeaveCriticalSection(&g_log_lock);
+}
+
+static int find_asset_handle(HANDLE handle, char *path_out, size_t path_out_size, LONG *read_count_out) {
+  size_t i;
+  int found = 0;
+
+  if (path_out != NULL && path_out_size > 0) {
+    path_out[0] = '\0';
+  }
+  if (read_count_out != NULL) {
+    *read_count_out = 0;
+  }
+  if (handle == NULL || handle == INVALID_HANDLE_VALUE) {
+    return 0;
+  }
+
+  EnterCriticalSection(&g_log_lock);
+  for (i = 0; i < PROBE_ASSET_HANDLE_SLOTS; ++i) {
+    if (g_asset_handles[i].handle == handle) {
+      found = 1;
+      if (path_out != NULL && path_out_size > 0) {
+        snprintf(path_out, path_out_size, "%s", g_asset_handles[i].path);
+      }
+      if (read_count_out != NULL) {
+        *read_count_out = InterlockedIncrement(&g_asset_handles[i].read_count);
+      }
+      break;
+    }
+  }
+  LeaveCriticalSection(&g_log_lock);
+
+  return found;
+}
+
+static void forget_asset_handle(HANDLE handle) {
+  size_t i;
+
+  if (handle == NULL || handle == INVALID_HANDLE_VALUE) {
+    return;
+  }
+
+  EnterCriticalSection(&g_log_lock);
+  for (i = 0; i < PROBE_ASSET_HANDLE_SLOTS; ++i) {
+    if (g_asset_handles[i].handle == handle) {
+      g_asset_handles[i].handle = NULL;
+      g_asset_handles[i].path[0] = '\0';
+      InterlockedExchange(&g_asset_handles[i].read_count, 0);
+      break;
+    }
+  }
+  LeaveCriticalSection(&g_log_lock);
+}
+
 static int env_flag_enabled(const char *name) {
   char value[16];
   DWORD len;
@@ -328,6 +534,22 @@ static int env_flag_enabled(const char *name) {
   }
 
   return value[0] == '1' || value[0] == 'y' || value[0] == 'Y' || value[0] == 't' || value[0] == 'T';
+}
+
+static int asset_path_hooks_enabled(void) {
+  return env_or_flag_enabled("SAMP_PROBE_ASSET_PATHS", PROBE_ASSET_PATHS_FLAG) || asset_read_hooks_enabled();
+}
+
+static int asset_read_hooks_enabled(void) {
+  /* PROBE_TRACE + TODO_VERIFY: ReadFile remains a separate opt-in because
+   * original 0.3.7 uses large overlapped reads for SAMP asset archives. */
+  return env_or_flag_enabled("SAMP_PROBE_FILE_HOOKS", PROBE_FILE_HOOKS_FLAG);
+}
+
+static int samp_code_hooks_enabled(void) {
+  /* PROBE_TRACE: the older internal hook RVAs are stale for the tested R5 DLL.
+   * Keep patching opt-in until we have byte-validated replacement RVAs. */
+  return env_or_flag_enabled("SAMP_PROBE_ENABLE_SAMP_CODE_HOOKS", PROBE_SAMP_CODE_HOOKS_FLAG);
 }
 
 PROBE_ALWAYS_INLINE void *probe_return_address(void) {
@@ -351,6 +573,23 @@ static unsigned long samp_rva_from_address(void *address) {
     return 0;
   }
   return (unsigned long)((uintptr_t)address - g_samp_base);
+}
+
+static const char *samp_observed_socket_callsite(void *address) {
+  unsigned long rva = samp_rva_from_address(address);
+
+  /* OBSERVED_037 + PROBE_TRACE:
+   * R5 safe golden run 2026-06-05, original SHA256
+   * b72b5dbe725f81864ca3f78bc7063bda56cc05fc7188af822fa7a754432553a2.
+   * These are socket API return addresses, not verified function entries. */
+  switch (rva) {
+    case 0x00053b19u:
+      return "OBSERVED_037_SOCKET_SENDTO_CALLSITE";
+    case 0x00053a57u:
+      return "OBSERVED_037_SOCKET_RECVFROM_CALLSITE";
+    default:
+      return "";
+  }
 }
 
 static void path_dirname(char *path) {
@@ -399,6 +638,46 @@ static int file_exists(const char *path) {
   return attr != INVALID_FILE_ATTRIBUTES && (attr & FILE_ATTRIBUTE_DIRECTORY) == 0;
 }
 
+static int get_probe_module_dir(char *out, size_t out_size) {
+  char module_path[MAX_PATH];
+
+  if (out == NULL || out_size == 0) {
+    return 0;
+  }
+
+  out[0] = '\0';
+  module_path[0] = '\0';
+  if (GetModuleFileNameA(g_self_module, module_path, sizeof(module_path)) == 0) {
+    return 0;
+  }
+
+  snprintf(out, out_size, "%s", module_path);
+  path_dirname(out);
+  return out[0] != '\0';
+}
+
+static int probe_flag_file_enabled(const char *flag_name) {
+  char module_dir[MAX_PATH];
+  char flag_path[MAX_PATH];
+
+  if (flag_name == NULL || *flag_name == '\0') {
+    return 0;
+  }
+
+  module_dir[0] = '\0';
+  flag_path[0] = '\0';
+  if (!get_probe_module_dir(module_dir, sizeof(module_dir))) {
+    return 0;
+  }
+
+  join_path(flag_path, sizeof(flag_path), module_dir, flag_name);
+  return file_exists(flag_path);
+}
+
+static int env_or_flag_enabled(const char *env_name, const char *flag_name) {
+  return env_flag_enabled(env_name) || probe_flag_file_enabled(flag_name);
+}
+
 static void init_log_path(void) {
   char module_path[MAX_PATH];
   char module_dir[MAX_PATH];
@@ -420,26 +699,11 @@ static void init_log_path(void) {
 }
 
 static int hooks_disabled_by_flag(void) {
-  char module_path[MAX_PATH];
-  char module_dir[MAX_PATH];
-  char flag_path[MAX_PATH];
-
   if (env_flag_enabled("SAMP_PROBE_NO_HOOKS")) {
     return 1;
   }
 
-  module_path[0] = '\0';
-  module_dir[0] = '\0';
-  flag_path[0] = '\0';
-
-  if (GetModuleFileNameA(g_self_module, module_path, sizeof(module_path)) == 0) {
-    return 0;
-  }
-
-  snprintf(module_dir, sizeof(module_dir), "%s", module_path);
-  path_dirname(module_dir);
-  join_path(flag_path, sizeof(flag_path), module_dir, PROBE_NO_HOOKS_FLAG);
-  return file_exists(flag_path);
+  return probe_flag_file_enabled(PROBE_NO_HOOKS_FLAG);
 }
 
 static void format_sockaddr(const struct sockaddr *addr, int addr_len, char *out, size_t out_size) {
@@ -1206,10 +1470,21 @@ static int install_inline_hooks(int log_summary) {
   for (i = 0; i < sizeof(g_inline_hooks) / sizeof(g_inline_hooks[0]); ++i) {
     installed += install_inline_hook(&g_inline_hooks[i]);
   }
+  if (asset_path_hooks_enabled()) {
+    for (i = 0; i < sizeof(g_file_path_inline_hooks) / sizeof(g_file_path_inline_hooks[0]); ++i) {
+      installed += install_inline_hook(&g_file_path_inline_hooks[i]);
+    }
+  }
+  if (asset_read_hooks_enabled()) {
+    for (i = 0; i < sizeof(g_file_read_inline_hooks) / sizeof(g_file_read_inline_hooks[0]); ++i) {
+      installed += install_inline_hook(&g_file_read_inline_hooks[i]);
+    }
+  }
 
   if (log_summary) {
-    probe_log("inline_hook: summary installed_or_present=%d requested=%u", installed,
-              (unsigned)(sizeof(g_inline_hooks) / sizeof(g_inline_hooks[0])));
+    probe_log("inline_hook: summary installed_or_present=%d requested=%u asset_path_hooks=%d asset_read_hooks=%d",
+              installed, (unsigned)(sizeof(g_inline_hooks) / sizeof(g_inline_hooks[0])), asset_path_hooks_enabled(),
+              asset_read_hooks_enabled());
   }
   return installed;
 }
@@ -1313,6 +1588,13 @@ static int install_samp_code_hooks(int log_summary) {
   if (env_flag_enabled("SAMP_PROBE_NO_SAMP_CODE_HOOKS")) {
     if (log_summary) {
       probe_log("samp_code_hook: disabled by env");
+    }
+    return 0;
+  }
+  if (!samp_code_hooks_enabled()) {
+    if (log_summary) {
+      probe_log("samp_code_hook: disabled by default; enable with SAMP_PROBE_ENABLE_SAMP_CODE_HOOKS=1 or %s",
+                PROBE_SAMP_CODE_HOOKS_FLAG);
     }
     return 0;
   }
@@ -1495,9 +1777,20 @@ static int install_iat_hooks(PIMAGE_NT_HEADERS nt, int log_summary) {
   for (i = 0; i < sizeof(g_hooks) / sizeof(g_hooks[0]); ++i) {
     installed += hook_one_import(nt, &g_hooks[i]);
   }
+  if (asset_path_hooks_enabled()) {
+    for (i = 0; i < sizeof(g_file_path_hooks) / sizeof(g_file_path_hooks[0]); ++i) {
+      installed += hook_one_import(nt, &g_file_path_hooks[i]);
+    }
+  }
+  if (asset_read_hooks_enabled()) {
+    for (i = 0; i < sizeof(g_file_read_hooks) / sizeof(g_file_read_hooks[0]); ++i) {
+      installed += hook_one_import(nt, &g_file_read_hooks[i]);
+    }
+  }
 
   if (log_summary) {
-    probe_log("hook: summary installed=%d requested=%u", installed, (unsigned)(sizeof(g_hooks) / sizeof(g_hooks[0])));
+    probe_log("hook: summary installed=%d requested=%u asset_path_hooks=%d asset_read_hooks=%d", installed,
+              (unsigned)(sizeof(g_hooks) / sizeof(g_hooks[0])), asset_path_hooks_enabled(), asset_read_hooks_enabled());
   }
   return installed;
 }
@@ -1541,6 +1834,8 @@ static DWORD WINAPI probe_worker(LPVOID param) {
 
   init_log_path();
   probe_log("probe: attached build=%s %s", __DATE__, __TIME__);
+  probe_log("probe: options asset_path_hooks=%d asset_read_hooks=%d samp_code_hooks=%d", asset_path_hooks_enabled(),
+            asset_read_hooks_enabled(), samp_code_hooks_enabled());
 
   start_ms = GetTickCount();
   while (WaitForSingleObject(g_stop_event, 50) == WAIT_TIMEOUT) {
@@ -1841,11 +2136,13 @@ static int WINAPI hook_sendto(SOCKET s, const char *buf, int len, int flags, con
   LONG n = next_call_count(&count);
   int rc = ((probe_sendto_fn)g_orig_sendto)(s, buf, len, flags, to, tolen);
   if (log_this && should_log_call(n)) {
+    const char *site = samp_observed_socket_callsite(caller);
     format_sockaddr(to, tolen, addr, sizeof(addr));
     payload_to_hex(buf, len, payload, sizeof(payload));
-    probe_log("call: sendto count=%ld caller=%p caller_rva=0x%08lx socket=0x%lx len=%d flags=0x%x to=%s rc=%d err=%d data=%s",
-              (long)n, caller, samp_rva_from_address(caller), (unsigned long)s, len, flags, addr, rc, last_wsa_error(),
-              payload);
+    probe_log("call: sendto count=%ld caller=%p caller_rva=0x%08lx site=%s socket=0x%lx len=%d flags=0x%x to=%s "
+              "rc=%d err=%d data=%s",
+              (long)n, caller, samp_rva_from_address(caller), site, (unsigned long)s, len, flags, addr, rc,
+              last_wsa_error(), payload);
   }
   return rc;
 }
@@ -1860,11 +2157,13 @@ static int WINAPI hook_recvfrom(SOCKET s, char *buf, int len, int flags, struct 
   LONG n = next_call_count(&count);
   int rc = ((probe_recvfrom_fn)g_orig_recvfrom)(s, buf, len, flags, from, fromlen);
   if (log_this && should_log_call(n)) {
+    const char *site = samp_observed_socket_callsite(caller);
     format_sockaddr(from, fromlen != NULL ? *fromlen : observed_len, addr, sizeof(addr));
     payload_to_hex(buf, rc > 0 ? rc : 0, payload, sizeof(payload));
-    probe_log("call: recvfrom count=%ld caller=%p caller_rva=0x%08lx socket=0x%lx len=%d flags=0x%x from=%s rc=%d err=%d data=%s",
-              (long)n, caller, samp_rva_from_address(caller), (unsigned long)s, len, flags, addr, rc, last_wsa_error(),
-              payload);
+    probe_log("call: recvfrom count=%ld caller=%p caller_rva=0x%08lx site=%s socket=0x%lx len=%d flags=0x%x from=%s "
+              "rc=%d err=%d data=%s",
+              (long)n, caller, samp_rva_from_address(caller), site, (unsigned long)s, len, flags, addr, rc,
+              last_wsa_error(), payload);
   }
   return rc;
 }
@@ -1943,6 +2242,185 @@ static HANDLE WINAPI hook_CreateThread(LPSECURITY_ATTRIBUTES attr, SIZE_T stack_
   HANDLE rc = ((probe_CreateThread_fn)g_orig_CreateThread)(attr, stack_size, start, param, flags, thread_id);
   probe_log("call: CreateThread count=%ld start=%p param=%p flags=0x%lx tid=%lu handle=%p err=%lu", (long)n, (void *)start,
             param, (unsigned long)flags, thread_id ? (unsigned long)*thread_id : 0ul, rc, (unsigned long)GetLastError());
+  return rc;
+}
+
+static HANDLE WINAPI hook_CreateFileA(LPCSTR file_name, DWORD desired_access, DWORD share_mode,
+                                      LPSECURITY_ATTRIBUTES security_attributes, DWORD creation_disposition,
+                                      DWORD flags_and_attributes, HANDLE template_file) {
+  static LONG count;
+  void *caller = probe_return_address();
+  int top_level = file_hook_enter();
+  HANDLE rc;
+  DWORD saved_error;
+
+  if (g_orig_CreateFileA == NULL) {
+    file_hook_leave();
+    return INVALID_HANDLE_VALUE;
+  }
+
+  rc = ((probe_CreateFileA_fn)g_orig_CreateFileA)(file_name, desired_access, share_mode, security_attributes,
+                                                  creation_disposition, flags_and_attributes, template_file);
+  saved_error = GetLastError();
+  if (top_level) {
+    int interesting = asset_path_interesting(file_name);
+    int log_this = interesting || should_log_api_from_caller(caller);
+    LONG n = next_call_count(&count);
+    if (interesting && rc != INVALID_HANDLE_VALUE) {
+      remember_asset_handle(rc, file_name);
+    }
+    if (log_this && should_log_call(n)) {
+      probe_log("file: CreateFileA count=%ld caller=%p caller_rva=0x%08lx path='%s' access=0x%08lx share=0x%08lx "
+                "disp=%lu flags=0x%08lx result=%p err=%lu interesting=%d",
+                (long)n, caller, samp_rva_from_address(caller), file_name != NULL ? file_name : "(null)",
+                (unsigned long)desired_access, (unsigned long)share_mode, (unsigned long)creation_disposition,
+                (unsigned long)flags_and_attributes, rc, (unsigned long)saved_error, interesting);
+    }
+  }
+  file_hook_leave();
+  SetLastError(saved_error);
+  return rc;
+}
+
+static HANDLE WINAPI hook_CreateFileW(LPCWSTR file_name, DWORD desired_access, DWORD share_mode,
+                                      LPSECURITY_ATTRIBUTES security_attributes, DWORD creation_disposition,
+                                      DWORD flags_and_attributes, HANDLE template_file) {
+  static LONG count;
+  char narrowed[MAX_PATH];
+  void *caller = probe_return_address();
+  int top_level = file_hook_enter();
+  HANDLE rc;
+  DWORD saved_error;
+
+  narrowed[0] = '\0';
+  if (file_name != NULL) {
+    WideCharToMultiByte(CP_ACP, 0, file_name, -1, narrowed, sizeof(narrowed), NULL, NULL);
+  }
+
+  if (g_orig_CreateFileW == NULL) {
+    file_hook_leave();
+    return INVALID_HANDLE_VALUE;
+  }
+
+  rc = ((probe_CreateFileW_fn)g_orig_CreateFileW)(file_name, desired_access, share_mode, security_attributes,
+                                                  creation_disposition, flags_and_attributes, template_file);
+  saved_error = GetLastError();
+  if (top_level) {
+    int interesting = asset_path_interesting(narrowed);
+    int log_this = interesting || should_log_api_from_caller(caller);
+    LONG n = next_call_count(&count);
+    if (interesting && rc != INVALID_HANDLE_VALUE) {
+      remember_asset_handle(rc, narrowed);
+    }
+    if (log_this && should_log_call(n)) {
+      probe_log("file: CreateFileW count=%ld caller=%p caller_rva=0x%08lx path='%s' access=0x%08lx share=0x%08lx "
+                "disp=%lu flags=0x%08lx result=%p err=%lu interesting=%d",
+                (long)n, caller, samp_rva_from_address(caller), narrowed[0] ? narrowed : "(null)",
+                (unsigned long)desired_access, (unsigned long)share_mode, (unsigned long)creation_disposition,
+                (unsigned long)flags_and_attributes, rc, (unsigned long)saved_error, interesting);
+    }
+  }
+  file_hook_leave();
+  SetLastError(saved_error);
+  return rc;
+}
+
+static BOOL WINAPI hook_ReadFile(HANDLE file, LPVOID buffer, DWORD bytes_to_read, LPDWORD bytes_read, LPOVERLAPPED overlapped) {
+  char path[MAX_PATH];
+  LONG read_count = 0;
+  int top_level = file_hook_enter();
+  BOOL rc;
+  DWORD saved_error;
+
+  if (g_orig_ReadFile == NULL) {
+    file_hook_leave();
+    return FALSE;
+  }
+
+  rc = ((probe_ReadFile_fn)g_orig_ReadFile)(file, buffer, bytes_to_read, bytes_read, overlapped);
+  saved_error = GetLastError();
+  if (top_level && find_asset_handle(file, path, sizeof(path), &read_count)) {
+    DWORD observed = bytes_read != NULL ? *bytes_read : 0ul;
+    if (read_count <= 32 || (read_count & 0xff) == 0 || (rc && observed == 0)) {
+      probe_log("file: ReadFile count=%ld handle=%p path='%s' request=%lu read=%lu overlapped=%p rc=%d err=%lu",
+                (long)read_count, file, path, (unsigned long)bytes_to_read, (unsigned long)observed, overlapped, (int)rc,
+                (unsigned long)saved_error);
+    }
+  }
+  file_hook_leave();
+  SetLastError(saved_error);
+  return rc;
+}
+
+static DWORD WINAPI hook_SetFilePointer(HANDLE file, LONG distance_to_move, PLONG distance_to_move_high, DWORD move_method) {
+  char path[MAX_PATH];
+  int top_level = file_hook_enter();
+  DWORD rc;
+  DWORD saved_error;
+
+  if (g_orig_SetFilePointer == NULL) {
+    file_hook_leave();
+    return INVALID_SET_FILE_POINTER;
+  }
+
+  rc = ((probe_SetFilePointer_fn)g_orig_SetFilePointer)(file, distance_to_move, distance_to_move_high, move_method);
+  saved_error = GetLastError();
+  if (top_level && find_asset_handle(file, path, sizeof(path), NULL)) {
+    probe_log("file: SetFilePointer handle=%p path='%s' distance=%ld high=%ld method=%lu result=%lu err=%lu", file, path,
+              (long)distance_to_move, distance_to_move_high != NULL ? (long)*distance_to_move_high : 0l,
+              (unsigned long)move_method, (unsigned long)rc, (unsigned long)saved_error);
+  }
+  file_hook_leave();
+  SetLastError(saved_error);
+  return rc;
+}
+
+static DWORD WINAPI hook_GetFileSize(HANDLE file, LPDWORD file_size_high) {
+  char path[MAX_PATH];
+  int top_level = file_hook_enter();
+  DWORD rc;
+  DWORD saved_error;
+
+  if (g_orig_GetFileSize == NULL) {
+    file_hook_leave();
+    return INVALID_FILE_SIZE;
+  }
+
+  rc = ((probe_GetFileSize_fn)g_orig_GetFileSize)(file, file_size_high);
+  saved_error = GetLastError();
+  if (top_level && find_asset_handle(file, path, sizeof(path), NULL)) {
+    probe_log("file: GetFileSize handle=%p path='%s' low=%lu high=%lu err=%lu", file, path, (unsigned long)rc,
+              file_size_high != NULL ? (unsigned long)*file_size_high : 0ul, (unsigned long)saved_error);
+  }
+  file_hook_leave();
+  SetLastError(saved_error);
+  return rc;
+}
+
+static BOOL WINAPI hook_CloseHandle(HANDLE object) {
+  char path[MAX_PATH];
+  int top_level = file_hook_enter();
+  int tracked = 0;
+  BOOL rc;
+  DWORD saved_error;
+
+  if (top_level) {
+    tracked = find_asset_handle(object, path, sizeof(path), NULL);
+  }
+
+  if (g_orig_CloseHandle == NULL) {
+    file_hook_leave();
+    return FALSE;
+  }
+
+  rc = ((probe_CloseHandle_fn)g_orig_CloseHandle)(object);
+  saved_error = GetLastError();
+  if (top_level && tracked) {
+    probe_log("file: CloseHandle handle=%p path='%s' rc=%d err=%lu", object, path, (int)rc, (unsigned long)saved_error);
+    forget_asset_handle(object);
+  }
+  file_hook_leave();
+  SetLastError(saved_error);
   return rc;
 }
 

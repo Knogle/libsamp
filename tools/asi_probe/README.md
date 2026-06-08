@@ -17,12 +17,12 @@ The first pass rewrites selected import slots inside `samp.dll`, so observed cal
 
 If the target bypasses its visible IAT, the probe also installs process-wide inline hooks on selected `WSOCK32.dll` exports. These hooks log only when the return address is inside the loaded `samp.dll` image, and each line includes `caller_rva`. `send`, `sendto`, successful `recv`, and successful `recvfrom` lines include a first-256-byte payload hex preview. Set `SAMP_PROBE_LOG_ALL_API=1` only when intentionally debugging process-wide noise.
 
-For the currently observed packed prefix DLL, the probe also has guarded internal hooks for:
+For the currently observed packed prefix DLL, the probe keeps guarded internal hook candidates for:
 
 - `samp.SocketLayer.SendTo` at RVA `0x0004ffc0`, before the SA-MP client datagram transform.
 - `samp.ProcessNetworkPacket` at RVA `0x0003b950`, after `recvfrom` and before RakNet packet handling.
 
-These internal hooks validate expected prologue bytes before patching, so they skip automatically if a different `samp.dll` build is loaded.
+`PROBE_TRACE` from the R5 golden run on 2026-06-05 shows these RVAs are stale for the tested original DLL, so internal `samp.dll` code hooks are disabled by default. Enable them only for a targeted verification run with `SAMP_PROBE_ENABLE_SAMP_CODE_HOOKS=1` or `samp_probe_samp_code_hooks.flag`. The normal socket trace now labels observed R5 Winsock callsites such as `samp.dll+0x00053b19` and `samp.dll+0x00053a57` without patching those callsites.
 
 The hook matcher supports both named imports and selected `WSOCK32.dll` ordinals. This matters for packed/protected SA-MP DLLs that expose only sparse ordinal imports such as `WSOCK32 ordinal 17` (`recvfrom`).
 
@@ -90,11 +90,24 @@ Environment variables are also supported:
 SAMP_PROBE_NO_HOOKS=1
 SAMP_PROBE_NO_INLINE_HOOKS=1
 SAMP_PROBE_NO_SAMP_CODE_HOOKS=1
+SAMP_PROBE_ENABLE_SAMP_CODE_HOOKS=1
 SAMP_PROBE_NO_WATCH=1
 SAMP_PROBE_NO_STATE=1
 SAMP_PROBE_STATE_ALWAYS=1
 SAMP_PROBE_LOG_ALL_API=1
+SAMP_PROBE_ASSET_PATHS=1
+SAMP_PROBE_FILE_HOOKS=1
 ```
+
+The asset trace can also be toggled through files next to the ASI:
+
+```text
+samp_probe_asset_paths.flag
+samp_probe_file_hooks.flag
+samp_probe_samp_code_hooks.flag
+```
+
+Use `samp_probe_asset_paths.flag` for normal original-DLL golden traces. It logs interesting SA-MP asset opens, size queries, seeks, and closes. `samp_probe_file_hooks.flag` additionally hooks `ReadFile`; keep that for short, targeted runs only because original 0.3.7 performs large overlapped reads against the SAMP archives.
 
 ## First Questions This Should Answer
 
