@@ -45,7 +45,7 @@ Define replacement behavior for hostname/IP resolution and outbound connect path
 1. Resolution failure returns an error equivalent to "failed to connect host".
 2. Socket creation failure on one candidate does not stop trying remaining candidates.
 3. Connect failure on one candidate does not stop trying remaining candidates.
-4. If all candidates fail, return failure and preserve legacy reconnect/error flow.
+4. If all candidates fail, return failure and preserve the original reconnect/error flow.
 
 ## Test Matrix (Minimum)
 

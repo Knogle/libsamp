@@ -96,5 +96,5 @@ Minimum fields to converge toward mapped semantics:
 - `analysis/notes/fcn_10055f30_auto.txt`
 - `analysis/notes/fcn_10055ff0_connect_worker.txt`
 - `analysis/notes/fcn_10056880_auto.txt`
-- `specs/SPEC-NET-003_LEGACY_IPV4_SOCKET_PRIMITIVES.md`
+- `specs/SPEC-NET-003_IPV4_SOCKET_PRIMITIVES.md`
 - `specs/SPEC-NET-005_KNOGLE_RAKNET_INTEGRATION.md`

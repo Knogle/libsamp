@@ -5,7 +5,7 @@
 #endif
 
 #include "sampdll/net/dual_stack.h"
-#include "sampdll/net/legacy_ipv4_compat.h"
+#include "sampdll/net/ipv4_socket_compat.h"
 
 #include <stdio.h>
 #include <string.h>
@@ -45,7 +45,7 @@ int main(void) {
   samp_socket_t sock_b = SAMP_INVALID_SOCKET;
   uint16_t port_a = 0;
   uint16_t port_b = 0;
-  const char payload[] = "legacy-udp-probe";
+  const char payload[] = "ipv4-udp-probe";
   uint32_t loopback_be = 0;
   uint32_t from_addr_be = 0;
   uint16_t from_port = 0;
@@ -156,6 +156,6 @@ int main(void) {
     return 1;
   }
 
-  fprintf(stdout, "All legacy IPv4 compat checks passed\n");
+  fprintf(stdout, "All IPv4 socket compat checks passed\n");
   return 0;
 }

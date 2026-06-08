@@ -6,13 +6,13 @@ This folder contains Team B implementation artifacts derived from specs.
 
 - Buildable `samp.dll` skeleton (`DllMain`, no exports).
 - Phased boot lifecycle dispatcher (`BOOT_PHASE_1..6`) with rollback/teardown handling.
-- Legacy-style command-line settings parsing (`-d/-c/-h/-p/-n/-z`) in runtime init.
+- Original-style command-line settings parsing (`-d/-c/-h/-p/-n/-z`) in runtime init.
 - LaunchMonitor-style worker thread scaffold with entry-gate wait and periodic init tick.
 - Dual-stack endpoint parsing and connect core (`SPEC-NET-001` foundation).
-- Legacy IPv4 socket primitive compatibility layer (`SPEC-NET-003` foundation).
+- IPv4-era socket primitive compatibility layer (`SPEC-NET-003` foundation).
 - TCP bootstrap manager lifecycle scaffold (`SPEC-NET-004` foundation).
 - Default integration of vendored Knogle RakNet variant (`SPEC-NET-005` foundation).
-- SA-MP legacy client UDP datagram transform for RakNet outbound traffic, validated against original `samp.dll` capture bytes.
+- SA-MP client UDP datagram transform for RakNet outbound traffic, validated against original `samp.dll` capture bytes.
 - Network object worker-cluster mapping guide (`SPEC-NET-006` foundation).
 - Host-side parser tests for deterministic validation.
 
@@ -46,7 +46,7 @@ SAMPDLL_ENABLE_RAKNET_KNOGLE=OFF \
 reimpl/scripts/build_win32.sh
 ```
 
-Note: `test_legacy_ipv4_compat` can end as `SKIP` (exit 0) in heavily
+Note: `test_ipv4_socket_compat` can end as `SKIP` (exit 0) in heavily
 sandboxed environments with blocked AF_INET sockets.
 Note: `test_tcp_bootstrap_manager` can also end as `SKIP` in heavily sandboxed
 environments.

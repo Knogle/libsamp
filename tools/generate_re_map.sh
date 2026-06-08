@@ -135,16 +135,6 @@ awk '
   $0 ~ /[[:space:][:punct:]]/ { print }' "${OUT_DIR}/strings_n8.txt" \
   | sort -u >"${OUT_DIR}/strings_anchor_candidates.txt"
 
-if [[ -d samp/client && -d samp/raknet ]]; then
-  rg -n -F -f "${OUT_DIR}/strings_anchor_candidates.txt" samp/client samp/raknet \
-    -g '*.[ch]' -g '*.cpp' -g '*.hpp' -g '*.c' \
-    -g '!samp/client/d3d9/include/**' -g '!samp/client/d3d9/common/**' \
-    -g '!samp/client/d3d9/dxutil.cpp' -g '!samp/client/d3d9/d3dutil.cpp' \
-    >"${OUT_DIR}/legacy_string_hits_core.txt" || true
-  cut -d: -f1 "${OUT_DIR}/legacy_string_hits_core.txt" | sort | uniq -c | sort -nr \
-    >"${OUT_DIR}/legacy_string_hit_files.tsv"
-fi
-
 {
   echo "# RE Map Summary"
   echo
@@ -159,7 +149,7 @@ fi
   echo "- \`wsock_xrefs.txt\`, \`wsock_callers.tsv\`: Winsock call-site map."
   echo "- \`d3dx_wrapper_xrefs.txt\`, \`d3dx_wrapper_callers.tsv\`: render wrapper call map."
   echo "- \`bass_wrapper_xrefs.txt\`, \`bass_wrapper_callers.tsv\`: audio wrapper call map."
-  echo "- \`legacy_string_hits_core.txt\`: source crosswalk signal from retained strings."
+  echo "- \`strings_anchor_candidates.txt\`: retained string anchors for manual RE notes."
 } >"${OUT_DIR}/RE_MAP_SUMMARY.md"
 
 echo "[+] Done. Results written to: ${OUT_DIR}"

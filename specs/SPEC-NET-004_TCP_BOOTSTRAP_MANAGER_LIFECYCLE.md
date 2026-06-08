@@ -52,7 +52,7 @@ Capture lifecycle behavior of the mapped network manager object family (`0x10055
 ## Reimplementation Progress
 
 1. `samp_tcp_bootstrap_manager` scaffold is implemented in `reimpl/src/net/tcp_bootstrap_manager.c`.
-2. Legacy listen/connect path remains available for deterministic host tests.
+2. The reference listen/connect path remains available for deterministic host tests.
 3. Optional RakNet client lifecycle is provisioned through adapter-backed APIs:
    - `samp_net_mgr_connect_raknet`
    - `samp_net_mgr_raknet_is_connected`

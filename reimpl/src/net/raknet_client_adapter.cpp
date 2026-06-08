@@ -56,15 +56,15 @@ constexpr RakNet::RakNetTime kSelectModeClickDelayMs = 250U;
 constexpr RakNet::RakNetTime kScorePingUpdateMs = 3000U;
 constexpr unsigned int kMaxSpawnRetries = 4U;
 constexpr unsigned short kDefaultFreeroamTextDrawId = 24U;
-constexpr unsigned int kLegacyPlayerSpawnInfoBytes = 45U;
+constexpr unsigned int kObservedPlayerSpawnInfoBytes = 45U;
 constexpr unsigned int kPlayerSpawnInfoBytes = 46U;
 constexpr unsigned int kDialogTitleBytes = 256U;
 constexpr unsigned int kDialogInfoBytes = 4096U;
 constexpr unsigned int kDialogButtonBytes = 64U;
 constexpr unsigned int kDialogInputBytes = 256U;
 constexpr unsigned int kChatInputBytes = 128U;
-constexpr unsigned int kLegacyTextDrawTransmitBytes = 40U;
-constexpr unsigned int kTextDrawShowMinBytes = 2U + kLegacyTextDrawTransmitBytes;
+constexpr unsigned int kCompactTextDrawTransmitBytes = 40U;
+constexpr unsigned int kTextDrawShowMinBytes = 2U + kCompactTextDrawTransmitBytes;
 constexpr unsigned int kTextDrawEditMinBytes = 2U;
 constexpr unsigned int kOpenMpTextDrawHeaderBytes = 67U;
 constexpr unsigned int kOpenMpTextDrawStringLengthOffset = 65U;
@@ -605,7 +605,7 @@ unsigned int rpc_min_payload_bytes(unsigned int rpc_id) {
     case 67U:
       return 4U;
     case 68U:
-      return kLegacyPlayerSpawnInfoBytes;
+      return kObservedPlayerSpawnInfoBytes;
     case 69U:
       return 3U;
     case 70U:
@@ -992,7 +992,7 @@ void read_spawn_info(const unsigned char *data, unsigned int bytes, const char *
   std::int32_t weapons[3] = {0, 0, 0};
   std::int32_t ammo[3] = {0, 0, 0};
 
-  if (data == nullptr || bytes < kLegacyPlayerSpawnInfoBytes) {
+  if (data == nullptr || bytes < kObservedPlayerSpawnInfoBytes) {
     return;
   }
 
@@ -2528,15 +2528,15 @@ bool decode_textdraw_show_payload(const unsigned char *data, unsigned int bytes)
   }
 
   std::memset(&transmit, 0, sizeof(transmit));
-  std::memcpy(&transmit, data + 2U, kLegacyTextDrawTransmitBytes);
+  std::memcpy(&transmit, data + 2U, kCompactTextDrawTransmitBytes);
   std::memset(text, 0, sizeof(text));
-  decode_textdraw_tail(data, bytes, 2U + kLegacyTextDrawTransmitBytes, text, sizeof(text));
+  decode_textdraw_tail(data, bytes, 2U + kCompactTextDrawTransmitBytes, text, sizeof(text));
   queue_textdraw_event(SAMP_RAKNET_TEXTDRAW_ACTION_SHOW, textdraw_id, &transmit, text);
   trace_netf("textdraw-decode: show seq=%u id=%u variant=compact pos=(%.3f,%.3f) style=%u flags=0x%02x tail=%u text='%s'",
              g_rpc_probe.textdraw_event_seq, static_cast<unsigned int>(textdraw_id),
              static_cast<double>(transmit.x), static_cast<double>(transmit.y),
              static_cast<unsigned int>(transmit.style), static_cast<unsigned int>(transmit.flags),
-             bytes - (2U + kLegacyTextDrawTransmitBytes), text);
+             bytes - (2U + kCompactTextDrawTransmitBytes), text);
   return true;
 }
 
@@ -3333,7 +3333,7 @@ void rpc_observer(RakNet::RPCParameters *rpc_params, void *extra) {
     if (rpc_params != nullptr && bytes > 0U) {
       g_rpc_probe.request_class_outcome = rpc_params->input[0];
       trace_netf("rpc-state id=128 request_class_outcome=%u", static_cast<unsigned int>(g_rpc_probe.request_class_outcome));
-      if (g_rpc_probe.request_class_outcome != 0U && bytes >= (1U + kLegacyPlayerSpawnInfoBytes)) {
+      if (g_rpc_probe.request_class_outcome != 0U && bytes >= (1U + kObservedPlayerSpawnInfoBytes)) {
         read_spawn_info(rpc_params->input + 1, bytes - 1U, "RequestClass");
         g_rpc_probe.class_selection_ready_time = RakNet::GetTime() + kClassSelectionManualDelayMs;
       }
@@ -3491,7 +3491,7 @@ void rpc_observer(RakNet::RPCParameters *rpc_params, void *extra) {
       trace_netf("rpc-state id=147 vehicle_health decode_failed bytes=%u", bytes);
     }
   } else if (rpc_id == 68U) {
-    if (rpc_params != nullptr && bytes >= kLegacyPlayerSpawnInfoBytes) {
+    if (rpc_params != nullptr && bytes >= kObservedPlayerSpawnInfoBytes) {
       read_spawn_info(rpc_params->input, bytes, "ScrSetSpawnInfo");
       if (g_rpc_probe.sent_select_mode_freeroam_click && g_rpc_probe.request_spawn_outcome == 0U) {
         g_rpc_probe.saw_request_spawn_reply = 1;

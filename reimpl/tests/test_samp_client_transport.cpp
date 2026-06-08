@@ -6,7 +6,7 @@
 #include <cstdio>
 #include <cstring>
 
-extern char AuthKeyTable[512][2][128];
+extern "C" const char* samp_raknet_knogle_auth_response(const char* challenge);
 
 namespace
 {
@@ -43,7 +43,7 @@ int main()
 {
 	int failed = 0;
 	uint8_t output[16] = {};
-	bool foundKnownAuthResponse = false;
+	const char* knownAuthResponse = nullptr;
 
 	const uint8_t plainOpenRequest1[] = { 0x18, 0x69, 0x69 };
 	const uint8_t wireOpenRequest1[] = { 0x08, 0x1e, 0x77, 0xda };
@@ -57,23 +57,17 @@ int main()
 
 	length = RakNet::SampLegacyClientEncryptDatagram(plainOpenRequest1, 3, 7777, output, 3);
 	failed += assert_true(length == -1, "small output buffer is rejected");
-	failed += assert_true(RakNet::SampLegacyClientTransportEnabled(), "legacy SA-MP client transport is enabled in reimpl build");
+	failed += assert_true(RakNet::SampLegacyClientTransportEnabled(), "SA-MP client transport is enabled in reimpl build");
 	failed += assert_true(RakNet::ID_OPEN_CONNECTION_REQUEST == 0x18, "SA-MP open connection request id");
 	failed += assert_true(RakNet::ID_OPEN_CONNECTION_COOKIE == 0x1a, "SA-MP open connection cookie id");
 	failed += assert_true(RakNet::ID_CONNECTION_REQUEST_ACCEPTED == 0x22, "SA-MP connection accepted id");
 	failed += assert_true(SAMPRakNet::GetMinimumSendBitsPerSecond() > 0.0f,
 						  "standalone SAMPRakNet stub allows reliable handshake packets to flush");
 
-	for (int i = 0; i < 512; ++i)
-	{
-		if (std::strcmp(AuthKeyTable[i][0], "58901CF451C93E3") == 0 &&
-			std::strcmp(AuthKeyTable[i][1], "A24C762722180B42D75D32641BA1F5BD5705498A") == 0)
-		{
-			foundKnownAuthResponse = true;
-			break;
-		}
-	}
-	failed += assert_true(foundKnownAuthResponse, "SA-MP auth challenge table contains captured response vector");
+	knownAuthResponse = samp_raknet_knogle_auth_response("58901CF451C93E3");
+	failed += assert_true(knownAuthResponse != nullptr &&
+							  std::strcmp(knownAuthResponse, "A24C762722180B42D75D32641BA1F5BD5705498A") == 0,
+						  "SA-MP auth challenge table contains captured response vector");
 
 	if (failed != 0)
 	{

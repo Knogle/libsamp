@@ -16,13 +16,13 @@
 7. Entry boot-path analysis documented (`SPEC-ABI-001`).
 8. Original-DLL boot/runtime analysis documented (`SPEC-ABI-001`, `analysis/metadata/CURRENT_DLL_DETAILED_MAP.md`).
 9. Phased boot runtime scaffold implemented (`BOOT_PHASE_1..6` attach/detach dispatch).
-10. Boot sequence cross-checked with local confirmed-working client source (`samp/client/main.cpp`).
+10. Boot sequence cross-checked against original 0.3.7 runtime traces and the current replacement path.
 11. Runtime now includes settings parser + LaunchMonitor-thread + entry-gate wait + init-tick flow.
-12. Legacy IPv4 primitive net layer implemented (`SPEC-NET-003`) with host tests (UDP bind/send/recv + TCP listen/connect smoke).
+12. IPv4 primitive net layer implemented (`SPEC-NET-003`) with host tests (UDP bind/send/recv + TCP listen/connect smoke).
 13. TCP bootstrap manager lifecycle scaffold implemented (`SPEC-NET-004`) with start/stop/connect/idempotency tests.
 14. Knogle RakNet variant integrated as vendored optional backend with bridge smoke test (`SPEC-NET-005`).
 15. TCP bootstrap manager now provisions optional RakNet client lifecycle via adapter (`create/connect/disconnect/pump` APIs).
-16. Legacy IPv4 module now includes mapped local-address enumeration helper (`gethostname/gethostbyname/inet_ntoa`) aligned to `fcn.10053b70`.
+16. IPv4 compatibility module now includes mapped local-address enumeration helper (`gethostname/gethostbyname/inet_ntoa`) aligned to `fcn.10053b70`.
 17. Network object lifecycle/connect-worker cluster formalized as `SPEC-NET-006`.
 18. Scope decision: `d3d9`/`d3dx9_25` and `BASS.dll` are treated as external runtime dependencies for now; primary compatibility target is `samp.dll` lifecycle + networking/state behavior.
 19. Candidate PE now matches reference `FileAlignment` (`0x1000`) and carries a `.rsrc` section again.
@@ -43,7 +43,7 @@
 5. Gradually map and reimplement subsystem entry flows (network, audio, UI, rendering hooks).
 6. Add behavior-comparison harness against original binary.
 7. Extend TCP bootstrap manager from scaffold to full worker/thread + container parity.
-8. Move bootstrap manager transport path from legacy helper-only mode to RakNet-backed runtime mode.
+8. Move bootstrap manager transport path from socket helper-only mode to RakNet-backed runtime mode.
 9. Wire runtime boot/connect state machine to manager RakNet path and map packet/event transitions.
 10. Implement `SPEC-NET-006` worker lifecycle internals (connect/listen queue handoff + deterministic stop ordering).
 11. Keep external renderer/audio parity non-blocking while `samp.dll` ABI/runtime parity is still incomplete.

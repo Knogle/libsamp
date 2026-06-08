@@ -8,13 +8,13 @@ set(CMAKE_C_EXTENSIONS OFF)
 
 option(SAMPDLL_BUILD_TESTS "Build host-side tests" ON)
 option(SAMPDLL_ENABLE_RAKNET_KNOGLE "Integrate vendored Knogle RakNet variant" ON)
-option(SAMPDLL_ENABLE_LEGACY_SAMP_CLIENT_TRANSPORT "Enable SA-MP legacy client UDP datagram transform" ON)
+option(SAMPDLL_ENABLE_SAMP_CLIENT_TRANSPORT "Enable SA-MP client UDP datagram transform" ON)
 
 set(SAMPDLL_RAKNET_KNOGLE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../third_party/raknet-knogle")
 
 set(SAMPDLL_NET_SOURCES
   src/net/dual_stack.c
-  src/net/legacy_ipv4_compat.c
+  src/net/ipv4_socket_compat.c
   src/net/tcp_bootstrap_manager.c
 )
 
@@ -23,7 +23,7 @@ if(SAMPDLL_ENABLE_RAKNET_KNOGLE AND EXISTS "${SAMPDLL_RAKNET_KNOGLE_DIR}/CMakeLi
   set(RAKNET_BUILD_TOOLS OFF CACHE BOOL "Build probe tools" FORCE)
   set(RAKNET_REQUIRE_OMP_SDK OFF CACHE BOOL "Link against OMP-SDK target" FORCE)
   add_subdirectory("${SAMPDLL_RAKNET_KNOGLE_DIR}" "${CMAKE_BINARY_DIR}/raknet-knogle-build" EXCLUDE_FROM_ALL)
-  if(SAMPDLL_ENABLE_LEGACY_SAMP_CLIENT_TRANSPORT)
+  if(SAMPDLL_ENABLE_SAMP_CLIENT_TRANSPORT)
     target_compile_definitions(raknet PUBLIC RAKNET_ENABLE_LEGACY_SAMP_CLIENT_TRANSPORT=1)
   endif()
 
@@ -143,7 +143,7 @@ if(WIN32)
       -fdata-sections
     )
 
-    # Match legacy PE profile where possible: fixed image base, no exports, GUI subsystem.
+    # Match the reference PE profile where possible: fixed image base, no exports, GUI subsystem.
     target_link_options(samp PRIVATE
       -Wl,--subsystem,windows
       -Wl,--image-base,0x10000000
@@ -177,16 +177,16 @@ if(SAMPDLL_BUILD_TESTS)
 
   add_test(NAME dual_stack COMMAND test_dual_stack)
 
-  add_executable(test_legacy_ipv4_compat
-    tests/test_legacy_ipv4_compat.c
+  add_executable(test_ipv4_socket_compat
+    tests/test_ipv4_socket_compat.c
   )
-  target_include_directories(test_legacy_ipv4_compat
+  target_include_directories(test_ipv4_socket_compat
     PRIVATE
       ${CMAKE_CURRENT_SOURCE_DIR}/include
   )
-  target_link_libraries(test_legacy_ipv4_compat PRIVATE sampdll_net)
+  target_link_libraries(test_ipv4_socket_compat PRIVATE sampdll_net)
 
-  add_test(NAME legacy_ipv4_compat COMMAND test_legacy_ipv4_compat)
+  add_test(NAME ipv4_socket_compat COMMAND test_ipv4_socket_compat)
 
   add_executable(test_tcp_bootstrap_manager
     tests/test_tcp_bootstrap_manager.c

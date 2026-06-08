@@ -12,7 +12,7 @@ It is intended as behavior evidence for clean-room specs.
 
 ## Winsock Import Profile
 
-- DLL: `WSOCK32.dll` (legacy Winsock import set)
+- DLL: `WSOCK32.dll` (Winsock import set)
 - APIs seen: `WSAStartup`, `WSACleanup`, `socket`, `connect`, `bind`, `closesocket`
 - APIs seen: `gethostbyname`, `inet_addr`, `inet_ntoa`, `htons`, `ntohs`
 - APIs seen: `send`, `recv`, `sendto`, `recvfrom`

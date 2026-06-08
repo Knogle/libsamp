@@ -4,7 +4,7 @@
 #endif
 #endif
 
-#include "sampdll/net/legacy_ipv4_compat.h"
+#include "sampdll/net/ipv4_socket_compat.h"
 
 #include <string.h>
 
@@ -76,7 +76,7 @@ int samp_net_ipv4_create_udp_bound(uint16_t port, const char *bind_ip, int nonbl
     return -1;
   }
 
-  /* Legacy behavior mirrors best-effort setsockopt tuning from mapped flow. */
+  /* Original behavior mirrors best-effort setsockopt tuning from mapped flow. */
   (void)setsockopt(socket_fd, SOL_SOCKET, SO_REUSEADDR, (const char *)&one, (int)sizeof(one));
   (void)setsockopt(socket_fd, SOL_SOCKET, SO_RCVBUF, (const char *)&rcvbuf, (int)sizeof(rcvbuf));
   (void)setsockopt(socket_fd, SOL_SOCKET, SO_SNDBUF, (const char *)&sndbuf, (int)sizeof(sndbuf));

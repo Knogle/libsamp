@@ -2,7 +2,7 @@
 
 #include <string.h>
 
-#include "sampdll/net/legacy_ipv4_compat.h"
+#include "sampdll/net/ipv4_socket_compat.h"
 #include "sampdll/net/raknet_client_adapter.h"
 
 int samp_net_mgr_init(samp_tcp_bootstrap_manager *manager) {

@@ -8,7 +8,7 @@
 
 ## Goal
 
-Define deterministic parser behavior for endpoint input while preserving legacy IPv4 UX and adding IPv6 literal support.
+Define deterministic parser behavior for endpoint input while preserving IPv4-era UX and adding IPv6 literal support.
 
 ## Input Forms
 

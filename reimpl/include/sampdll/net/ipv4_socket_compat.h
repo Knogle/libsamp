@@ -1,12 +1,12 @@
-#ifndef SAMPDLL_NET_LEGACY_IPV4_COMPAT_H
-#define SAMPDLL_NET_LEGACY_IPV4_COMPAT_H
+#ifndef SAMPDLL_NET_IPV4_SOCKET_COMPAT_H
+#define SAMPDLL_NET_IPV4_SOCKET_COMPAT_H
 
 #include <stddef.h>
 #include <stdint.h>
 
 #include "sampdll/net/dual_stack.h"
 
-/* SPEC-NET-003: legacy IPv4-era socket primitives used by bootstrap flows. */
+/* SPEC-NET-003: IPv4-era socket primitives used by bootstrap flows. */
 
 #define SAMP_NET_IPV4_ADDR_STR_MAX 16U
 

@@ -24,7 +24,7 @@
 #define SAMP_GRAPHICS_TICK_MS 16
 #define SAMP_LAUNCH_THREAD_JOIN_MS 2000
 /* STATIC_037 + PROBE_TRACE:
- * The legacy client drains RakClient::Receive() until empty each network tick.
+ * The original 0.3.7 client drains RakClient::Receive() until empty each network tick.
  * Our replacement keeps a safety cap, but object/vehicle streaming bursts can
  * exceed small caps and correlate with later ID_CONNECTION_LOST/ID_DISCONNECTION.
  */
@@ -3454,7 +3454,7 @@ static uintptr_t vehicle_compat_game_pool_get_at(uint32_t gta_id) {
 
   /*
    * STATIC_037 + TODO_VERIFY:
-   * samp/client/game/util.cpp calls GTA's vehicle-pool lookup with ECX=[0xB74494],
+   * The original vehicle path reaches GTA's vehicle-pool lookup with ECX=[0xB74494],
    * push gta_id, call 0x4048E0. Keep the call identical but guarded by readable
    * pool state until we have an OBSERVED_037 layout trace for the vehicle pool.
    */
@@ -5813,7 +5813,7 @@ static int loading_screen_compat_draw_d3dx_overlay(void *device) {
 
 static DWORD textdraw_compat_abgr_to_argb(uint32_t color) {
   /* STATIC_037 + OPENMP_REF:
-   * TextDraw API colors are RGBA, but the legacy server stores RGBA_ABGR()
+   * TextDraw API colors are RGBA, but the 0.3.7-compatible server stores RGBA_ABGR()
    * in TEXT_DRAW_TRANSMIT. Convert that client-side ABGR value for D3D.
    */
   return (DWORD)((color & 0xFF00FF00u) | ((color & 0x000000FFu) << 16u) |
@@ -6002,7 +6002,7 @@ static int textdraw_compat_draw_gta_font_slot(const samp_textdraw_slot_compat *s
   }
 
   /* STATIC_037 + GTA_REVERSED_REF + TODO_VERIFY:
-   * Mirrors CTextDraw::Draw scaling/positioning. The old source routes text
+   * Mirrors CTextDraw::Draw scaling/positioning. Some original text paths route
    * through GTA message helpers, but gta-reversed identifies 0x69E160 as
    * InsertPlayerControlKeysInString. We avoid that call here until OBSERVED_037
    * validates the exact 0.3.7 buffer contract.
@@ -6157,7 +6157,7 @@ static int textdraw_compat_font_pixel_height(const samp_textdraw_slot_compat *sl
   }
 
   /* STATIC_037 + GTA_REVERSED_REF + INFERRED:
-   * Legacy CTextDraw feeds CFont scale_y = screenH * hudVert * letterHeight * 0.5.
+   * Original CTextDraw feeds CFont scale_y = screenH * hudVert * letterHeight * 0.5.
    * GTA's visible glyph height is roughly 18x that scale. In our D3DX fallback
    * this collapses to viewportH / 448 * letterHeight * 9.
    */
@@ -9431,7 +9431,7 @@ static void __cdecl scripts_process_hook_compat(void) {
       InterlockedCompareExchange(&g_runtime.script_process_allowed_after_spawn_logged, 1, 0) == 0) {
     /*
      * STATIC_037 + INFERRED:
-     * Legacy SA-MP starts GTA's normal world loop and only steers spawn/session state around it. Keeping
+     * Original SA-MP starts GTA's normal world loop and only steers spawn/session state around it. Keeping
      * CTheScripts::Process suppressed after spawn starves GTA-SA's own world/streaming process in long drives.
      * TODO_VERIFY against an original 0.3.7 golden trace with the ASI probe.
      */
@@ -10602,7 +10602,7 @@ static int gta_reset_ped_audio_attributes_compat(uintptr_t ped, const char *reas
 
   /*
    * STATIC_037 + TODO_VERIFY:
-   * Legacy CPlayerPed::SetModelIndex reinitializes the ped audio attributes immediately after SetModelIndex:
+   * Original CPlayerPed::SetModelIndex reinitializes the ped audio attributes immediately after SetModelIndex:
    * ECX = ped + 660, push ped, call 0x4E68D0. This narrows the CJ-voice fix to the local ped instead of globally
    * muting vehicle or ped audio paths.
    */
@@ -10759,7 +10759,7 @@ static void refresh_local_streaming_from_entity_compat(uintptr_t ped) {
 
   /*
    * STATIC_037 + GTA_REVERSED_REF + INFERRED:
-   * Legacy spawn/teleport paths call RefreshStreamingAt. While driving, no server SetPlayerPos RPC may arrive for
+   * Original spawn/teleport paths call RefreshStreamingAt. While driving, no server SetPlayerPos RPC may arrive for
    * every local movement, so keep GTA's streamer warm from the local vehicle/ped position without forcing movement.
    * GTA's scene/collision loaders match the existing spawn/teleport prepare path and are only ticked on movement.
    */
@@ -10823,7 +10823,7 @@ static int gta_entity_teleport_compat(uintptr_t entity, float x, float y, float 
 #endif
   /*
    * STATIC_037 + PROBE_TRACE + TODO_VERIFY:
-   * CPlayerPed::TeleportTo is the legacy path, but our wrapper cannot assume the vtable call actually committed
+   * CPlayerPed::TeleportTo is the observed engine path, but our wrapper cannot assume the vtable call actually committed
    * the final matrix. Keep the engine-side teleport and verify/fix the matrix directly so server SetPlayerPos
    * cannot silently leave the actor near the old/0,0,0 location.
    */
@@ -11228,7 +11228,7 @@ static void apply_preconnect_frontend_compat(void) {
 
   /*
    * STATIC_037 + INFERRED:
-   * The legacy client lets GTA own its frontend once MENU is active and only skips SA-MP overlay drawing through
+   * The original client lets GTA own its frontend once MENU is active and only skips SA-MP overlay drawing through
    * IsMenuActive(). In pre-connect we also freeze camera/streaming nudges and the delayed RakNet connect while
    * ESC/pause is open, so the user can sit in the GTA menu without the background connect timer expiring.
    */
@@ -11720,7 +11720,7 @@ static void apply_multiplayer_session_bridge_compat(void) {
 
     /*
      * STATIC_037 + OPENMP_REF + TODO_VERIFY:
-     * These server-triggered local-player state RPCs match the legacy server/client payload shape. Apply only
+     * These server-triggered local-player state RPCs match the 0.3.7 server/client payload shape. Apply only
      * bounded values and keep non-rendering semantic state (team/color/animations) as sequenced observations until
      * the original 0.3.7-R5 path is traced.
      */
@@ -12247,13 +12247,13 @@ static int phase_network_init(void) {
 static void launch_graphics_loop_hook_callback(void);
 static void launch_do_init_stuff_compat(void);
 
-/* Legacy-structured pre-game stage: init globals and apply pre-game patch phase. */
+/* Original-structured pre-game stage: init globals and apply pre-game patch phase. */
 static void launch_init_game_compat(void) {
   InterlockedExchange(&g_runtime.game_inited, 1);
   apply_pregame_compat_patches_once();
 }
 
-/* Legacy-structured in-game stage: patch/hook phase before graphics loop takes over. */
+/* Original-structured in-game stage: patch/hook phase before graphics loop takes over. */
 static void launch_start_game_compat(void) {
   int rc = 0;
 

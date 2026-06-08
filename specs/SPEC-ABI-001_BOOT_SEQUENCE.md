@@ -68,7 +68,7 @@ probe/golden-trace observations:
 ## Non-Goals (Current Phase)
 
 1. Full parity for all render/audio/gameplay internals.
-2. One-to-one replication of all legacy hook targets.
+2. One-to-one replication of all reference hook targets.
 
 ## Evidence
 

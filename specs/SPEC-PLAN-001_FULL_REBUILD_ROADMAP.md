@@ -59,7 +59,7 @@ Exit criteria:
 
 Deliverables:
 
-1. Legacy-compatible resolver/connect/reconnect behavior.
+1. Reference-compatible resolver/connect/reconnect behavior.
 2. Mapped UDP send/recv semantics from the `0x10053***` cluster.
 3. Mapped listen/accept/control flow from the `0x10056880` cluster.
 
@@ -79,7 +79,7 @@ Deliverables:
 Exit criteria:
 
 1. All parser + connect matrix tests pass (`IPv4`, `IPv6`, `DNS`, failover).
-2. No regression in legacy IPv4 server connectivity.
+2. No regression in IPv4-era server connectivity.
 
 ### Phase 4: Render/UI/Audio Subsystems
 
@@ -143,7 +143,7 @@ Exit criteria:
 3. Expand `reimpl/src/runtime_bridge.c` to explicit phase callbacks mirroring mapped chain.
 4. Integrate maintained RakNet variant backend (`SPEC-NET-005`) as primary compatibility candidate.
 5. Create subsystem stubs in `reimpl/src/`:
-   - `net/legacy_socket_compat.c`
+   - `net/socket_compat.c`
    - `render/d3dx_bridge.c`
    - `audio/bass_bridge.c`
 6. Expand runtime trace diff harness (`tools/compare_runtime_traces.sh`) from keyword-sequence compare to subsystem-specific state-transition assertions.

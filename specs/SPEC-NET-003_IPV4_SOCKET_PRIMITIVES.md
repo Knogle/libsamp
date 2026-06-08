@@ -1,4 +1,4 @@
-# SPEC-NET-003: Legacy IPv4 Socket Primitives
+# SPEC-NET-003: IPv4-Era Socket Primitives
 
 ## Status
 
