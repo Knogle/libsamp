@@ -29,6 +29,7 @@ extern "C" const char *samp_raknet_knogle_auth_response(const char *challenge);
 
 namespace {
 constexpr unsigned char kPacketIdInvalid = 0xFFu;
+constexpr unsigned char kPacketVehicleSync = 200u;
 constexpr unsigned char kPacketPlayerSync = 207u;
 constexpr RakNet::RPCID kRpcClientJoin = static_cast<RakNet::RPCID>(25u);
 constexpr RakNet::RPCID kRpcDialogResponse = static_cast<RakNet::RPCID>(62u);
@@ -50,6 +51,7 @@ constexpr unsigned int kRpcTraceMaxBytes = 32U;
 constexpr unsigned int kRpcRegisterMax = 200U;
 constexpr RakNet::RakNetTime kInitialSpawnDelayMs = 2200U;
 constexpr RakNet::RakNetTime kClassSelectionManualDelayMs = 2000U;
+constexpr RakNet::RakNetTime kClassSelectionReselectDelayMs = 250U;
 constexpr RakNet::RakNetTime kPostDialogSpawnDelayMs = 450U;
 constexpr RakNet::RakNetTime kSpawnRetryDelayMs = 1600U;
 constexpr RakNet::RakNetTime kSelectModeClickDelayMs = 250U;
@@ -90,6 +92,7 @@ constexpr unsigned int kOpenMpVehicleRemoveMinBytes = 2U;
 constexpr int kSampVehicleModelMin = 400;
 constexpr int kSampVehicleModelMax = 611;
 static_assert(sizeof(samp_raknet_onfoot_sync) == 68U, "SA-MP 0.3.7 on-foot sync payload must be 68 bytes");
+static_assert(sizeof(samp_raknet_incar_sync) == 63U, "SA-MP 0.3.7 in-car sync payload must be 63 bytes");
 
 bool packet_resets_session_state(unsigned char packet_id) {
   return packet_id == static_cast<unsigned char>(RakNet::ID_DISCONNECTION_NOTIFICATION) ||
@@ -98,6 +101,7 @@ bool packet_resets_session_state(unsigned char packet_id) {
 
 struct RpcProbeState {
   RakNet::RakClientInterface *client;
+  char local_nickname[SAMP_RAKNET_PLAYER_NAME_BYTES];
   unsigned char rpc_ids[256];
   unsigned int counts[256];
   unsigned int handler_logged[256];
@@ -127,7 +131,9 @@ struct RpcProbeState {
   int pending_request_spawn;
   int pending_select_mode_freeroam_click;
   int pending_dialog_response;
+  int pending_request_class_id;
   int sent_request_class;
+  int waiting_for_request_class_reply;
   int sent_dialog_response;
   int sent_select_mode_freeroam_click;
   unsigned int request_spawn_send_count;
@@ -135,6 +141,7 @@ struct RpcProbeState {
   int sent_spawn_notify;
   unsigned int sent_spawn_notify_seq;
   int manual_spawn_shift_down;
+  int selected_class;
   unsigned short last_dialog_id;
   unsigned char last_dialog_style;
   unsigned short dialog_response_id;
@@ -253,12 +260,17 @@ struct RpcProbeState {
   samp_raknet_remote_player_event remote_player_events[SAMP_RAKNET_REMOTE_PLAYER_EVENT_RING];
   unsigned int remote_player_sync_seq;
   samp_raknet_remote_onfoot_sync remote_player_syncs[SAMP_RAKNET_REMOTE_PLAYER_SYNC_RING];
+  unsigned int map_icon_event_seq;
+  samp_raknet_map_icon_event map_icon_events[SAMP_RAKNET_MAP_ICON_EVENT_RING];
+  unsigned int name_tag_event_seq;
+  samp_raknet_name_tag_event name_tag_events[SAMP_RAKNET_NAME_TAG_EVENT_RING];
   unsigned int player_pool_event_seq;
   samp_raknet_player_pool_event player_pool_events[SAMP_RAKNET_PLAYER_POOL_EVENT_RING];
   unsigned int score_ping_seq;
   unsigned int score_ping_count;
   samp_raknet_score_ping_entry score_ping_entries[SAMP_RAKNET_SCORE_PING_MAX_ENTRIES];
   RakNet::RakNetTime class_selection_ready_time;
+  RakNet::RakNetTime last_request_class_time;
   RakNet::RakNetTime next_request_spawn_time;
   RakNet::RakNetTime select_mode_click_ready_time;
   RakNet::RakNetTime next_score_ping_update_time;
@@ -283,20 +295,54 @@ void trace_netf(const char *fmt, ...) {
   std::fclose(file);
 }
 
-bool auto_request_spawn_enabled() {
-  const char *value = std::getenv("SAMPDLL_AUTO_REQUEST_SPAWN");
+bool env_bool_enabled(const char *name, bool default_value) {
+  const char *value = std::getenv(name);
   if (value == nullptr || value[0] == '\0') {
-    return true;
+    return default_value;
   }
   return value[0] != '0' && value[0] != 'n' && value[0] != 'N' && value[0] != 'f' && value[0] != 'F';
 }
 
+bool auto_request_spawn_enabled() {
+  return env_bool_enabled("SAMPDLL_AUTO_REQUEST_SPAWN", false);
+}
+
 bool auto_select_freeroam_enabled() {
-  const char *value = std::getenv("SAMPDLL_AUTO_SELECT_FREEROAM");
-  if (value == nullptr || value[0] == '\0') {
-    return true;
+  return env_bool_enabled("SAMPDLL_AUTO_SELECT_FREEROAM", false);
+}
+
+int clamp_class_id(int selected_class) {
+  const int spawns_available =
+      g_rpc_probe.init_spawns_available != 0U ? static_cast<int>(g_rpc_probe.init_spawns_available) : 1;
+
+  if (spawns_available <= 0) {
+    return 0;
   }
-  return value[0] != '0' && value[0] != 'n' && value[0] != 'N' && value[0] != 'f' && value[0] != 'F';
+  if (selected_class < 0) {
+    return spawns_available - 1;
+  }
+  if (selected_class >= spawns_available) {
+    return 0;
+  }
+  return selected_class;
+}
+
+void schedule_request_class(int selected_class, const char *reason) {
+  const int clamped_class = clamp_class_id(selected_class);
+
+  g_rpc_probe.selected_class = clamped_class;
+  g_rpc_probe.pending_request_class_id = clamped_class;
+  g_rpc_probe.pending_request_class = 1;
+  trace_netf("rpc-state RequestClass scheduled reason=%s selected_class=%d spawns_available=%u evidence=INFERRED,OPENMP_REF",
+             reason != nullptr ? reason : "unknown", clamped_class,
+             static_cast<unsigned int>(g_rpc_probe.init_spawns_available));
+}
+
+bool class_selection_manual_ready(void) {
+  return !g_rpc_probe.saw_dialog && !g_rpc_probe.pending_request_spawn && !g_rpc_probe.pending_request_class &&
+         !g_rpc_probe.waiting_for_request_class_reply && g_rpc_probe.saw_request_class_reply &&
+         g_rpc_probe.request_class_outcome != 0U && g_rpc_probe.request_spawn_send_count == 0U &&
+         g_rpc_probe.class_selection_ready_time != 0U && RakNet::GetTime() >= g_rpc_probe.class_selection_ready_time;
 }
 
 bool debug_dialog_window_enabled() {
@@ -431,7 +477,7 @@ const RpcMeta kRpcMeta[] = {
     {53U, "Death", kRpcLocalOutgoing, "OPENMP_REF"},
     {54U, "NPCJoin", kRpcLocalOutgoing, "OPENMP_REF"},
     {55U, "ScrDeathMessage", kRpcLocalDummy, "STATIC_037"},
-    {56U, "ScrSetPlayerMapIcon", kRpcLocalDummy, "SAMPFUNCS_037"},
+    {56U, "ScrSetPlayerMapIcon", kRpcLocalImplemented, "INFERRED,TODO_VERIFY"},
     {57U, "ScrRemoveVehicleComponent", kRpcLocalDummy, "STATIC_037"},
     {58U, "ScrUpdate3DTextLabel", kRpcLocalDummy, "SAMPFUNCS_037"},
     {59U, "ScrChatBubble", kRpcLocalDummy, "SAMPFUNCS_037"},
@@ -444,7 +490,7 @@ const RpcMeta kRpcMeta[] = {
     {67U, "ScrSetPlayerArmedWeapon", kRpcLocalImplemented, "OPENMP_REF"},
     {68U, "ScrSetSpawnInfo", kRpcLocalImplemented, "PROBE_TRACE"},
     {69U, "ScrSetPlayerTeam", kRpcLocalDecoded, "OPENMP_REF"},
-    {70U, "ScrPutPlayerInVehicle", kRpcLocalDummy, "STATIC_037"},
+    {70U, "ScrPutPlayerInVehicle", kRpcLocalImplemented, "PROBE_TRACE,STATIC_037,TODO_VERIFY"},
     {71U, "ScrRemovePlayerFromVehicle", kRpcLocalDummy, "STATIC_037"},
     {72U, "ScrSetPlayerColor", kRpcLocalDecoded, "OPENMP_REF"},
     {73U, "ScrDisplayGameText", kRpcLocalDummy, "STATIC_037"},
@@ -454,7 +500,7 @@ const RpcMeta kRpcMeta[] = {
     {77U, "ScrShowMenu", kRpcLocalDummy, "STATIC_037"},
     {78U, "ScrHideMenu", kRpcLocalDummy, "STATIC_037"},
     {79U, "ScrCreateExplosion", kRpcLocalDummy, "STATIC_037"},
-    {80U, "ScrShowPlayerNameTagForPlayer", kRpcLocalDummy, "SAMPFUNCS_037"},
+    {80U, "ScrShowPlayerNameTagForPlayer", kRpcLocalImplemented, "INFERRED,TODO_VERIFY"},
     {81U, "ScrAttachCameraToObject", kRpcLocalDummy, "SAMPFUNCS_037"},
     {82U, "ScrInterpolateCamera", kRpcLocalDummy, "SAMPFUNCS_037"},
     {83U, "ClickTextDraw/SelectTextDraw", kRpcLocalImplemented, "PROBE_TRACE"},
@@ -472,7 +518,7 @@ const RpcMeta kRpcMeta[] = {
     {96U, "ScmEvent", kRpcLocalOutgoing, "OPENMP_REF"},
     {97U, "WeaponPickupDestroy", kRpcLocalOutgoing, "OPENMP_REF"},
     {99U, "ScrMoveObject", kRpcLocalImplemented, "PROBE_TRACE"},
-    {101U, "Chat", kRpcLocalOutgoing, "OPENMP_REF"},
+    {101U, "Chat", kRpcLocalImplemented, "INFERRED,OPENMP_REF,TODO_VERIFY"},
     {102U, "ServerNetStats", kRpcLocalOutgoing, "OPENMP_REF"},
     {103U, "ClientCheck", kRpcLocalImplemented, "OPENMP_REF"},
     {104U, "ScrEnableStuntBonusForPlayer", kRpcLocalDummy, "STATIC_037"},
@@ -506,7 +552,7 @@ const RpcMeta kRpcMeta[] = {
     {138U, "ScrServerQuit", kRpcLocalDecoded, "STATIC_037"},
     {139U, "ScrInitGame", kRpcLocalImplemented, "PROBE_TRACE"},
     {140U, "MenuQuit", kRpcLocalOutgoing, "OPENMP_REF"},
-    {144U, "ToggleClock/ScrRemovePlayerMapIcon", kRpcLocalImplemented, "PROBE_TRACE"},
+    {144U, "ScrRemovePlayerMapIcon/TogClockCompat", kRpcLocalImplemented, "INFERRED,PROBE_TRACE,TODO_VERIFY"},
     {145U, "ScrSetPlayerAmmo", kRpcLocalDummy, "SAMPFUNCS_037"},
     {146U, "ScrSetGravity", kRpcLocalDummy, "STATIC_037"},
     {147U, "ScrSetVehicleHealth", kRpcLocalImplemented, "PROBE_TRACE"},
@@ -730,6 +776,8 @@ unsigned int rpc_dummy_meta_count() {
 
 void reset_rpc_probe_runtime(RakNet::RakClientInterface *client) {
   g_rpc_probe.client = client;
+  std::memset(g_rpc_probe.local_nickname, 0, sizeof(g_rpc_probe.local_nickname));
+  std::strncpy(g_rpc_probe.local_nickname, kDefaultNickname, sizeof(g_rpc_probe.local_nickname) - 1U);
   std::memset(g_rpc_probe.counts, 0, sizeof(g_rpc_probe.counts));
   std::memset(g_rpc_probe.handler_logged, 0, sizeof(g_rpc_probe.handler_logged));
   g_rpc_probe.saw_init_game = 0;
@@ -757,7 +805,9 @@ void reset_rpc_probe_runtime(RakNet::RakClientInterface *client) {
   g_rpc_probe.pending_request_spawn = 0;
   g_rpc_probe.pending_select_mode_freeroam_click = 0;
   g_rpc_probe.pending_dialog_response = 0;
+  g_rpc_probe.pending_request_class_id = 0;
   g_rpc_probe.sent_request_class = 0;
+  g_rpc_probe.waiting_for_request_class_reply = 0;
   g_rpc_probe.sent_dialog_response = 0;
   g_rpc_probe.sent_select_mode_freeroam_click = 0;
   g_rpc_probe.request_spawn_send_count = 0;
@@ -765,6 +815,7 @@ void reset_rpc_probe_runtime(RakNet::RakClientInterface *client) {
   g_rpc_probe.sent_spawn_notify = 0;
   g_rpc_probe.sent_spawn_notify_seq = 0U;
   g_rpc_probe.manual_spawn_shift_down = 0;
+  g_rpc_probe.selected_class = 0;
   g_rpc_probe.last_dialog_id = 0;
   g_rpc_probe.last_dialog_style = 0;
   g_rpc_probe.dialog_response_id = 0;
@@ -883,12 +934,17 @@ void reset_rpc_probe_runtime(RakNet::RakClientInterface *client) {
   std::memset(g_rpc_probe.remote_player_events, 0, sizeof(g_rpc_probe.remote_player_events));
   g_rpc_probe.remote_player_sync_seq = 0U;
   std::memset(g_rpc_probe.remote_player_syncs, 0, sizeof(g_rpc_probe.remote_player_syncs));
+  g_rpc_probe.map_icon_event_seq = 0U;
+  std::memset(g_rpc_probe.map_icon_events, 0, sizeof(g_rpc_probe.map_icon_events));
+  g_rpc_probe.name_tag_event_seq = 0U;
+  std::memset(g_rpc_probe.name_tag_events, 0, sizeof(g_rpc_probe.name_tag_events));
   g_rpc_probe.player_pool_event_seq = 0U;
   std::memset(g_rpc_probe.player_pool_events, 0, sizeof(g_rpc_probe.player_pool_events));
   g_rpc_probe.score_ping_seq = 0U;
   g_rpc_probe.score_ping_count = 0U;
   std::memset(g_rpc_probe.score_ping_entries, 0, sizeof(g_rpc_probe.score_ping_entries));
   g_rpc_probe.class_selection_ready_time = 0;
+  g_rpc_probe.last_request_class_time = 0;
   g_rpc_probe.next_request_spawn_time = 0;
   g_rpc_probe.select_mode_click_ready_time = 0;
   g_rpc_probe.next_score_ping_update_time = 0;
@@ -1433,6 +1489,34 @@ bool decode_vehicle_health_payload(const unsigned char *data, unsigned int bytes
   return true;
 }
 
+bool decode_put_player_in_vehicle_payload(const unsigned char *data, unsigned int bytes) {
+  unsigned short vehicle_id = 0U;
+  unsigned char seat_id = 0U;
+  samp_raknet_vehicle_event *event = nullptr;
+
+  if (data == nullptr || bytes < 3U) {
+    return false;
+  }
+
+  /* PROBE_TRACE + STATIC_037 + TODO_VERIFY:
+   * 2026-06-09 bare-vtest /vput observed RPC 70 as 3 bytes:
+   * uint16 vehicle id + uint8 seat id, e.g. 01 00 00 => vehicle 1, driver.
+   */
+  vehicle_id = read_le16(data);
+  seat_id = data[2U];
+  if (!vehicle_id_valid(vehicle_id) || seat_id > 7U) {
+    trace_netf("vehicle-decode: put_player invalid id=%u seat=%u bytes=%u",
+               static_cast<unsigned int>(vehicle_id), static_cast<unsigned int>(seat_id), bytes);
+    return false;
+  }
+
+  event = queue_vehicle_event(SAMP_RAKNET_VEHICLE_ACTION_PUT_LOCAL_PLAYER, vehicle_id);
+  event->seat_id = seat_id;
+  trace_netf("vehicle-decode: put_player seq=%u id=%u seat=%u bytes=%u", event->seq,
+             static_cast<unsigned int>(vehicle_id), static_cast<unsigned int>(seat_id), bytes);
+  return true;
+}
+
 bool decode_init_game_payload(const unsigned char *data, unsigned int bytes) {
   unsigned short spawns_available = 0;
   unsigned short local_player_id = 0;
@@ -1618,6 +1702,36 @@ void queue_player_pool_event(unsigned char action, unsigned short player_id, uns
   event->is_npc = is_npc;
   event->reason = reason;
   copy_text(event->name, sizeof(event->name), name);
+}
+
+void queue_map_icon_event(unsigned char action, unsigned char index, const float pos[3], unsigned char icon,
+                          unsigned int color) {
+  const unsigned int seq = bump_seq(&g_rpc_probe.map_icon_event_seq);
+  const unsigned int slot = (seq - 1U) % SAMP_RAKNET_MAP_ICON_EVENT_RING;
+  samp_raknet_map_icon_event *event = &g_rpc_probe.map_icon_events[slot];
+
+  std::memset(event, 0, sizeof(*event));
+  event->seq = seq;
+  event->action = action;
+  event->index = index;
+  event->icon = icon;
+  event->color = color;
+  if (pos != nullptr) {
+    event->pos[0] = pos[0];
+    event->pos[1] = pos[1];
+    event->pos[2] = pos[2];
+  }
+}
+
+void queue_name_tag_event(unsigned short player_id, unsigned char show) {
+  const unsigned int seq = bump_seq(&g_rpc_probe.name_tag_event_seq);
+  const unsigned int slot = (seq - 1U) % SAMP_RAKNET_NAME_TAG_EVENT_RING;
+  samp_raknet_name_tag_event *event = &g_rpc_probe.name_tag_events[slot];
+
+  std::memset(event, 0, sizeof(*event));
+  event->seq = seq;
+  event->player_id = player_id;
+  event->show = show != 0U ? 1U : 0U;
 }
 
 bool decode_server_join_payload(const unsigned char *data, unsigned int bytes) {
@@ -2243,6 +2357,72 @@ bool decode_remove_building_payload(const unsigned char *data, unsigned int byte
   return true;
 }
 
+bool decode_set_map_icon_payload(const unsigned char *data, unsigned int bytes) {
+  float pos[3] = {0.0f, 0.0f, 0.0f};
+  unsigned char index = 0U;
+  unsigned char icon = 0U;
+  unsigned int color = 0U;
+
+  if (data == nullptr || bytes < 18U) {
+    return false;
+  }
+  index = data[0U];
+  if (index >= SAMP_RAKNET_MAP_ICON_MAX) {
+    trace_netf("rpc-state id=56 set_map_icon invalid_index=%u bytes=%u ignored=1",
+               static_cast<unsigned int>(index), bytes);
+    return false;
+  }
+  read_vec3(data + 1U, pos);
+  icon = data[13U];
+  color = read_le32(data + 14U);
+  if (!std::isfinite(pos[0]) || !std::isfinite(pos[1]) || !std::isfinite(pos[2])) {
+    return false;
+  }
+  queue_map_icon_event(SAMP_RAKNET_MAP_ICON_ACTION_SET, index, pos, icon, color);
+  trace_netf("rpc-state id=56 set_map_icon seq=%u index=%u icon=%u color=0x%08x pos=%.3f %.3f %.3f evidence=INFERRED,TODO_VERIFY",
+             g_rpc_probe.map_icon_event_seq, static_cast<unsigned int>(index), static_cast<unsigned int>(icon),
+             color, static_cast<double>(pos[0]), static_cast<double>(pos[1]), static_cast<double>(pos[2]));
+  return true;
+}
+
+bool decode_remove_map_icon_payload(const unsigned char *data, unsigned int bytes) {
+  unsigned char index = 0U;
+
+  if (data == nullptr || bytes < 1U) {
+    return false;
+  }
+  index = data[0U];
+  if (index >= SAMP_RAKNET_MAP_ICON_MAX) {
+    trace_netf("rpc-state id=144 remove_map_icon invalid_index=%u bytes=%u ignored=1",
+               static_cast<unsigned int>(index), bytes);
+    return false;
+  }
+  queue_map_icon_event(SAMP_RAKNET_MAP_ICON_ACTION_REMOVE, index, nullptr, 0U, 0U);
+  trace_netf("rpc-state id=144 remove_map_icon seq=%u index=%u evidence=INFERRED,TODO_VERIFY",
+             g_rpc_probe.map_icon_event_seq, static_cast<unsigned int>(index));
+  return true;
+}
+
+bool decode_show_name_tag_payload(const unsigned char *data, unsigned int bytes) {
+  unsigned short player_id = 0U;
+  unsigned char show = 0U;
+
+  if (data == nullptr || bytes < 3U) {
+    return false;
+  }
+  player_id = read_le16(data);
+  show = data[2U] != 0U ? 1U : 0U;
+  if (player_id >= SAMP_RAKNET_MAX_PLAYERS) {
+    trace_netf("rpc-state id=80 show_name_tag invalid_player=%u show=%u ignored=1",
+               static_cast<unsigned int>(player_id), static_cast<unsigned int>(show));
+    return false;
+  }
+  queue_name_tag_event(player_id, show);
+  trace_netf("rpc-state id=80 show_name_tag seq=%u player=%u show=%u evidence=INFERRED,TODO_VERIFY",
+             g_rpc_probe.name_tag_event_seq, static_cast<unsigned int>(player_id), static_cast<unsigned int>(show));
+  return true;
+}
+
 void filter_chat_text(char *text) {
   if (text == nullptr) {
     return;
@@ -2253,6 +2433,49 @@ void filter_chat_text(char *text) {
     }
     ++text;
   }
+}
+
+unsigned int queue_client_message_line(unsigned int color, const char *text) {
+  unsigned int seq = 0U;
+  unsigned int slot = 0U;
+  samp_raknet_client_message_probe *message = nullptr;
+
+  if (text == nullptr || text[0] == '\0') {
+    return 0U;
+  }
+
+  seq = ++g_rpc_probe.client_message_seq;
+  slot = (seq - 1U) % SAMP_RAKNET_CLIENT_MESSAGE_RING;
+  message = &g_rpc_probe.client_messages[slot];
+  std::memset(message, 0, sizeof(*message));
+  message->seq = seq;
+  message->color = color;
+  copy_text(message->text, sizeof(message->text), text);
+  filter_chat_text(message->text);
+  g_rpc_probe.saw_client_message = 1;
+  return seq;
+}
+
+const samp_raknet_player_pool_event *find_recent_player_join(unsigned short player_id) {
+  const samp_raknet_player_pool_event *best = nullptr;
+  unsigned int best_seq = 0U;
+
+  for (unsigned int i = 0U; i < SAMP_RAKNET_PLAYER_POOL_EVENT_RING; ++i) {
+    const samp_raknet_player_pool_event *event = &g_rpc_probe.player_pool_events[i];
+    if (event->seq > best_seq && event->action == SAMP_RAKNET_PLAYER_POOL_ACTION_JOIN &&
+        event->player_id == player_id && event->name[0] != '\0') {
+      best = event;
+      best_seq = event->seq;
+    }
+  }
+  return best;
+}
+
+bool player_id_is_local(unsigned short player_id) {
+  if (g_rpc_probe.auth_local_player_id_valid != 0U && g_rpc_probe.auth_local_player_id == player_id) {
+    return true;
+  }
+  return g_rpc_probe.saw_init_game != 0 && g_rpc_probe.init_local_player_id == player_id;
 }
 
 void sanitize_textdraw_text(char *text) {
@@ -2746,8 +2969,8 @@ void decode_client_message_payload(const unsigned char *data, unsigned int bytes
   unsigned int len = 0U;
   unsigned int copy_len = 0U;
   unsigned int seq = 0U;
-  unsigned int slot = 0U;
-  samp_raknet_client_message_probe *message = nullptr;
+  unsigned int color = 0U;
+  char text[SAMP_RAKNET_CLIENT_MESSAGE_BYTES] = {0};
 
   if (data == nullptr || bytes < 8U) {
     return;
@@ -2759,25 +2982,79 @@ void decode_client_message_payload(const unsigned char *data, unsigned int bytes
     return;
   }
 
-  seq = ++g_rpc_probe.client_message_seq;
-  slot = (seq - 1U) % SAMP_RAKNET_CLIENT_MESSAGE_RING;
-  message = &g_rpc_probe.client_messages[slot];
-  std::memset(message, 0, sizeof(*message));
-  message->seq = seq;
-  message->color = read_le32(data);
+  color = read_le32(data);
   copy_len = len;
   if (copy_len >= SAMP_RAKNET_CLIENT_MESSAGE_BYTES) {
     copy_len = SAMP_RAKNET_CLIENT_MESSAGE_BYTES - 1U;
   }
   if (copy_len > 0U) {
-    std::memcpy(message->text, data + 8U, copy_len);
+    std::memcpy(text, data + 8U, copy_len);
   }
-  message->text[copy_len] = '\0';
-  filter_chat_text(message->text);
-  g_rpc_probe.saw_client_message = 1;
+  text[copy_len] = '\0';
+  filter_chat_text(text);
+  seq = queue_client_message_line(color, text);
 
-  trace_netf("rpc-state id=93 client_message seq=%u color=0x%08x len=%u text='%s'", seq, message->color, len,
-             message->text);
+  trace_netf("rpc-state id=93 client_message seq=%u color=0x%08x len=%u text='%s'", seq, color, len, text);
+}
+
+bool decode_chat_payload(const unsigned char *data, unsigned int bytes) {
+  unsigned short player_id = 0U;
+  unsigned char text_len = 0U;
+  unsigned int color = 0xFFFFFFFFU;
+  unsigned int seq = 0U;
+  bool local_player = false;
+  char text[SAMP_RAKNET_CLIENT_MESSAGE_BYTES] = {0};
+  char name[SAMP_RAKNET_PLAYER_NAME_BYTES] = {0};
+  char line[SAMP_RAKNET_CLIENT_MESSAGE_BYTES] = {0};
+  const samp_raknet_player_pool_event *join_event = nullptr;
+
+  if (data == nullptr || bytes < 3U) {
+    return false;
+  }
+
+  /*
+   * INFERRED + OPENMP_REF + TODO_VERIFY:
+   * SA-MP 0.3.7-compatible chat RPC layout is uint16 player id, uint8 text length,
+   * then raw text. The client displays local chat only after this
+   * server-originated RPC, allowing scripts to filter outgoing player text.
+   */
+  player_id = read_le16(data);
+  text_len = data[2U];
+  if (static_cast<unsigned int>(text_len) > bytes - 3U) {
+    trace_netf("rpc-state id=101 chat decode_failed player=%u len=%u bytes=%u",
+               static_cast<unsigned int>(player_id), static_cast<unsigned int>(text_len), bytes);
+    return false;
+  }
+
+  (void)copy_bounded_bytes(text, sizeof(text), data + 3U, text_len);
+  filter_chat_text(text);
+
+  local_player = player_id_is_local(player_id);
+  if (local_player) {
+    copy_text(name, sizeof(name), g_rpc_probe.local_nickname[0] != '\0' ? g_rpc_probe.local_nickname : kDefaultNickname);
+    if (g_rpc_probe.player_color_seq > 0U && g_rpc_probe.player_color_player_id == player_id) {
+      color = g_rpc_probe.player_color;
+    }
+  } else {
+    join_event = find_recent_player_join(player_id);
+    if (join_event != nullptr) {
+      copy_text(name, sizeof(name), join_event->name);
+      color = join_event->color;
+    } else {
+      std::snprintf(name, sizeof(name), "Player%u", static_cast<unsigned int>(player_id));
+    }
+  }
+  filter_chat_text(name);
+  if (name[0] == '\0') {
+    copy_text(name, sizeof(name), kDefaultNickname);
+  }
+
+  std::snprintf(line, sizeof(line), "%s: %s", name, text);
+  seq = queue_client_message_line(color, line);
+  trace_netf("rpc-state id=101 chat seq=%u player=%u local=%u color=0x%08x len=%u text='%s'",
+             seq, static_cast<unsigned int>(player_id), local_player ? 1U : 0U, color,
+             static_cast<unsigned int>(text_len), text);
+  return true;
 }
 
 bool decode_textdraw_select_payload(const unsigned char *data, unsigned int bytes, unsigned int bits,
@@ -3145,28 +3422,46 @@ void service_rpc_probe_actions(RakNet::RakClientInterface *rak_client) {
                static_cast<int>(g_rpc_probe.dialog_response_listitem), g_rpc_probe.dialog_response_input, sent);
   }
 
-  if (g_rpc_probe.pending_request_class && !g_rpc_probe.sent_request_class) {
+  if (g_rpc_probe.pending_request_class && !g_rpc_probe.waiting_for_request_class_reply) {
     RakNet::BitStream bs_send;
-    int selected_class = 0;
+    const int selected_class = clamp_class_id(g_rpc_probe.pending_request_class_id);
     bs_send.Write(selected_class);
     const int sent = rak_client->RPC(kRpcRequestClass, &bs_send, RakNet::HIGH_PRIORITY, RakNet::RELIABLE, 0, false,
-                                    RakNet::UNASSIGNED_NETWORK_ID, nullptr)
+                                     RakNet::UNASSIGNED_NETWORK_ID, nullptr)
                          ? 1
                          : 0;
-    g_rpc_probe.sent_request_class = 1;
-    g_rpc_probe.pending_request_class = 0;
-    trace_netf("rpc-auto-out id=128 name=RequestClass selected_class=%d sent=%d", selected_class, sent);
+    if (sent) {
+      g_rpc_probe.sent_request_class = 1;
+      g_rpc_probe.pending_request_class = 0;
+      g_rpc_probe.waiting_for_request_class_reply = 1;
+      g_rpc_probe.selected_class = selected_class;
+      g_rpc_probe.last_request_class_time = RakNet::GetTime();
+    }
+    trace_netf("rpc-class-out id=128 name=RequestClass selected_class=%d sent=%d evidence=INFERRED,OPENMP_REF",
+               selected_class, sent);
   }
 
 #ifdef _WIN32
-  if (!g_rpc_probe.saw_dialog && !g_rpc_probe.pending_request_spawn && g_rpc_probe.saw_request_class_reply &&
-      g_rpc_probe.request_class_outcome != 0U && g_rpc_probe.request_spawn_send_count == 0U &&
-      g_rpc_probe.class_selection_ready_time != 0U && RakNet::GetTime() >= g_rpc_probe.class_selection_ready_time) {
+  if (class_selection_manual_ready()) {
+    const RakNet::RakNetTime now = RakNet::GetTime();
     const int shift_down = (GetAsyncKeyState(VK_SHIFT) & 0x8000) != 0;
+    const int left_down = (GetAsyncKeyState(VK_LEFT) & 0x8000) != 0;
+    const int right_down = (GetAsyncKeyState(VK_RIGHT) & 0x8000) != 0;
+    const RakNet::RakNetTime class_elapsed =
+        now >= g_rpc_probe.last_request_class_time ? now - g_rpc_probe.last_request_class_time : 0U;
+
     if (shift_down && !g_rpc_probe.manual_spawn_shift_down) {
       g_rpc_probe.pending_request_spawn = 1;
       g_rpc_probe.next_request_spawn_time = 0;
       trace_netf("rpc-manual: scheduled RequestSpawn from SHIFT key");
+    } else if ((left_down || right_down) && class_elapsed >= kClassSelectionReselectDelayMs) {
+      const int next_class = clamp_class_id(g_rpc_probe.selected_class + (left_down ? -1 : 1));
+      /*
+       * INFERRED + OPENMP_REF + TODO_VERIFY:
+       * Compatibility CLocalPlayer::ProcessClassSelection repeats LEFT/RIGHT every 250 ms and sends
+       * RequestClass(selected_class); SHIFT is the only spawn confirmation key in that path.
+       */
+      schedule_request_class(next_class, left_down ? "manual_left" : "manual_right");
     }
     g_rpc_probe.manual_spawn_shift_down = shift_down;
   }
@@ -3318,6 +3613,10 @@ void rpc_observer(RakNet::RPCParameters *rpc_params, void *extra) {
     if (rpc_params != nullptr && bytes >= 8U) {
       decode_client_message_payload(rpc_params->input, bytes);
     }
+  } else if (rpc_id == 101U) {
+    if (rpc_params == nullptr || !decode_chat_payload(rpc_params->input, bytes)) {
+      trace_netf("rpc-state id=101 chat decode_failed bytes=%u", bytes);
+    }
   } else if (rpc_id == 139U) {
     g_rpc_probe.saw_init_game = 1;
     if (rpc_params != nullptr) {
@@ -3325,17 +3624,22 @@ void rpc_observer(RakNet::RPCParameters *rpc_params, void *extra) {
         trace_netf("rpc-state id=139 init_game decode failed bytes=%u", bytes);
       }
     }
-    if (!g_rpc_probe.sent_request_class) {
-      g_rpc_probe.pending_request_class = 1;
+    if (!g_rpc_probe.sent_request_class && !g_rpc_probe.pending_request_class &&
+        !g_rpc_probe.waiting_for_request_class_reply) {
+      schedule_request_class(g_rpc_probe.selected_class, "init_game");
     }
   } else if (rpc_id == 128U) {
     g_rpc_probe.saw_request_class_reply = 1;
+    g_rpc_probe.waiting_for_request_class_reply = 0;
     if (rpc_params != nullptr && bytes > 0U) {
       g_rpc_probe.request_class_outcome = rpc_params->input[0];
-      trace_netf("rpc-state id=128 request_class_outcome=%u", static_cast<unsigned int>(g_rpc_probe.request_class_outcome));
+      trace_netf("rpc-state id=128 request_class_outcome=%u selected_class=%d",
+                 static_cast<unsigned int>(g_rpc_probe.request_class_outcome), g_rpc_probe.selected_class);
       if (g_rpc_probe.request_class_outcome != 0U && bytes >= (1U + kObservedPlayerSpawnInfoBytes)) {
         read_spawn_info(rpc_params->input + 1, bytes - 1U, "RequestClass");
-        g_rpc_probe.class_selection_ready_time = RakNet::GetTime() + kClassSelectionManualDelayMs;
+        if (g_rpc_probe.class_selection_ready_time == 0U) {
+          g_rpc_probe.class_selection_ready_time = RakNet::GetTime() + kClassSelectionManualDelayMs;
+        }
       }
     }
     if (g_rpc_probe.request_spawn_send_count == 0U) {
@@ -3363,6 +3667,12 @@ void rpc_observer(RakNet::RPCParameters *rpc_params, void *extra) {
         g_rpc_probe.next_request_spawn_time = RakNet::GetTime() + kSpawnRetryDelayMs;
         trace_netf("rpc-state id=129 scheduled RequestSpawn retry=%u delay_ms=%u",
                    g_rpc_probe.request_spawn_retry_count, static_cast<unsigned int>(kSpawnRetryDelayMs));
+      } else {
+        g_rpc_probe.pending_request_spawn = 0;
+        g_rpc_probe.next_request_spawn_time = 0;
+        g_rpc_probe.request_spawn_send_count = 0U;
+        trace_netf("rpc-state id=129 spawn denied outcome=%u manual_retry_enabled=1 evidence=INFERRED",
+                   static_cast<unsigned int>(g_rpc_probe.request_spawn_outcome));
       }
     }
   } else if (rpc_id == 83U) {
@@ -3399,6 +3709,10 @@ void rpc_observer(RakNet::RPCParameters *rpc_params, void *extra) {
   } else if (rpc_id == 21U) {
     const unsigned int seq = bump_seq(&g_rpc_probe.reset_player_weapons_seq);
     trace_netf("rpc-state id=21 reset_player_weapons_seq=%u apply_pending=1", seq);
+  } else if (rpc_id == 56U) {
+    if (rpc_params == nullptr || !decode_set_map_icon_payload(rpc_params->input, bytes)) {
+      trace_netf("rpc-state id=56 set_map_icon decode_failed bytes=%u", bytes);
+    }
   } else if (rpc_id == 32U) {
     if (rpc_params == nullptr || !decode_world_player_add_payload(rpc_params->input, bytes)) {
       trace_netf("rpc-state id=32 world_player_add decode_failed bytes=%u", bytes);
@@ -3465,6 +3779,10 @@ void rpc_observer(RakNet::RPCParameters *rpc_params, void *extra) {
     }
   } else if (rpc_id == 75U) {
     trace_netf("rpc-state id=75 object_attach unsupported_yet=1 bytes=%u observe_only=1", bytes);
+  } else if (rpc_id == 80U) {
+    if (rpc_params == nullptr || !decode_show_name_tag_payload(rpc_params->input, bytes)) {
+      trace_netf("rpc-state id=80 show_name_tag decode_failed bytes=%u", bytes);
+    }
   } else if (rpc_id == 99U) {
     if (rpc_params == nullptr || !decode_object_move_payload(rpc_params->input, bytes)) {
       trace_netf("rpc-state id=99 object_move decode_failed bytes=%u", bytes);
@@ -3489,6 +3807,10 @@ void rpc_observer(RakNet::RPCParameters *rpc_params, void *extra) {
   } else if (rpc_id == 147U) {
     if (rpc_params == nullptr || !decode_vehicle_health_payload(rpc_params->input, bytes)) {
       trace_netf("rpc-state id=147 vehicle_health decode_failed bytes=%u", bytes);
+    }
+  } else if (rpc_id == 70U) {
+    if (rpc_params == nullptr || !decode_put_player_in_vehicle_payload(rpc_params->input, bytes)) {
+      trace_netf("rpc-state id=70 put_player_in_vehicle decode_failed bytes=%u", bytes);
     }
   } else if (rpc_id == 68U) {
     if (rpc_params != nullptr && bytes >= kObservedPlayerSpawnInfoBytes) {
@@ -3644,8 +3966,9 @@ void rpc_observer(RakNet::RPCParameters *rpc_params, void *extra) {
     if (rpc_params != nullptr && bytes >= 1U) {
       g_rpc_probe.saw_toggle_clock = 1;
       g_rpc_probe.clock_enabled = rpc_params->input[0] != 0U ? 1U : 0U;
-      trace_netf("rpc-state id=144 toggle_clock=%u observe_only=1",
-                 static_cast<unsigned int>(g_rpc_probe.clock_enabled));
+      (void)decode_remove_map_icon_payload(rpc_params->input, bytes);
+      trace_netf("rpc-state id=144 toggle_clock_compat=%u bytes=%u",
+                 static_cast<unsigned int>(g_rpc_probe.clock_enabled), bytes);
     }
   } else if (rpc_id == 156U) {
     if (rpc_params != nullptr && bytes >= 1U) {
@@ -3900,6 +4223,7 @@ int send_client_join(RakNet::RakClientInterface *rak_client, const RakNet::Packe
     copy_profile_string(nullptr, nickname, sizeof(nickname), kDefaultNickname);
     copy_profile_string(nullptr, client_version, sizeof(client_version), kDefaultClientVersion);
   }
+  copy_text(g_rpc_probe.local_nickname, sizeof(g_rpc_probe.local_nickname), nickname);
 
   if (gen_gpci(auth_bs, kGpciFactor) <= 0) {
     std::strcpy(auth_bs, "0");
@@ -4144,6 +4468,37 @@ int samp_raknet_client_send_onfoot_sync(void *client, const samp_raknet_onfoot_s
   return sent ? 0 : -2;
 }
 
+int samp_raknet_client_send_incar_sync(void *client, const samp_raknet_incar_sync *sync) {
+  RakNet::BitStream bs_send;
+  int sent = 0;
+
+  if (client == nullptr || client != g_rpc_probe.client || sync == nullptr) {
+    return -1;
+  }
+
+  /*
+   * INFERRED + OPENMP_REF + TODO_VERIFY:
+   * The compatibility local-player driver path periodically sends ID_VEHICLE_SYNC while the ped is the driver.
+   * open.mp's 0.3.7 read path consumes packet 200, then this 63-byte client->server payload starting with VehicleID.
+   */
+  bs_send.Write(kPacketVehicleSync);
+  bs_send.Write(reinterpret_cast<const char *>(sync), static_cast<int>(sizeof(*sync)));
+  sent = static_cast<RakNet::RakClientInterface *>(client)
+             ->Send(&bs_send, RakNet::HIGH_PRIORITY, RakNet::UNRELIABLE_SEQUENCED, 0)
+             ? 1
+             : 0;
+  trace_netf(
+      "packet-user-out id=%u name=VehicleSync sent=%d vehicle=%u pos=%.3f %.3f %.3f speed=%.3f %.3f %.3f "
+      "vehicle_health=%.3f player_health=%u weapon=%u evidence=INFERRED,OPENMP_REF,TODO_VERIFY",
+      static_cast<unsigned int>(kPacketVehicleSync), sent, static_cast<unsigned int>(sync->vehicle_id),
+      static_cast<double>(sync->position[0]), static_cast<double>(sync->position[1]),
+      static_cast<double>(sync->position[2]), static_cast<double>(sync->move_speed[0]),
+      static_cast<double>(sync->move_speed[1]), static_cast<double>(sync->move_speed[2]),
+      static_cast<double>(sync->vehicle_health), static_cast<unsigned int>(sync->player_health),
+      static_cast<unsigned int>(sync->additional_key_weapon));
+  return sent ? 0 : -2;
+}
+
 int samp_raknet_client_drain_packets(void *client, int max_packets) {
   return drain_packets_internal(client, max_packets, nullptr, 0, nullptr, nullptr, nullptr);
 }
@@ -4268,6 +4623,8 @@ int samp_raknet_client_get_rpc_probe_snapshot(void *client, samp_raknet_rpc_prob
   out_snapshot->vehicle_event_count = 0U;
   out_snapshot->remote_player_event_count = 0U;
   out_snapshot->remote_player_sync_count = 0U;
+  out_snapshot->map_icon_event_count = 0U;
+  out_snapshot->name_tag_event_count = 0U;
   out_snapshot->player_pool_event_count = 0U;
   out_snapshot->score_ping_count = 0U;
   out_snapshot->textdraw_select_active = g_rpc_probe.textdraw_select_active;
@@ -4451,6 +4808,34 @@ int samp_raknet_client_get_rpc_probe_snapshot(void *client, samp_raknet_rpc_prob
       }
     }
   }
+  std::memset(out_snapshot->map_icon_events, 0, sizeof(out_snapshot->map_icon_events));
+  if (g_rpc_probe.map_icon_event_seq > 0U) {
+    const unsigned int available = g_rpc_probe.map_icon_event_seq < SAMP_RAKNET_MAP_ICON_EVENT_RING
+                                       ? g_rpc_probe.map_icon_event_seq
+                                       : SAMP_RAKNET_MAP_ICON_EVENT_RING;
+    const unsigned int first_seq = g_rpc_probe.map_icon_event_seq - available + 1U;
+    for (unsigned int i = 0U; i < available; ++i) {
+      const unsigned int seq = first_seq + i;
+      const unsigned int slot = (seq - 1U) % SAMP_RAKNET_MAP_ICON_EVENT_RING;
+      if (g_rpc_probe.map_icon_events[slot].seq == seq) {
+        out_snapshot->map_icon_events[out_snapshot->map_icon_event_count++] = g_rpc_probe.map_icon_events[slot];
+      }
+    }
+  }
+  std::memset(out_snapshot->name_tag_events, 0, sizeof(out_snapshot->name_tag_events));
+  if (g_rpc_probe.name_tag_event_seq > 0U) {
+    const unsigned int available = g_rpc_probe.name_tag_event_seq < SAMP_RAKNET_NAME_TAG_EVENT_RING
+                                       ? g_rpc_probe.name_tag_event_seq
+                                       : SAMP_RAKNET_NAME_TAG_EVENT_RING;
+    const unsigned int first_seq = g_rpc_probe.name_tag_event_seq - available + 1U;
+    for (unsigned int i = 0U; i < available; ++i) {
+      const unsigned int seq = first_seq + i;
+      const unsigned int slot = (seq - 1U) % SAMP_RAKNET_NAME_TAG_EVENT_RING;
+      if (g_rpc_probe.name_tag_events[slot].seq == seq) {
+        out_snapshot->name_tag_events[out_snapshot->name_tag_event_count++] = g_rpc_probe.name_tag_events[slot];
+      }
+    }
+  }
   std::memset(out_snapshot->remote_player_syncs, 0, sizeof(out_snapshot->remote_player_syncs));
   if (g_rpc_probe.remote_player_sync_seq > 0U) {
     const unsigned int available = g_rpc_probe.remote_player_sync_seq < SAMP_RAKNET_REMOTE_PLAYER_SYNC_RING
@@ -4507,6 +4892,35 @@ int samp_raknet_client_send_spawn_notification_for_seq(void *client, uint32_t sp
 
   return send_spawn_notification_with_seq(static_cast<RakNet::RakClientInterface *>(client),
                                           static_cast<unsigned int>(spawn_info_seq));
+}
+
+int samp_raknet_client_request_class_delta(void *client, int delta) {
+  RakNet::RakNetTime now = 0;
+  RakNet::RakNetTime class_elapsed = 0;
+  int step = 0;
+  int next_class = 0;
+
+  if (client == nullptr || client != g_rpc_probe.client) {
+    return -1;
+  }
+  if (delta == 0 || !class_selection_manual_ready()) {
+    return -1;
+  }
+  now = RakNet::GetTime();
+  class_elapsed = now >= g_rpc_probe.last_request_class_time ? now - g_rpc_probe.last_request_class_time : 0U;
+  if (class_elapsed < kClassSelectionReselectDelayMs) {
+    return -2;
+  }
+
+  /*
+   * INFERRED + OPENMP_REF:
+   * Compatibility CLocalPlayer::ProcessClassSelection only changes class by one slot
+   * per accepted LEFT/RIGHT action and then sends RequestClass(selected_class).
+   */
+  step = delta < 0 ? -1 : 1;
+  next_class = clamp_class_id(g_rpc_probe.selected_class + step);
+  schedule_request_class(next_class, step < 0 ? "ui_left" : "ui_right");
+  return 0;
 }
 
 int samp_raknet_client_queue_dialog_response(void *client, uint16_t dialog_id, uint8_t button, int16_t listitem,

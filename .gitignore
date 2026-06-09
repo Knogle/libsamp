@@ -13,6 +13,10 @@
 /analysis/generated/
 /analysis/metadata/installer_extract/
 /artifacts/
+/tools/ghidra/.cache/
+/tools/ghidra/.config/
+/tools/ghidra/ghidra_12.1.2_PUBLIC/
+/tools/ghidra/jdk-21.0.11+10/
 /reimpl.zip
 /*.xcf
 

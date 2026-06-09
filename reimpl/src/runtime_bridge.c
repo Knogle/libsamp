@@ -75,6 +75,9 @@
 #define SAMP_ADDR_INTERIOR_PEDS_PATCH 0x440833u
 #define SAMP_ADDR_PED_SHADOWS_PATCH 0x53EA08u
 #define SAMP_ADDR_ANTI_PAUSE_PATCH 0x561AF0u
+#define SAMP_ADDR_CURSOR_HIDE_LOOP 0x7481CDu
+#define SAMP_ADDR_CURSOR_ENABLE_FLAG 0x747FEAu
+#define SAMP_ADDR_RS_MOUSE_SET_POS 0x6194A0u
 #define SAMP_ADDR_RANDOM_WEAPON_PICKUPS 0x5B47B0u
 #define SAMP_ADDR_RESPAWN_INTERIOR_RET 0x4090A0u
 #define SAMP_ADDR_RESPAWN_INTERIOR_CALL 0x441482u
@@ -85,6 +88,11 @@
 #define SAMP_ADDR_RANDOM_CARS_PROCESS 0x53C1C1u
 #define SAMP_ADDR_WASTED_MESSAGE_PATCH 0x56E5ADu
 #define SAMP_ADDR_CAMERA_FADE_PATCH 0x50AC20u
+#define SAMP_ADDR_CAMERA_MOUSE_ACCEL_HORIZONTAL 0xB6EC18u
+#define SAMP_ADDR_CAMERA_MOUSE_ACCEL_VERTICAL 0xB6EC1Cu
+#define SAMP_ADDR_CAMERA_USE_MOUSE_3RD_PERSON 0xB6EC2Eu
+#define SAMP_ADDR_CAMERA_MODE 0xB6F1A8u
+#define SAMP_ADDR_CAMERA_MODE2 0xB6F858u
 #define SAMP_ADDR_HWND 0xC97C1Cu
 #define SAMP_ADDR_ID3D9DEVICE 0xC97C28u
 #define SAMP_ADDR_SELECT_DEVICE_HOOK 0x746219u
@@ -129,6 +137,11 @@
 #define SAMP_ADDR_VEHICLE_TABLE 0xB74494u
 #define SAMP_ADDR_VEHICLE_FROM_ID 0x4048E0u
 #define SAMP_ADDR_OBJECT_FROM_ID 0x550050u
+#define SAMP_GTA_VTBL_CPLACEABLE 0x863C40u
+#define SAMP_GTA_VTBL_CAUTOMOBILE 0x871120u
+#define SAMP_GTA_FUNC_CAUTOMOBILE_FIX 0x6A3440u
+#define SAMP_GTA_FUNC_CAUTOMOBILE_SETUP_DAMAGE_AFTER_LOAD 0x6B3E90u
+#define SAMP_GTA_FUNC_CAE_VEHICLE_AUDIO_SERVICE 0x502280u
 #define SAMP_ADDR_PROCESS_ONE_COMMAND 0x469EB0u
 #define SAMP_ADDR_STREAMING_REQUEST_MODEL 0x4087E0u
 #define SAMP_ADDR_STREAMING_LOAD_ALL_REQUESTED 0x40EA10u
@@ -158,7 +171,11 @@
 #define SAMP_MP_BRIDGE_MAX_APPLIES 3600
 #define SAMP_MP_BRIDGE_TELEPORT_PERIOD 15
 #define SAMP_MP_POST_SPAWN_CAMERA_RESTORE_DELAY_MS 500u
+#define SAMP_GTA_CAMERA_MODE_GAMEPLAY 4u
+#define SAMP_GTA_CAMERA_MODE_FRONTEND_FIXED 15u
+#define SAMP_GTA_CAMERA_MOUSE_ACCEL_DEFAULT 0.0025f
 #define SAMP_ONFOOT_SYNC_INTERVAL_MS 250u
+#define SAMP_INCAR_SYNC_INTERVAL_MS 250u
 #define SAMP_LOCAL_STREAM_REFRESH_INTERVAL_MS 500u
 #define SAMP_LOCAL_STREAM_REFRESH_DISTANCE 35.0f
 #define SAMP_PED_OFFSET_MATRIX 20u
@@ -171,9 +188,20 @@
 #define SAMP_PED_OFFSET_VEHICLE 1420u
 #define SAMP_PED_STATE_IN_VEHICLE 0x100u
 #define SAMP_VEHICLE_SCANNER_DISTANCE 200.0f
+#define SAMP_VEHICLE_CREATE_Z_BIAS 0.1f
+#define SAMP_VEHICLE_OFFSET_COLOR1 1076u
+#define SAMP_VEHICLE_OFFSET_COLOR2 1077u
+#define SAMP_VEHICLE_OFFSET_SIREN_FLAGS 1069u
 #define SAMP_VEHICLE_OFFSET_DRIVER 1120u
 #define SAMP_VEHICLE_OFFSET_PASSENGERS 1124u
 #define SAMP_VEHICLE_PASSENGER_COUNT 7u
+#define SAMP_VEHICLE_OFFSET_HEALTH 1216u
+#define SAMP_VEHICLE_OFFSET_SIREN_ALT 1300u
+#define SAMP_VEHICLE_OFFSET_AUDIO_ENTITY 312u
+#define SAMP_VEHICLE_OFFSET_CAR_WHEELS 1445u
+#define SAMP_VEHICLE_OFFSET_DOOR_DAMAGE 1449u
+#define SAMP_VEHICLE_OFFSET_LIGHT_DAMAGE 1456u
+#define SAMP_VEHICLE_OFFSET_PANEL_DAMAGE 1460u
 /*
  * STATIC_037 + PROBE_TRACE + TODO_VERIFY:
  * Empty-vehicle scanner markers use the normal GTA radar marker path. Runtime
@@ -187,6 +215,7 @@
 #define SAMP_ENTITY_OFFSET_MOVE_SPEED 68u
 #define SAMP_RW_TYPE_ATOMIC 1u
 #define SAMP_RW_TYPE_CLUMP 2u
+#define SAMP_MATRIX_OFFSET_RIGHT 0u
 #define SAMP_MATRIX_OFFSET_POS 48u
 #define SAMP_POOL_OFFSET_OBJECTS 0u
 #define SAMP_POOL_OFFSET_FLAGS 4u
@@ -213,16 +242,24 @@
 #define SAMP_CHAT_INPUT_MAX 128
 #define SAMP_CHAT_INPUT_HISTORY 10
 #define SAMP_CHAT_INPUT_DRAW_BYTES 160
+#define SAMP_CHAT_QUIT_DISCONNECT_BLOCK_MS 500u
+#define SAMP_CHAT_QUIT_DISCONNECT_CHANNEL 0u
 #define SAMP_D3D9_END_SCENE_INDEX 42u
+#define SAMP_D3D9_SET_CURSOR_POSITION_INDEX 11u
+#define SAMP_D3D9_SHOW_CURSOR_INDEX 12u
 #define SAMP_D3D9_GET_FRONT_BUFFER_DATA_INDEX 33u
 #define SAMP_D3D9_CREATE_OFFSCREEN_PLAIN_SURFACE_INDEX 36u
 #define SAMP_D3D9_CLEAR_INDEX 43u
+#define SAMP_D3D9_GET_TRANSFORM_INDEX 45u
+#define SAMP_D3D9_GET_VIEWPORT_INDEX 48u
 #define SAMP_D3D9_SET_RENDER_STATE_INDEX 57u
 #define SAMP_D3D9_SET_TEXTURE_INDEX 65u
 #define SAMP_D3D9_SET_TEXTURE_STAGE_STATE_INDEX 67u
 #define SAMP_D3D9_SET_SAMPLER_STATE_INDEX 69u
 #define SAMP_D3D9_DRAW_PRIMITIVE_UP_INDEX 83u
 #define SAMP_D3D9_SET_FVF_INDEX 89u
+#define SAMP_D3DTS_VIEW 2u
+#define SAMP_D3DTS_PROJECTION 3u
 #define SAMP_D3DRS_ZENABLE 7u
 #define SAMP_D3DRS_SRCBLEND 19u
 #define SAMP_D3DRS_DESTBLEND 20u
@@ -310,28 +347,50 @@
 #define SAMP_OBJECT_COMPAT_CHAT_SKIP_LIMIT 3
 #define SAMP_OBJECT_COMPAT_SAMP_MODEL_MIN 18631
 /* INFERRED + TODO_VERIFY:
- * Until SA-MP IDE/IMG entries are fully registered in GTA's CModelInfo/streaming
- * tables, render indexed custom objects through a known GTA object. This keeps
- * server object lifetime/position data visible without feeding unsupported model
- * IDs into CStreaming::RequestModel.
+ * Indexed custom objects must not enter GTA's CreateObject path until their native
+ * CModelInfo/streaming registration is observed or implemented. A GTA proxy model
+ * remains an explicit diagnostic escape hatch only.
  */
 #define SAMP_OBJECT_COMPAT_CUSTOM_PROXY_MODEL 3095
+#define SAMP_OBJECT_COMPAT_CUSTOM_PROXY_ENV "SAMPDLL_CUSTOM_OBJECT_PROXY"
+#define SAMP_LOCAL_SPAWN_SKIN_APPLY_ENV "SAMPDLL_LOCAL_SPAWN_SKIN_APPLY"
+#define SAMP_CLASS_SELECTION_SKIN_APPLY_ENV "SAMPDLL_CLASS_SELECTION_SKIN_APPLY"
 #define SAMP_VEHICLE_COMPAT_MODEL_LOAD_FLAGS 0x06
 #define SAMP_VEHICLE_COMPAT_CREATE_BUDGET 1u
 #define SAMP_VEHICLE_COMPAT_CREATE_INTERVAL_MS 100u
 #define SAMP_VEHICLE_COMPAT_POST_TELEPORT_HOLD_MS 1500u
 #define SAMP_VEHICLE_COMPAT_MODEL_MIN 400
 #define SAMP_VEHICLE_COMPAT_MODEL_MAX 611
+#define SAMP_GTA_DEFAULT_GRAVITY 0.008f
 #define SAMP_VEHICLE_COMPAT_TRAIN_PASSENGER_LOCO 538
 #define SAMP_VEHICLE_COMPAT_TRAIN_FREIGHT_LOCO 537
 #define SAMP_VEHICLE_COMPAT_TRAIN_PASSENGER 570
 #define SAMP_VEHICLE_COMPAT_TRAIN_FREIGHT 569
 #define SAMP_VEHICLE_COMPAT_TRAIN_TRAM 449
+#define SAMP_VEHICLE_DEBUG_LABEL_DISTANCE 80.0f
+#define SAMP_VEHICLE_DEBUG_LABEL_Z_BIAS 1.4f
+#define SAMP_VEHICLE_DEBUG_LABEL_LINE_HEIGHT 14
+#define SAMP_VEHICLE_DEBUG_LABEL_HALF_WIDTH 230
+#define SAMP_VEHICLE_DEBUG_LABEL_COLOR 0xFF358BD4u
 #define SAMP_REMOTE_PLAYER_COMPAT_SKIN_MAX 311
 #define SAMP_REMOTE_PLAYER_COMPAT_FALLBACK_SKIN 0
 #define SAMP_REMOTE_PLAYER_COMPAT_MODEL_LOAD_FLAGS 0x06
 #define SAMP_REMOTE_PLAYER_COMPAT_CREATE_BUDGET 4u
 #define SAMP_REMOTE_PLAYER_MARKER_RADAR_SIZE 2
+#define SAMP_MAP_ICON_RADAR_SIZE 3
+#define SAMP_NAME_TAG_DEFAULT_DRAW_DISTANCE 70.0f
+#define SAMP_NAME_TAG_Z_BASE 1.0f
+#define SAMP_NAME_TAG_Z_DISTANCE_SCALE 0.05f
+#define SAMP_NAME_TAG_HALF_WIDTH 180
+#define SAMP_NAME_TAG_LINE_HEIGHT 14
+#define SAMP_NAME_TAG_BAR_HALF_WIDTH 20
+#define SAMP_NAME_TAG_BAR_WIDTH 40
+#define SAMP_NAME_TAG_BAR_HEIGHT 6
+#define SAMP_NAME_TAG_BAR_GAP 2
+#define SAMP_NAME_TAG_HEALTH_FILL 0xFFB92228u
+#define SAMP_NAME_TAG_HEALTH_BACK 0xFF4B0B14u
+#define SAMP_NAME_TAG_ARMOUR_FILL 0xFFB7B7B7u
+#define SAMP_NAME_TAG_ARMOUR_BACK 0xFF505050u
 #define SAMP_GTA_MODEL_INFO_COUNT 20000u
 #define SAMP_ASSET_NAME_BYTES 32u
 #define SAMP_ASSET_IMG_INDEX_MAX 8192u
@@ -448,6 +507,19 @@ typedef struct samp_d3d9_textured_vertex_compat {
   float v;
 } samp_d3d9_textured_vertex_compat;
 
+typedef struct samp_d3d9_viewport_compat {
+  DWORD x;
+  DWORD y;
+  DWORD width;
+  DWORD height;
+  float min_z;
+  float max_z;
+} samp_d3d9_viewport_compat;
+
+typedef struct samp_d3d_matrix_compat {
+  float m[4][4];
+} samp_d3d_matrix_compat;
+
 typedef void(__cdecl *samp_script_process_fn)(void);
 typedef HANDLE(WINAPI *samp_create_file_a_fn)(LPCSTR, DWORD, DWORD, LPSECURITY_ATTRIBUTES, DWORD, DWORD, HANDLE);
 typedef BOOL(WINAPI *samp_read_file_fn)(HANDLE, LPVOID, DWORD, LPDWORD, LPOVERLAPPED);
@@ -466,6 +538,10 @@ typedef HRESULT(WINAPI *samp_d3d9_set_fvf_fn)(void *, DWORD);
 typedef HRESULT(WINAPI *samp_d3d9_draw_primitive_up_fn)(void *, DWORD, unsigned int, const void *, unsigned int);
 typedef HRESULT(WINAPI *samp_d3d9_get_front_buffer_data_fn)(void *, UINT, void *);
 typedef HRESULT(WINAPI *samp_d3d9_create_offscreen_plain_surface_fn)(void *, UINT, UINT, DWORD, DWORD, void **, void *);
+typedef HRESULT(WINAPI *samp_d3d9_get_transform_fn)(void *, DWORD, samp_d3d_matrix_compat *);
+typedef HRESULT(WINAPI *samp_d3d9_get_viewport_fn)(void *, samp_d3d9_viewport_compat *);
+typedef void(WINAPI *samp_d3d9_set_cursor_position_fn)(void *, int, int, DWORD);
+typedef BOOL(WINAPI *samp_d3d9_show_cursor_fn)(void *, BOOL);
 typedef ULONG(WINAPI *samp_unknown_release_fn)(void *);
 typedef int(__cdecl *samp_rw_get_num_subsystems_fn)(void);
 typedef int(__cdecl *samp_rw_set_subsystem_fn)(int);
@@ -556,6 +632,7 @@ typedef struct samp_remote_player_slot_compat {
   uint8_t team;
   uint8_t fighting_style;
   uint8_t visible;
+  uint8_t show_name_tag;
   uint8_t health;
   uint8_t armour;
   uint8_t current_weapon;
@@ -569,6 +646,16 @@ typedef struct samp_remote_player_slot_compat {
   float move_speed[3];
   DWORD last_sync_tick;
 } samp_remote_player_slot_compat;
+
+typedef struct samp_map_icon_slot_compat {
+  LONG active;
+  uint32_t seq;
+  uint32_t marker_id;
+  uint8_t icon;
+  uint8_t reserved[3];
+  uint32_t color;
+  float pos[3];
+} samp_map_icon_slot_compat;
 
 typedef struct samp_object_slot_compat {
   LONG active;
@@ -682,6 +769,7 @@ typedef struct samp_vehicle_slot_compat {
   int32_t model;
   uint32_t gta_id;
   uint32_t marker_id;
+  int32_t invulnerable_state;
   uint8_t color1;
   uint8_t color2;
   uint8_t interior;
@@ -821,6 +909,10 @@ typedef struct samp_runtime_state {
   LONG mp_session_script_failures;
   LONG mp_session_spawn_finalized;
   LONG mp_session_finalized_spawn_seq;
+  LONG mp_session_class_selection_skin_seq;
+  LONG class_selection_mouse_mode;
+  LONG class_selection_mouse_down;
+  LONG class_selection_overlay_logged;
   LONG mp_session_post_spawn_camera_restored;
   LONG mp_session_frontend_hold_logged;
   LONG time_passing_patch_applied;
@@ -881,7 +973,9 @@ typedef struct samp_runtime_state {
   uint8_t raknet_world_visual_material_alignment;
   uint8_t raknet_init_world_time;
   uint8_t raknet_init_weather;
+  uint8_t raknet_init_show_player_tags;
   uint8_t raknet_init_show_player_markers;
+  uint8_t raknet_init_tire_popping;
   uint8_t raknet_init_lan_mode;
   uint8_t raknet_init_disable_enter_exits;
   uint8_t raknet_init_stunt_bonus;
@@ -898,6 +992,7 @@ typedef struct samp_runtime_state {
   DWORD script_gate_old_protect;
   DWORD net_mgr_last_connect_attempt_tick;
   DWORD onfoot_sync_last_tick;
+  DWORD incar_sync_last_tick;
   DWORD local_stream_refresh_last_tick;
   void *bootstrap_manager_block;
   uintptr_t game_process_hook_stub;
@@ -978,6 +1073,9 @@ typedef struct samp_runtime_state {
   LONG dialog_mouse_raw_x;
   LONG dialog_mouse_raw_y;
   LONG dialog_mouse_logged;
+  LONG rs_mouse_set_pos_saved_valid;
+  LONG rs_mouse_set_pos_cursor_patch_applied;
+  uint8_t rs_mouse_set_pos_saved_byte;
   LONG screenshot_requested;
   LONG screenshot_count;
   LONG screenshot_fail_logged;
@@ -990,10 +1088,14 @@ typedef struct samp_runtime_state {
   LONG textdraw_mouse_down;
   LONG remote_player_event_seq;
   LONG remote_player_sync_seq;
+  LONG remote_player_name_tag_event_seq;
   LONG remote_player_active_count;
   LONG remote_player_pending_count;
   LONG remote_player_logged;
   LONG remote_player_orphan_sync_logged;
+  LONG remote_player_name_tags_logged;
+  LONG map_icon_event_seq;
+  LONG map_icon_logged;
   LONG object_event_seq;
   LONG object_active_count;
   LONG object_pending_count;
@@ -1010,11 +1112,16 @@ typedef struct samp_runtime_state {
   LONG vehicle_active_count;
   LONG vehicle_pending_count;
   LONG vehicle_logged;
+  LONG vehicle_debug_labels_active;
+  LONG vehicle_debug_labels_logged;
   DWORD vehicle_create_last_tick;
   DWORD vehicle_create_hold_until_tick;
   LONG onfoot_sync_send_count;
   LONG onfoot_sync_failures;
   LONG onfoot_sync_logged;
+  LONG incar_sync_send_count;
+  LONG incar_sync_failures;
+  LONG incar_sync_logged;
   LONG loading_screen_logged;
   LONG loading_screen_fail_logged;
   DWORD textdraw_select_color;
@@ -1039,6 +1146,7 @@ typedef struct samp_runtime_state {
   samp_textdraw_slot_compat textdraw_slots[SAMP_RAKNET_MAX_TEXTDRAWS];
   samp_scoreboard_player_compat scoreboard_players[SAMP_SCOREBOARD_MAX_PLAYERS];
   samp_remote_player_slot_compat remote_player_slots[SAMP_RAKNET_MAX_PLAYERS];
+  samp_map_icon_slot_compat map_icon_slots[SAMP_RAKNET_MAP_ICON_MAX];
   samp_asset_model_entry_compat samp_asset_models[SAMP_GTA_MODEL_INFO_COUNT];
   samp_asset_img_entry_compat samp_asset_img_entries[SAMP_ASSET_IMG_INDEX_MAX];
   samp_object_slot_compat object_slots[SAMP_RAKNET_MAX_OBJECTS];
@@ -1061,6 +1169,7 @@ static samp_boot_phase g_last_phase = BOOT_PHASE_0_NONE;
 static samp_script_process_fn g_script_process_original = NULL;
 static uint8_t g_scan_list_memory[SAMP_SCANLIST_SIZE];
 static LONG read_game_entry_gate_value(void);
+static int gta_code_ptr_compat(uintptr_t ptr);
 static HRESULT WINAPI chat_compat_end_scene_hook(void *device);
 static void chat_compat_viewport_rect(int *out_x, int *out_y, int *out_w, int *out_h);
 static int scoreboard_compat_active(void);
@@ -1077,6 +1186,8 @@ static int textdraw_compat_is_preview_like(const samp_textdraw_slot_compat *slot
 static int textdraw_compat_has_box(const samp_textdraw_slot_compat *slot);
 static void samp_asset_index_build_compat(void);
 static void samp_asset_model_describe_compat(int32_t model, char *out, size_t out_size);
+static void samp_asset_log_object_readiness_compat(uint16_t object_id, uint32_t seq, int32_t model,
+                                                   const char *reason);
 static const char *samp_asset_custom_model_skip_reason_compat(int32_t model);
 static int samp_asset_custom_proxy_model_compat(int32_t model, int32_t *out_model, char *reason,
                                                 size_t reason_size);
@@ -1084,10 +1195,23 @@ static int textdraw_compat_handle_mouse(HWND hwnd, UINT msg, LPARAM lparam);
 static int textdraw_compat_submit_click(uint16_t textdraw_id);
 static void textdraw_compat_clear_select_mode(const char *reason);
 static void textdraw_compat_release_fonts(void);
+static void visible_cursor_recenter_patch_apply_compat(const char *reason);
+static void visible_cursor_recenter_patch_restore_compat(const char *reason);
+static void center_hwnd_cursor_compat(HWND hwnd);
+static void d3d9_cursor_show_compat(int show, const char *reason);
+static void d3d9_cursor_sync_client_compat(HWND hwnd, int client_x, int client_y, const char *reason);
+static int class_selection_compat_active(void);
+static int class_selection_compat_handle_mouse(HWND hwnd, UINT msg, LPARAM lparam);
+static int class_selection_compat_draw_d3dx_overlay(void *device, samp_id3dx_font_compat *font);
+static void class_selection_compat_update_mouse_mode(void);
 static void object_compat_update_from_snapshot(const samp_raknet_rpc_probe_snapshot *snapshot);
 static void object_compat_reset_pool(const char *reason);
+static void map_icon_compat_update_from_snapshot(const samp_raknet_rpc_probe_snapshot *snapshot);
+static void map_icon_compat_reset(const char *reason);
 static void remote_player_compat_update_from_snapshot(const samp_raknet_rpc_probe_snapshot *snapshot);
 static void remote_player_compat_reset_pool(const char *reason);
+static int remote_player_compat_name_tags_active(void);
+static int remote_player_compat_draw_name_tags_d3dx_overlay(void *device, samp_id3dx_font_compat *font);
 static void vehicle_compat_update_from_snapshot(const samp_raknet_rpc_probe_snapshot *snapshot);
 static void vehicle_compat_reset_pool(const char *reason);
 static int loading_screen_compat_active(void);
@@ -1096,11 +1220,14 @@ static void loading_screen_compat_release_texture(void);
 static int gta_script_command_compat(uint16_t opcode, const char *params, ...);
 static int memory_is_readable_compat(const void *ptr, size_t size);
 static uintptr_t gta_find_player_ped_compat(void);
+static int gta_ped_is_in_vehicle_compat(uintptr_t ped);
 static int gta_reset_ped_audio_attributes_compat(uintptr_t ped, const char *reason);
 static int gta_entity_read_position_compat(uintptr_t entity, float *x, float *y, float *z);
+static uintptr_t vehicle_compat_game_pool_get_at(uint32_t gta_id);
 static void gta_streaming_request_model_compat(int32_t model_id, int32_t flags);
 static void gta_streaming_load_all_requested_compat(int only_priority_requests);
 static int screenshot_compat_resolve_d3dx_save_surface(void);
+static int gta_frontend_menu_active_compat(void);
 static LRESULT CALLBACK chat_input_wndproc_compat(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam);
 static const uint8_t kGameProcessHookJmpCode[6] = {0xFFu, 0x25u, 0xD1u, 0xBEu, 0x53u, 0x00u};
 
@@ -1634,19 +1761,65 @@ static int chat_input_is_local_quit_command_compat(const char *line) {
   return 0;
 }
 
+static int chat_input_is_local_dl_command_compat(const char *line) {
+  const char *cursor = line;
+
+  if (cursor == NULL) {
+    return 0;
+  }
+  while (*cursor == ' ' || *cursor == '\t') {
+    ++cursor;
+  }
+  if (*cursor != '/') {
+    return 0;
+  }
+  ++cursor;
+  if (!chat_input_ascii_ieq_compat(cursor[0], 'd') || !chat_input_ascii_ieq_compat(cursor[1], 'l')) {
+    return 0;
+  }
+  cursor += 2;
+  return *cursor == '\0' || *cursor == ' ' || *cursor == '\t';
+}
+
 static void chat_input_request_quit_compat(const char *line) {
   HWND hwnd = read_game_hwnd_compat();
+  int connected_before = 0;
+  int connected_after = 0;
 
   if (g_runtime.net_mgr.raknet_client != NULL) {
-    samp_raknet_client_disconnect(g_runtime.net_mgr.raknet_client, 0U, 0U);
+    connected_before = samp_raknet_client_is_connected(g_runtime.net_mgr.raknet_client);
+    if (connected_before) {
+      /*
+       * INFERRED + TODO_VERIFY:
+       * The compatibility /q path calls QuitGame(), which uses RakClient::Disconnect(500).
+       * RakNet documents blockDuration=0 as no wait for ID_DISCONNECTION_NOTIFICATION,
+       * so keep the short flush before handing control to the existing process close.
+       */
+      samp_raknet_client_disconnect(g_runtime.net_mgr.raknet_client, SAMP_CHAT_QUIT_DISCONNECT_BLOCK_MS,
+                                    SAMP_CHAT_QUIT_DISCONNECT_CHANNEL);
+      connected_after = samp_raknet_client_is_connected(g_runtime.net_mgr.raknet_client);
+    }
   }
   chat_compat_add_message("Exiting...");
-  runtime_tracef("chat_input: local quit command hwnd=0x%08lx text='%s'", (unsigned long)(uintptr_t)hwnd,
+  runtime_tracef("chat_input: local quit command hwnd=0x%08lx connected=%d->%d block_ms=%u channel=%u text='%s' evidence=INFERRED,TODO_VERIFY",
+                 (unsigned long)(uintptr_t)hwnd, connected_before, connected_after,
+                 (unsigned)SAMP_CHAT_QUIT_DISCONNECT_BLOCK_MS, (unsigned)SAMP_CHAT_QUIT_DISCONNECT_CHANNEL,
                  line != NULL ? line : "");
   if (hwnd != NULL) {
     PostMessageA(hwnd, WM_CLOSE, 0, 0);
   }
   PostQuitMessage(0);
+}
+
+static void chat_input_toggle_vehicle_debug_labels_compat(const char *line) {
+  LONG previous = InterlockedCompareExchange(&g_runtime.vehicle_debug_labels_active, 0, 0);
+  LONG enabled = previous != 0 ? 0 : 1;
+
+  InterlockedExchange(&g_runtime.vehicle_debug_labels_active, enabled);
+  InterlockedExchange(&g_runtime.vehicle_debug_labels_logged, 0);
+  chat_compat_add_message(enabled != 0 ? "Vehicle debug labels enabled." : "Vehicle debug labels disabled.");
+  runtime_tracef("chat_input: local dl command enabled=%ld text='%s' evidence=INFERRED",
+                 (long)enabled, line != NULL ? line : "");
 }
 
 static void chat_input_submit_compat(void) {
@@ -1671,6 +1844,10 @@ static void chat_input_submit_compat(void) {
   chat_input_add_history_compat(line);
   if (chat_input_is_local_quit_command_compat(line)) {
     chat_input_request_quit_compat(line);
+    return;
+  }
+  if (chat_input_is_local_dl_command_compat(line)) {
+    chat_input_toggle_vehicle_debug_labels_compat(line);
     return;
   }
   if (g_runtime.net_mgr.raknet_client == NULL || !samp_raknet_client_is_connected(g_runtime.net_mgr.raknet_client)) {
@@ -1814,9 +1991,12 @@ static void dialog_compat_set_mouse_mode(int enabled) {
   int viewport_y = 0;
   int viewport_w = 0;
   int viewport_h = 0;
+  int mouse_x = 0;
+  int mouse_y = 0;
   int i = 0;
 
   if (enabled) {
+    visible_cursor_recenter_patch_apply_compat("dialog_mouse_enable");
     if (InterlockedExchange(&g_runtime.dialog_mouse_mode, 1) != 0) {
       SetCursor(LoadCursorA(NULL, IDC_ARROW));
       return;
@@ -1824,19 +2004,21 @@ static void dialog_compat_set_mouse_mode(int enabled) {
 
     hwnd = read_game_hwnd_compat();
     if (hwnd != NULL && GetCursorPos(&cursor) && ScreenToClient(hwnd, &cursor)) {
-      InterlockedExchange(&g_runtime.dialog_mouse_x, cursor.x);
-      InterlockedExchange(&g_runtime.dialog_mouse_y, cursor.y);
-      InterlockedExchange(&g_runtime.dialog_mouse_raw_x, cursor.x);
-      InterlockedExchange(&g_runtime.dialog_mouse_raw_y, cursor.y);
+      mouse_x = cursor.x;
+      mouse_y = cursor.y;
     } else {
       chat_compat_viewport_rect(&viewport_x, &viewport_y, &viewport_w, &viewport_h);
-      InterlockedExchange(&g_runtime.dialog_mouse_x, viewport_x + (viewport_w / 2));
-      InterlockedExchange(&g_runtime.dialog_mouse_y, viewport_y + (viewport_h / 2));
-      InterlockedExchange(&g_runtime.dialog_mouse_raw_x, viewport_x + (viewport_w / 2));
-      InterlockedExchange(&g_runtime.dialog_mouse_raw_y, viewport_y + (viewport_h / 2));
+      mouse_x = viewport_x + (viewport_w / 2);
+      mouse_y = viewport_y + (viewport_h / 2);
     }
+    InterlockedExchange(&g_runtime.dialog_mouse_x, mouse_x);
+    InterlockedExchange(&g_runtime.dialog_mouse_y, mouse_y);
+    InterlockedExchange(&g_runtime.dialog_mouse_raw_x, mouse_x);
+    InterlockedExchange(&g_runtime.dialog_mouse_raw_y, mouse_y);
 
     ClipCursor(NULL);
+    d3d9_cursor_show_compat(1, "dialog_mouse_enable");
+    d3d9_cursor_sync_client_compat(hwnd, mouse_x, mouse_y, "dialog_mouse_enable");
     if (g_runtime.bootstrap_shims.show_cursor != NULL) {
       while (i++ < 8 && g_runtime.bootstrap_shims.show_cursor(TRUE) < 0) {
       }
@@ -1855,6 +2037,9 @@ static void dialog_compat_set_mouse_mode(int enabled) {
     return;
   }
   InterlockedExchange(&g_runtime.dialog_mouse_down, 0);
+  center_hwnd_cursor_compat(read_game_hwnd_compat());
+  visible_cursor_recenter_patch_restore_compat("dialog_mouse_disable");
+  d3d9_cursor_show_compat(0, "dialog_mouse_disable");
   ClipCursor(NULL);
   i = 0;
   if (g_runtime.bootstrap_shims.show_cursor != NULL) {
@@ -1879,6 +2064,9 @@ static void ui_compat_release_game_mouse(const char *reason) {
    * and textdraw select mode can still own the cursor while active.
    */
   InterlockedExchange(&g_runtime.dialog_mouse_down, 0);
+  center_hwnd_cursor_compat(hwnd);
+  visible_cursor_recenter_patch_restore_compat(reason != NULL ? reason : "game_mouse_release");
+  d3d9_cursor_show_compat(0, reason != NULL ? reason : "game_mouse_release");
   ClipCursor(NULL);
   ReleaseCapture();
   if (hwnd != NULL) {
@@ -1998,6 +2186,7 @@ static void dialog_compat_record_mouse(HWND hwnd, LPARAM lparam) {
     if (hwnd != NULL) {
       SetCursor(LoadCursorA(NULL, IDC_ARROW));
     }
+    d3d9_cursor_sync_client_compat(hwnd, virtual_x, virtual_y, "dialog_mouse_center_warp");
     return;
   }
   if (dx != 0 || dy != 0) {
@@ -2023,6 +2212,7 @@ static void dialog_compat_record_mouse(HWND hwnd, LPARAM lparam) {
   if (hwnd != NULL) {
     SetCursor(LoadCursorA(NULL, IDC_ARROW));
   }
+  d3d9_cursor_sync_client_compat(hwnd, virtual_x, virtual_y, "dialog_mouse_record");
 }
 
 static void dialog_compat_select_from_mouse(int x, int y, int submit) {
@@ -2500,6 +2690,7 @@ static void object_compat_log_skip(uint16_t object_id, uint32_t seq, int32_t mod
   asset_description[0] = '\0';
   if (object_compat_is_samp_custom_model(model)) {
     samp_asset_model_describe_compat(model, asset_description, sizeof(asset_description));
+    samp_asset_log_object_readiness_compat(object_id, seq, model, reason);
   }
 
   runtime_tracef("object_exception: skip id=%u seq=%lu model=%ld reason=%s model_info=0x%08lx%s",
@@ -3216,6 +3407,7 @@ static int vehicle_compat_create_slot(const samp_raknet_vehicle_event *event) {
   memset(slot, 0, sizeof(*slot));
   slot->seq = event->seq;
   slot->model = event->model;
+  slot->invulnerable_state = -1;
   slot->color1 = event->color1;
   slot->color2 = event->color2;
   slot->interior = event->interior;
@@ -3243,8 +3435,212 @@ static int vehicle_compat_create_slot(const samp_raknet_vehicle_event *event) {
   return 1;
 }
 
+static int vehicle_compat_read_u8(uintptr_t vehicle, uint32_t offset, uint8_t *value) {
+  if (vehicle < 0x10000u || value == NULL ||
+      !memory_is_readable_compat((const void *)(vehicle + offset), sizeof(*value))) {
+    return 0;
+  }
+  memcpy(value, (const void *)(vehicle + offset), sizeof(*value));
+  return 1;
+}
+
+static int vehicle_compat_read_u32(uintptr_t vehicle, uint32_t offset, uint32_t *value) {
+  if (vehicle < 0x10000u || value == NULL ||
+      !memory_is_readable_compat((const void *)(vehicle + offset), sizeof(*value))) {
+    return 0;
+  }
+  memcpy(value, (const void *)(vehicle + offset), sizeof(*value));
+  return 1;
+}
+
+static int vehicle_compat_read_float(uintptr_t vehicle, uint32_t offset, float *value) {
+  if (vehicle < 0x10000u || value == NULL ||
+      !memory_is_readable_compat((const void *)(vehicle + offset), sizeof(*value))) {
+    return 0;
+  }
+  memcpy(value, (const void *)(vehicle + offset), sizeof(*value));
+  return 1;
+}
+
+static int vehicle_compat_read_live_health(uintptr_t vehicle, float *health) {
+  return vehicle_compat_read_float(vehicle, SAMP_VEHICLE_OFFSET_HEALTH, health);
+}
+
+static int vehicle_compat_write_u8(uintptr_t vehicle, uint32_t offset, uint8_t value) {
+  if (vehicle < 0x10000u || !memory_is_readable_compat((const void *)(vehicle + offset), sizeof(value))) {
+    return 0;
+  }
+  memcpy((void *)(vehicle + offset), &value, sizeof(value));
+  return 1;
+}
+
+static int vehicle_compat_write_u32(uintptr_t vehicle, uint32_t offset, uint32_t value) {
+  if (vehicle < 0x10000u || !memory_is_readable_compat((const void *)(vehicle + offset), sizeof(value))) {
+    return 0;
+  }
+  memcpy((void *)(vehicle + offset), &value, sizeof(value));
+  return 1;
+}
+
+static int vehicle_compat_write_float(uintptr_t vehicle, uint32_t offset, float value) {
+  if (vehicle < 0x10000u || !memory_is_readable_compat((const void *)(vehicle + offset), sizeof(value))) {
+    return 0;
+  }
+  memcpy((void *)(vehicle + offset), &value, sizeof(value));
+  return 1;
+}
+
+static int vehicle_compat_read_vtable(uintptr_t vehicle, uintptr_t *vtable) {
+  if (vehicle < 0x10000u || vtable == NULL || !memory_is_readable_compat((const void *)vehicle, sizeof(*vtable))) {
+    return 0;
+  }
+  memcpy(vtable, (const void *)vehicle, sizeof(*vtable));
+  return (*vtable >= 0x00800000u && *vtable < 0x00900000u) ? 1 : 0;
+}
+
+static void vehicle_compat_call_thiscall0(uintptr_t this_ptr, uintptr_t fn_addr) {
+#if defined(__i386__) || defined(_M_IX86)
+  if (this_ptr < 0x10000u || fn_addr < 0x00400000u || fn_addr >= 0x00800000u) {
+    return;
+  }
+  __asm__ __volatile__("movl %[this_ptr], %%ecx\n\t"
+                       "call *%[fn]\n\t"
+                       :
+                       : [this_ptr] "r"(this_ptr), [fn] "r"(fn_addr)
+                       : "eax", "ecx", "edx", "memory", "cc");
+#else
+  (void)this_ptr;
+  (void)fn_addr;
+#endif
+}
+
+static void vehicle_compat_service_audio(uintptr_t vehicle, const char *reason) {
+  uintptr_t audio_entity = vehicle + SAMP_VEHICLE_OFFSET_AUDIO_ENTITY;
+
+  if (vehicle < 0x10000u || !memory_is_readable_compat((const void *)audio_entity, 4u)) {
+    return;
+  }
+  /*
+   * GTA_REVERSED_REF + INFERRED + TODO_VERIFY:
+   * The compatibility process-control hook services CAEVehicleAudioEntity at CVehicle+312
+   * around every vehicle ProcessControl call. We do not install that broad hook
+   * yet, but servicing once after a server-forced local entry keeps the local
+   * driver handoff closer to the old PutDirectlyInVehicle path.
+   */
+  vehicle_compat_call_thiscall0(audio_entity, SAMP_GTA_FUNC_CAE_VEHICLE_AUDIO_SERVICE);
+  runtime_tracef("vehicle: audio_service ptr=0x%08lx audio=0x%08lx reason=%s evidence=INFERRED,GTA_REVERSED_REF,TODO_VERIFY",
+                 (unsigned long)vehicle, (unsigned long)audio_entity, reason != NULL ? reason : "unknown");
+}
+
+static int vehicle_compat_is_automobile(uintptr_t vehicle) {
+  uintptr_t vtable = 0u;
+  return vehicle_compat_read_vtable(vehicle, &vtable) && vtable == (uintptr_t)SAMP_GTA_VTBL_CAUTOMOBILE ? 1 : 0;
+}
+
+static int vehicle_compat_apply_damage(uint16_t vehicle_id, const samp_vehicle_slot_compat *slot,
+                                       uintptr_t vehicle) {
+  uint32_t current_panel = 0u;
+  uint32_t current_door = 0u;
+  uint32_t current_light = 0u;
+
+  if (slot == NULL || vehicle == 0u) {
+    return 0;
+  }
+  if (!vehicle_compat_is_automobile(vehicle)) {
+    if (slot->panel_damage != 0u || slot->door_damage != 0u || slot->light_damage != 0u) {
+      runtime_tracef("vehicle: damage_deferred id=%u ptr=0x%08lx reason=non_automobile panel=0x%08lx door=0x%08lx light=%u",
+                     (unsigned)vehicle_id, (unsigned long)vehicle, (unsigned long)slot->panel_damage,
+                     (unsigned long)slot->door_damage, (unsigned)slot->light_damage);
+    }
+    return 0;
+  }
+  if (!vehicle_compat_read_u32(vehicle, SAMP_VEHICLE_OFFSET_PANEL_DAMAGE, &current_panel) ||
+      !vehicle_compat_read_u32(vehicle, SAMP_VEHICLE_OFFSET_DOOR_DAMAGE, &current_door) ||
+      !vehicle_compat_read_u32(vehicle, SAMP_VEHICLE_OFFSET_LIGHT_DAMAGE, &current_light)) {
+    runtime_tracef("vehicle: damage_deferred id=%u ptr=0x%08lx reason=unreadable", (unsigned)vehicle_id,
+                   (unsigned long)vehicle);
+    return 0;
+  }
+
+  /*
+   * INFERRED + GTA_REVERSED_REF:
+   * Old CVehicle::UpdateDamageStatus repairs through CAutomobile::Fix when the
+   * server sends an all-zero state over a currently damaged GTA automobile. For
+   * non-zero damage it writes the panel/door/light fields, then asks GTA to
+   * rebuild the visible damage model via CAutomobile::SetupDamageAfterLoad.
+   */
+  if (slot->panel_damage == 0u && slot->door_damage == 0u && slot->light_damage == 0u) {
+    if (current_panel != 0u || current_door != 0u || current_light != 0u) {
+      vehicle_compat_call_thiscall0(vehicle, SAMP_GTA_FUNC_CAUTOMOBILE_FIX);
+      runtime_tracef("vehicle: damage_fix id=%u ptr=0x%08lx before_panel=0x%08lx before_door=0x%08lx before_light=0x%08lx evidence=INFERRED,GTA_REVERSED_REF",
+                     (unsigned)vehicle_id, (unsigned long)vehicle, (unsigned long)current_panel,
+                     (unsigned long)current_door, (unsigned long)current_light);
+      return 1;
+    }
+    return 0;
+  }
+
+  if (!vehicle_compat_write_u32(vehicle, SAMP_VEHICLE_OFFSET_PANEL_DAMAGE, slot->panel_damage) ||
+      !vehicle_compat_write_u32(vehicle, SAMP_VEHICLE_OFFSET_DOOR_DAMAGE, slot->door_damage) ||
+      !vehicle_compat_write_u32(vehicle, SAMP_VEHICLE_OFFSET_LIGHT_DAMAGE, (uint32_t)slot->light_damage)) {
+    runtime_tracef("vehicle: damage_write_failed id=%u ptr=0x%08lx panel=0x%08lx door=0x%08lx light=%u",
+                   (unsigned)vehicle_id, (unsigned long)vehicle, (unsigned long)slot->panel_damage,
+                   (unsigned long)slot->door_damage, (unsigned)slot->light_damage);
+    return 0;
+  }
+  vehicle_compat_call_thiscall0(vehicle, SAMP_GTA_FUNC_CAUTOMOBILE_SETUP_DAMAGE_AFTER_LOAD);
+  runtime_tracef("vehicle: damage_apply id=%u ptr=0x%08lx panel=0x%08lx door=0x%08lx light=%u evidence=INFERRED,GTA_REVERSED_REF",
+                 (unsigned)vehicle_id, (unsigned long)vehicle, (unsigned long)slot->panel_damage,
+                 (unsigned long)slot->door_damage, (unsigned)slot->light_damage);
+  return 1;
+}
+
+static void vehicle_compat_apply_created_state(uint16_t vehicle_id, const samp_vehicle_slot_compat *slot,
+                                               uintptr_t vehicle) {
+  if (slot == NULL || vehicle == 0u) {
+    return;
+  }
+
+  if (slot->color1 != 255u || slot->color2 != 255u) {
+    int color_ok = vehicle_compat_write_u8(vehicle, SAMP_VEHICLE_OFFSET_COLOR1, slot->color1) &&
+                   vehicle_compat_write_u8(vehicle, SAMP_VEHICLE_OFFSET_COLOR2, slot->color2);
+    runtime_tracef("vehicle: color_%s id=%u ptr=0x%08lx colors=%u/%u evidence=INFERRED",
+                   color_ok ? "apply" : "failed", (unsigned)vehicle_id, (unsigned long)vehicle,
+                   (unsigned)slot->color1, (unsigned)slot->color2);
+  }
+
+  (void)vehicle_compat_apply_damage(vehicle_id, slot, vehicle);
+
+  if (slot->tyre_damage != 0u && vehicle_compat_is_automobile(vehicle)) {
+    unsigned int i = 0u;
+    for (i = 0u; i < 4u; ++i) {
+      (void)vehicle_compat_write_u8(vehicle, SAMP_VEHICLE_OFFSET_CAR_WHEELS + i,
+                                    (uint8_t)((slot->tyre_damage >> i) & 1u));
+    }
+    runtime_tracef("vehicle: tyre_apply id=%u ptr=0x%08lx tyre_mask=0x%02x evidence=INFERRED,OPENMP_REF,TODO_VERIFY",
+                   (unsigned)vehicle_id, (unsigned long)vehicle, (unsigned)slot->tyre_damage);
+  } else if (slot->tyre_damage != 0u) {
+    runtime_tracef("vehicle: tyre_deferred id=%u ptr=0x%08lx tyre_mask=0x%02x reason=non_automobile TODO_VERIFY=1",
+                   (unsigned)vehicle_id, (unsigned long)vehicle, (unsigned)slot->tyre_damage);
+  }
+
+  if (slot->siren != 0u) {
+    uint8_t siren_flags = 0u;
+    uint32_t siren_alt = 1u;
+    if (vehicle_compat_read_u8(vehicle, SAMP_VEHICLE_OFFSET_SIREN_FLAGS, &siren_flags)) {
+      siren_flags = (uint8_t)(siren_flags | 0x80u);
+      (void)vehicle_compat_write_u8(vehicle, SAMP_VEHICLE_OFFSET_SIREN_FLAGS, siren_flags);
+    }
+    (void)vehicle_compat_write_u32(vehicle, SAMP_VEHICLE_OFFSET_SIREN_ALT, siren_alt);
+    runtime_tracef("vehicle: siren_apply id=%u ptr=0x%08lx siren=%u evidence=INFERRED,TODO_VERIFY",
+                   (unsigned)vehicle_id, (unsigned long)vehicle, (unsigned)slot->siren);
+  }
+}
+
 static int vehicle_compat_apply_pending_slot(uint16_t vehicle_id, samp_vehicle_slot_compat *slot) {
   uint32_t gta_id = 0u;
+  float create_z = 0.0f;
+  uintptr_t vehicle = 0u;
 
   if (slot == NULL || InterlockedCompareExchange(&slot->pending, 0, 0) == 0 ||
       InterlockedCompareExchange(&slot->active, 0, 0) != 0 || !vehicle_compat_model_valid(slot->model) ||
@@ -3267,19 +3663,20 @@ static int vehicle_compat_apply_pending_slot(uint16_t vehicle_id, samp_vehicle_s
     return 0;
   }
 
+  create_z = slot->pos[2] + SAMP_VEHICLE_CREATE_Z_BIAS;
   /* STATIC_037 + OPENMP_REF + INFERRED:
    * open.mp streams RPC 164 before/around spawn; observed compatible client behavior
-   * creates vanilla GTA vehicles with create_car, then set_car_z_angle. We defer
-   * this until the MP session is spawned, matching the existing object bridge gate
-   * to avoid CStreaming work during dialogs/loading.
+   * creates vanilla GTA vehicles with create_car at z+0.1f, then set_car_z_angle.
+   * We defer this until the MP session is spawned, matching the existing object
+   * bridge gate to avoid CStreaming work during dialogs/loading.
    */
-  runtime_tracef("vehicle: create_begin seq=%lu id=%u model=%ld pos=(%.3f,%.3f,%.3f) rot=%.3f",
+  runtime_tracef("vehicle: create_begin seq=%lu id=%u model=%ld pos=(%.3f,%.3f,%.3f) create_z=%.3f rot=%.3f",
                  (unsigned long)slot->seq, (unsigned)vehicle_id, (long)slot->model, (double)slot->pos[0],
-                 (double)slot->pos[1], (double)slot->pos[2], (double)slot->rotation);
+                 (double)slot->pos[1], (double)slot->pos[2], (double)create_z, (double)slot->rotation);
   gta_streaming_request_model_compat(slot->model, SAMP_VEHICLE_COMPAT_MODEL_LOAD_FLAGS);
   gta_streaming_load_all_requested_compat(0);
   if (!gta_script_command_compat(0x00A5u, "ifffv", (int)slot->model, slot->pos[0], slot->pos[1],
-                                 slot->pos[2] + 0.1f, &gta_id)) {
+                                 create_z, &gta_id)) {
     runtime_tracef("vehicle: create failed id=%u model=%ld opcode=create_car", (unsigned)vehicle_id,
                    (long)slot->model);
     vehicle_compat_clear_pending_slot(slot);
@@ -3299,36 +3696,52 @@ static int vehicle_compat_apply_pending_slot(uint16_t vehicle_id, samp_vehicle_s
   if (slot->interior != 0u) {
     (void)gta_script_command_compat(0x0840u, "ii", (int)gta_id, (int)slot->interior);
   }
-  /* PROBE_TRACE + STATIC_037 + TODO_VERIFY:
-   * RPC 164 carries initial health and RPC 147 can update it afterwards. Opcode
-   * 0224 is the script-level set_car_health path used by SA-side tooling.
-   */
-  if (!gta_script_command_compat(0x0224u, "if", (int)gta_id, slot->health)) {
-    runtime_tracef("vehicle: set_health_failed id=%u gta=%lu health=%.3f opcode=set_car_health",
-                   (unsigned)vehicle_id, (unsigned long)gta_id, (double)slot->health);
-  }
-  if (slot->color1 != 255u || slot->color2 != 255u) {
-    /* STATIC_037 + TODO_VERIFY:
-     * Original-compatible vehicle color application appears to touch CVehicle color
-     * bytes directly in some paths. We do not have a verified VEHICLE_TYPE layout
-     * in this runtime yet, so colour application is deferred.
+  slot->gta_id = gta_id;
+  vehicle = vehicle_compat_game_pool_get_at(gta_id);
+  if (vehicle != 0u) {
+    float live_health = slot->health;
+    /*
+     * INFERRED + GTA_REVERSED_REF + PROBE_TRACE + TODO_VERIFY:
+     * The old client applies RPC 164 health through CVehicle::SetHealth, which
+     * writes GTA CVehicle::fHealth directly. The script opcode path can leave
+     * this live field uninitialized/high during create until ScrSetVehicleHealth
+     * later rewrites it.
      */
-    runtime_tracef("vehicle: color_deferred id=%u gta=%lu colors=%u/%u", (unsigned)vehicle_id,
-                   (unsigned long)gta_id, (unsigned)slot->color1, (unsigned)slot->color2);
+    int health_ok = vehicle_compat_write_float(vehicle, SAMP_VEHICLE_OFFSET_HEALTH, slot->health);
+    int live_ok = vehicle_compat_read_live_health(vehicle, &live_health);
+    runtime_tracef("vehicle: health_apply id=%u gta=%lu ptr=0x%08lx health=%.3f live=%.3f write=%d live_ok=%d evidence=INFERRED,GTA_REVERSED_REF,PROBE_TRACE,TODO_VERIFY",
+                   (unsigned)vehicle_id, (unsigned long)gta_id, (unsigned long)vehicle, (double)slot->health,
+                   (double)live_health, health_ok, live_ok);
+    vehicle_compat_apply_created_state(vehicle_id, slot, vehicle);
+  } else {
+    runtime_tracef("vehicle: created_state_deferred id=%u gta=%lu reason=pool_lookup", (unsigned)vehicle_id,
+                   (unsigned long)gta_id);
   }
-  if (slot->paintjob != 255u || vehicle_compat_count_mods(slot->mods) != 0u || slot->door_damage != 0u ||
-      slot->panel_damage != 0u || slot->light_damage != 0u || slot->tyre_damage != 0u || slot->siren != 0u) {
-    runtime_tracef("vehicle: extra_state_deferred id=%u gta=%lu paintjob=%u mods=%u door=0x%08lx panel=0x%08lx light=%u tyre=%u siren=%u",
+  if (slot->paintjob != 255u || vehicle_compat_count_mods(slot->mods) != 0u) {
+    runtime_tracef("vehicle: extra_state_deferred id=%u gta=%lu paintjob=%u mods=%u reason=mods_paintjob_todo_verify",
                    (unsigned)vehicle_id, (unsigned long)gta_id, (unsigned)slot->paintjob,
-                   vehicle_compat_count_mods(slot->mods), (unsigned long)slot->door_damage,
-                   (unsigned long)slot->panel_damage, (unsigned)slot->light_damage, (unsigned)slot->tyre_damage,
-                   (unsigned)slot->siren);
+                   vehicle_compat_count_mods(slot->mods));
   }
 
-  slot->gta_id = gta_id;
   InterlockedExchange(&slot->active, 1);
   vehicle_compat_clear_pending_slot(slot);
   InterlockedIncrement(&g_runtime.vehicle_active_count);
+  {
+    float actual_x = 0.0f;
+    float actual_y = 0.0f;
+    float actual_z = 0.0f;
+    if (vehicle != 0u && gta_entity_read_position_compat(vehicle, &actual_x, &actual_y, &actual_z)) {
+      runtime_tracef("vehicle: create_post seq=%lu id=%u gta=%lu ptr=0x%08lx actual=(%.3f,%.3f,%.3f) requested=(%.3f,%.3f,%.3f)",
+                     (unsigned long)slot->seq, (unsigned)vehicle_id, (unsigned long)gta_id,
+                     (unsigned long)vehicle, (double)actual_x, (double)actual_y, (double)actual_z,
+                     (double)slot->pos[0], (double)slot->pos[1], (double)slot->pos[2]);
+    } else {
+      runtime_tracef("vehicle: create_post_unreadable seq=%lu id=%u gta=%lu ptr=0x%08lx requested=(%.3f,%.3f,%.3f)",
+                     (unsigned long)slot->seq, (unsigned)vehicle_id, (unsigned long)gta_id,
+                     (unsigned long)vehicle, (double)slot->pos[0], (double)slot->pos[1],
+                     (double)slot->pos[2]);
+    }
+  }
   runtime_tracef("vehicle: create seq=%lu id=%u gta=%lu model=%ld pos=(%.3f,%.3f,%.3f) rot=%.3f active=%ld pending=%ld",
                  (unsigned long)slot->seq, (unsigned)vehicle_id, (unsigned long)gta_id, (long)slot->model,
                  (double)slot->pos[0], (double)slot->pos[1], (double)slot->pos[2], (double)slot->rotation,
@@ -3341,6 +3754,8 @@ static void vehicle_compat_set_health(uint16_t vehicle_id, uint32_t seq, float h
   samp_vehicle_slot_compat *slot = NULL;
   float previous = 0.0f;
   uint32_t gta_id = 0u;
+  uintptr_t vehicle = 0u;
+  float live_health = health;
 
   if (!vehicle_compat_id_valid(vehicle_id) || !vehicle_compat_health_plausible(health)) {
     return;
@@ -3349,9 +3764,6 @@ static void vehicle_compat_set_health(uint16_t vehicle_id, uint32_t seq, float h
   slot = &g_runtime.vehicle_slots[vehicle_id];
   previous = slot->health;
   slot->health = health;
-  if (fabsf(previous - health) <= 0.01f) {
-    return;
-  }
 
   gta_id = slot->gta_id;
   if (InterlockedCompareExchange(&slot->active, 0, 0) == 0 || gta_id == 0u) {
@@ -3360,17 +3772,113 @@ static void vehicle_compat_set_health(uint16_t vehicle_id, uint32_t seq, float h
     return;
   }
 
-  /* PROBE_TRACE + TODO_VERIFY:
-   * Server-side ScrSetVehicleHealth is frequent on open.mp. Apply only on change
-   * to avoid hammering the GTA script command bridge every net tick.
-   */
-  if (!gta_script_command_compat(0x0224u, "if", (int)gta_id, health)) {
-    runtime_tracef("vehicle: set_health_failed seq=%lu id=%u gta=%lu health=%.3f opcode=set_car_health",
-                   (unsigned long)seq, (unsigned)vehicle_id, (unsigned long)gta_id, (double)health);
+  vehicle = vehicle_compat_game_pool_get_at(gta_id);
+  if (vehicle == 0u || !vehicle_compat_write_float(vehicle, SAMP_VEHICLE_OFFSET_HEALTH, health)) {
+    runtime_tracef("vehicle: set_health_failed seq=%lu id=%u gta=%lu ptr=0x%08lx prev=%.3f health=%.3f reason=direct_write",
+                   (unsigned long)seq, (unsigned)vehicle_id, (unsigned long)gta_id, (unsigned long)vehicle,
+                   (double)previous, (double)health);
     return;
   }
-  runtime_tracef("vehicle: set_health seq=%lu id=%u gta=%lu health=%.3f", (unsigned long)seq,
-                 (unsigned)vehicle_id, (unsigned long)gta_id, (double)health);
+  (void)vehicle_compat_read_live_health(vehicle, &live_health);
+  runtime_tracef("vehicle: set_health seq=%lu id=%u gta=%lu ptr=0x%08lx prev=%.3f health=%.3f live=%.3f evidence=INFERRED,GTA_REVERSED_REF,PROBE_TRACE",
+                 (unsigned long)seq, (unsigned)vehicle_id, (unsigned long)gta_id, (unsigned long)vehicle,
+                 (double)previous, (double)health, (double)live_health);
+}
+
+static void vehicle_compat_put_local_player(uint16_t vehicle_id, uint32_t seq, uint8_t seat_id) {
+  samp_vehicle_slot_compat *slot = NULL;
+  uintptr_t ped = 0u;
+  uintptr_t vehicle = 0u;
+  uintptr_t vtable = 0u;
+  uintptr_t occupant_before = 0u;
+  uintptr_t occupant_after = 0u;
+  uint32_t occupant_before32 = 0u;
+  uint32_t occupant_after32 = 0u;
+  uint32_t gta_id = 0u;
+  float vehicle_health = 0.0f;
+  int script_ok = 0;
+  uint8_t passenger_seat_index = 0u;
+
+  if (!vehicle_compat_id_valid(vehicle_id)) {
+    return;
+  }
+  slot = &g_runtime.vehicle_slots[vehicle_id];
+  gta_id = slot->gta_id;
+  if (InterlockedCompareExchange(&slot->active, 0, 0) == 0 || gta_id == 0u) {
+    runtime_tracef("vehicle: put_local_player_deferred seq=%lu id=%u seat=%u reason=inactive",
+                   (unsigned long)seq, (unsigned)vehicle_id, (unsigned)seat_id);
+    return;
+  }
+
+  ped = gta_find_player_ped_compat();
+  vehicle = vehicle_compat_game_pool_get_at(gta_id);
+  if (ped == 0u || vehicle == 0u) {
+    runtime_tracef("vehicle: put_local_player_failed seq=%lu id=%u gta=%lu seat=%u ped=0x%08lx vehicle=0x%08lx reason=pool_lookup",
+                   (unsigned long)seq, (unsigned)vehicle_id, (unsigned long)gta_id, (unsigned)seat_id,
+                   (unsigned long)ped, (unsigned long)vehicle);
+    return;
+  }
+  if (!vehicle_compat_read_vtable(vehicle, &vtable) || vtable == (uintptr_t)SAMP_GTA_VTBL_CPLACEABLE) {
+    runtime_tracef("vehicle: put_local_player_failed seq=%lu id=%u gta=%lu seat=%u ptr=0x%08lx vtable=0x%08lx reason=invalid_vtable",
+                   (unsigned long)seq, (unsigned)vehicle_id, (unsigned long)gta_id, (unsigned)seat_id,
+                   (unsigned long)vehicle, (unsigned long)vtable);
+    return;
+  }
+  vehicle_health = slot->health;
+  (void)vehicle_compat_read_live_health(vehicle, &vehicle_health);
+  if (vehicle_health == 0.0f) {
+    runtime_tracef("vehicle: put_local_player_failed seq=%lu id=%u gta=%lu seat=%u ptr=0x%08lx health=%.3f reason=dead_or_unreadable_vehicle",
+                   (unsigned long)seq, (unsigned)vehicle_id, (unsigned long)gta_id, (unsigned)seat_id,
+                   (unsigned long)vehicle, (double)vehicle_health);
+    return;
+  }
+
+  /* STATIC_037 + INFERRED + PROBE_TRACE:
+   * ScrPutPlayerInVehicle resolves the SA-MP vehicle id to a GTA vehicle id and
+   * delegates to CPlayerPed::PutDirectlyInVehicle. Driver seat uses 036A; passenger
+   * seats are one-based in the RPC and become zero-based for opcode 0430.
+   */
+  if (seat_id == 0u) {
+    (void)vehicle_compat_read_u32(vehicle, SAMP_VEHICLE_OFFSET_DRIVER, &occupant_before32);
+    occupant_before = (uintptr_t)occupant_before32;
+    if (occupant_before != 0u && gta_ped_is_in_vehicle_compat(occupant_before)) {
+      runtime_tracef("vehicle: put_local_player_skip seq=%lu id=%u gta=%lu seat=0 driver=0x%08lx reason=driver_occupied evidence=INFERRED",
+                     (unsigned long)seq, (unsigned)vehicle_id, (unsigned long)gta_id,
+                     (unsigned long)occupant_before);
+      return;
+    }
+    script_ok = gta_script_command_compat(0x036Au, "ii", SAMP_GTA_ACTOR_LOCAL_ID, (int)gta_id);
+    (void)vehicle_compat_read_u32(vehicle, SAMP_VEHICLE_OFFSET_DRIVER, &occupant_after32);
+    occupant_after = (uintptr_t)occupant_after32;
+  } else {
+    passenger_seat_index = (uint8_t)(seat_id - 1u);
+    (void)vehicle_compat_read_u32(vehicle, SAMP_VEHICLE_OFFSET_PASSENGERS + ((uint32_t)passenger_seat_index * 4u),
+                                  &occupant_before32);
+    occupant_before = (uintptr_t)occupant_before32;
+    script_ok =
+        gta_script_command_compat(0x0430u, "iii", SAMP_GTA_ACTOR_LOCAL_ID, (int)gta_id, (int)passenger_seat_index);
+    (void)vehicle_compat_read_u32(vehicle, SAMP_VEHICLE_OFFSET_PASSENGERS + ((uint32_t)passenger_seat_index * 4u),
+                                  &occupant_after32);
+    occupant_after = (uintptr_t)occupant_after32;
+  }
+  if (!script_ok) {
+    runtime_tracef("vehicle: put_local_player_failed seq=%lu id=%u gta=%lu seat=%u opcode=%s",
+                   (unsigned long)seq, (unsigned)vehicle_id, (unsigned long)gta_id, (unsigned)seat_id,
+                   seat_id == 0u ? "put_actor_in_car" : "put_actor_in_car_passenger");
+    return;
+  }
+
+  if (gta_ped_is_in_vehicle_compat(ped)) {
+    vehicle_compat_service_audio(vehicle, "put_local_player");
+    if (!gta_script_command_compat(0x0373u, "")) {
+      runtime_tracef("vehicle: put_local_player_camera_failed seq=%lu id=%u gta=%lu seat=%u opcode=set_camera_behind_player",
+                     (unsigned long)seq, (unsigned)vehicle_id, (unsigned long)gta_id, (unsigned)seat_id);
+    }
+  }
+  runtime_tracef("vehicle: put_local_player seq=%lu id=%u gta=%lu seat=%u ped=0x%08lx vehicle=0x%08lx occupant=0x%08lx->0x%08lx health=%.3f evidence=INFERRED,PROBE_TRACE",
+                 (unsigned long)seq, (unsigned)vehicle_id, (unsigned long)gta_id, (unsigned)seat_id,
+                 (unsigned long)ped, (unsigned long)vehicle, (unsigned long)occupant_before,
+                 (unsigned long)occupant_after, (double)vehicle_health);
 }
 
 static void vehicle_compat_apply_event(const samp_raknet_vehicle_event *event) {
@@ -3390,6 +3898,11 @@ static void vehicle_compat_apply_event(const samp_raknet_vehicle_event *event) {
 
   if (event->action == SAMP_RAKNET_VEHICLE_ACTION_SET_HEALTH) {
     vehicle_compat_set_health(event->vehicle_id, event->seq, event->health);
+    return;
+  }
+
+  if (event->action == SAMP_RAKNET_VEHICLE_ACTION_PUT_LOCAL_PLAYER) {
+    vehicle_compat_put_local_player(event->vehicle_id, event->seq, event->seat_id);
     return;
   }
 
@@ -3476,6 +3989,32 @@ static uintptr_t vehicle_compat_game_pool_get_at(uint32_t gta_id) {
 #endif
 }
 
+static int vehicle_compat_find_id_from_gta_ptr(uintptr_t vehicle, uint16_t *vehicle_id) {
+  uint32_t i = 0u;
+
+  if (vehicle_id == NULL) {
+    return 0;
+  }
+  *vehicle_id = 0xFFFFu;
+  if (vehicle < 0x10000u || vehicle >= 0x80000000u) {
+    return 0;
+  }
+
+  for (i = 0u; i < SAMP_RAKNET_MAX_VEHICLES; ++i) {
+    samp_vehicle_slot_compat *slot = &g_runtime.vehicle_slots[i];
+    uintptr_t candidate = 0u;
+    if (InterlockedCompareExchange(&slot->active, 0, 0) == 0 || slot->gta_id == 0u) {
+      continue;
+    }
+    candidate = vehicle_compat_game_pool_get_at(slot->gta_id);
+    if (candidate == vehicle) {
+      *vehicle_id = (uint16_t)i;
+      return 1;
+    }
+  }
+  return 0;
+}
+
 static int vehicle_compat_is_occupied(uintptr_t vehicle) {
   uintptr_t occupant = 0u;
   unsigned int i = 0u;
@@ -3508,6 +4047,42 @@ static int vehicle_compat_is_occupied(uintptr_t vehicle) {
     }
   }
   return 0;
+}
+
+static int vehicle_compat_is_local_driver(uintptr_t vehicle, uintptr_t ped) {
+  uint32_t driver32 = 0u;
+
+  if (vehicle < 0x10000u || ped == 0u ||
+      !vehicle_compat_read_u32(vehicle, SAMP_VEHICLE_OFFSET_DRIVER, &driver32)) {
+    return 0;
+  }
+  return (uintptr_t)driver32 == ped ? 1 : 0;
+}
+
+static void vehicle_compat_set_invulnerable(uint16_t vehicle_id, samp_vehicle_slot_compat *slot,
+                                            int invulnerable) {
+  int tire_vulnerable = 0;
+
+  if (slot == NULL || slot->gta_id == 0u || slot->invulnerable_state == invulnerable) {
+    return;
+  }
+  /*
+   * INFERRED:
+   * CVehiclePool::Process calls CVehicle::SetInvulnerable(FALSE) only for the
+   * local-driver vehicle and TRUE for every other active streamed vehicle.
+   */
+  if (!gta_script_command_compat(0x02ACu, "iiiiii", (int)slot->gta_id, invulnerable, invulnerable,
+                                 invulnerable, invulnerable, invulnerable)) {
+    runtime_tracef("vehicle: invulnerable_failed id=%u gta=%lu invulnerable=%d opcode=set_car_immunities",
+                   (unsigned)vehicle_id, (unsigned long)slot->gta_id, invulnerable);
+    return;
+  }
+
+  tire_vulnerable = (invulnerable == 0 && g_runtime.raknet_init_tire_popping != 0u) ? 1 : 0;
+  (void)gta_script_command_compat(0x053Fu, "ii", (int)slot->gta_id, tire_vulnerable);
+  slot->invulnerable_state = invulnerable;
+  runtime_tracef("vehicle: invulnerable id=%u gta=%lu value=%d tire_vulnerable=%d evidence=INFERRED,PROBE_TRACE,TODO_VERIFY",
+                 (unsigned)vehicle_id, (unsigned long)slot->gta_id, invulnerable, tire_vulnerable);
 }
 
 static int vehicle_compat_near_local_ped(const samp_vehicle_slot_compat *slot, uintptr_t vehicle, uintptr_t ped) {
@@ -3544,12 +4119,17 @@ static int vehicle_compat_near_local_ped(const samp_vehicle_slot_compat *slot, u
 static void vehicle_compat_update_scanner_marker(uint16_t vehicle_id, samp_vehicle_slot_compat *slot, uintptr_t ped) {
   uintptr_t vehicle = 0u;
   int should_show = 0;
+  int local_driver = 0;
 
   if (slot == NULL || InterlockedCompareExchange(&slot->active, 0, 0) == 0 || slot->gta_id == 0u) {
     return;
   }
 
   vehicle = vehicle_compat_game_pool_get_at(slot->gta_id);
+  if (vehicle != 0u) {
+    local_driver = vehicle_compat_is_local_driver(vehicle, ped);
+    vehicle_compat_set_invulnerable(vehicle_id, slot, local_driver ? 0 : 1);
+  }
   /*
    * STATIC_037 + TODO_VERIFY:
    * Recovered vehicle-marker behavior shows normal scanner markers only when the
@@ -3712,6 +4292,7 @@ static LRESULT CALLBACK chat_input_wndproc_compat(HWND hwnd, UINT msg, WPARAM wp
   const int active = InterlockedCompareExchange(&g_runtime.chat_input_active, 0, 0) != 0;
   const int dialog_active = dialog_compat_active();
   const int textdraw_select_active = InterlockedCompareExchange(&g_runtime.textdraw_select_active, 0, 0) != 0;
+  const int gta_menu_active = gta_frontend_menu_active_compat();
 
   if (!chat_input_enabled_compat() || !g_runtime.settings.play_online) {
     return chat_input_call_original_compat(hwnd, msg, wparam, lparam);
@@ -3722,6 +4303,19 @@ static LRESULT CALLBACK chat_input_wndproc_compat(HWND hwnd, UINT msg, WPARAM wp
       screenshot_compat_request();
     }
     return 0;
+  }
+
+  if (gta_menu_active) {
+    if (active) {
+      chat_input_close_compat();
+    }
+    if (textdraw_select_active) {
+      textdraw_compat_clear_select_mode("gta_pause_menu");
+    }
+    if (InterlockedExchange(&g_runtime.class_selection_mouse_down, 0) != 0) {
+      runtime_tracef("class_selection: mouse down cleared by GTA pause menu evidence=INFERRED");
+    }
+    return chat_input_call_original_compat(hwnd, msg, wparam, lparam);
   }
 
   if (dialog_active) {
@@ -3803,6 +4397,14 @@ static LRESULT CALLBACK chat_input_wndproc_compat(HWND hwnd, UINT msg, WPARAM wp
     if (msg == WM_KEYDOWN && wparam == VK_ESCAPE) {
       textdraw_compat_clear_select_mode("escape_passthrough");
       return chat_input_call_original_compat(hwnd, msg, wparam, lparam);
+    }
+  }
+
+  if (!dialog_active && !textdraw_select_active) {
+    if (msg == WM_MOUSEMOVE || msg == WM_LBUTTONDOWN || msg == WM_LBUTTONUP || msg == WM_LBUTTONDBLCLK) {
+      if (class_selection_compat_handle_mouse(hwnd, msg, lparam)) {
+        return 0;
+      }
     }
   }
 
@@ -3904,6 +4506,69 @@ static int memory_is_readable_compat(const void *ptr, size_t size) {
   }
   region_end = (uintptr_t)mbi.BaseAddress + mbi.RegionSize;
   return end <= region_end ? 1 : 0;
+}
+
+static int d3d9_cursor_get_method_compat(unsigned int index, void **out_method) {
+  void *device = NULL;
+  void **vtbl = NULL;
+
+  if (out_method == NULL) {
+    return 0;
+  }
+  *out_method = NULL;
+  device = read_game_d3d_device_compat();
+  if (device == NULL || !memory_is_readable_compat(device, sizeof(void **))) {
+    return 0;
+  }
+  vtbl = *(void ***)device;
+  if (vtbl == NULL || !memory_is_readable_compat(&vtbl[index], sizeof(void *)) || vtbl[index] == NULL) {
+    return 0;
+  }
+  *out_method = vtbl[index];
+  return 1;
+}
+
+static void d3d9_cursor_show_compat(int show, const char *reason) {
+  samp_d3d9_show_cursor_fn show_cursor = NULL;
+  void *device = NULL;
+  void *method = NULL;
+  BOOL result = FALSE;
+
+  if (!d3d9_cursor_get_method_compat(SAMP_D3D9_SHOW_CURSOR_INDEX, &method)) {
+    return;
+  }
+  device = read_game_d3d_device_compat();
+  show_cursor = (samp_d3d9_show_cursor_fn)method;
+  result = show_cursor(device, show ? TRUE : FALSE);
+  runtime_tracef("d3d9_cursor: show=%d result=%d reason=%s evidence=INFERRED,TODO_VERIFY",
+                 show ? 1 : 0, result ? 1 : 0, reason != NULL ? reason : "unknown");
+}
+
+static void d3d9_cursor_sync_client_compat(HWND hwnd, int client_x, int client_y, const char *reason) {
+  samp_d3d9_set_cursor_position_fn set_cursor_position = NULL;
+  POINT pt;
+  void *device = NULL;
+  void *method = NULL;
+
+  if (hwnd == NULL || !d3d9_cursor_get_method_compat(SAMP_D3D9_SET_CURSOR_POSITION_INDEX, &method)) {
+    return;
+  }
+  pt.x = client_x;
+  pt.y = client_y;
+  if (!ClientToScreen(hwnd, &pt)) {
+    return;
+  }
+
+  /*
+   * INFERRED + TODO_VERIFY:
+   * The compatibility DXUT path mirrors the Win32 cursor into IDirect3DDevice9::SetCursorPosition
+   * and toggles IDirect3DDevice9::ShowCursor for GUI input. Keep this secondary to the
+   * software cursor draw path; it exists to match D3D9 cursor state while RsMouseSetPos is patched.
+   */
+  device = read_game_d3d_device_compat();
+  set_cursor_position = (samp_d3d9_set_cursor_position_fn)method;
+  set_cursor_position(device, pt.x, pt.y, 0u);
+  (void)reason;
 }
 
 static void screenshot_compat_release_unknown(void *unknown) {
@@ -4415,6 +5080,245 @@ static void chat_compat_d3dx_draw_text_outline(samp_id3dx_font_compat *font, REC
   font->lpVtbl->DrawTextA(font, NULL, text, -1, &rect, DT_NOCLIP | DT_SINGLELINE | DT_LEFT, 0xFF000000u);
   rect.left -= 1;
   font->lpVtbl->DrawTextA(font, NULL, text, -1, &rect, DT_NOCLIP | DT_SINGLELINE | DT_LEFT, argb_color);
+}
+
+static int vehicle_debug_get_d3d9_method_compat(void *device, unsigned int index, void **method) {
+  void **vtbl = NULL;
+
+  if (method != NULL) {
+    *method = NULL;
+  }
+  if (device == NULL || method == NULL || !memory_is_readable_compat(device, sizeof(vtbl))) {
+    return 0;
+  }
+  memcpy(&vtbl, device, sizeof(vtbl));
+  if (vtbl == NULL || !memory_is_readable_compat(&vtbl[index], sizeof(void *))) {
+    return 0;
+  }
+  if (vtbl[index] == NULL) {
+    return 0;
+  }
+  *method = vtbl[index];
+  return 1;
+}
+
+static void vehicle_debug_matrix_multiply_compat(samp_d3d_matrix_compat *out, const samp_d3d_matrix_compat *left,
+                                                 const samp_d3d_matrix_compat *right) {
+  samp_d3d_matrix_compat result;
+  int row = 0;
+  int col = 0;
+  int k = 0;
+
+  if (out == NULL || left == NULL || right == NULL) {
+    return;
+  }
+  memset(&result, 0, sizeof(result));
+  for (row = 0; row < 4; ++row) {
+    for (col = 0; col < 4; ++col) {
+      for (k = 0; k < 4; ++k) {
+        result.m[row][col] += left->m[row][k] * right->m[k][col];
+      }
+    }
+  }
+  *out = result;
+}
+
+static int vehicle_debug_project_world_compat(void *device, float x, float y, float z, float *screen_x,
+                                              float *screen_y, float *screen_z) {
+  samp_d3d9_get_transform_fn get_transform = NULL;
+  samp_d3d9_get_viewport_fn get_viewport = NULL;
+  samp_d3d9_viewport_compat viewport;
+  samp_d3d_matrix_compat view;
+  samp_d3d_matrix_compat projection;
+  samp_d3d_matrix_compat view_projection;
+  float clip_x = 0.0f;
+  float clip_y = 0.0f;
+  float clip_z = 0.0f;
+  float clip_w = 0.0f;
+  float ndc_x = 0.0f;
+  float ndc_y = 0.0f;
+  float ndc_z = 0.0f;
+  float out_z = 0.0f;
+  void *method = NULL;
+
+  if (device == NULL || screen_x == NULL || screen_y == NULL || screen_z == NULL) {
+    return 0;
+  }
+  if (!vehicle_debug_get_d3d9_method_compat(device, SAMP_D3D9_GET_TRANSFORM_INDEX, &method)) {
+    return 0;
+  }
+  get_transform = (samp_d3d9_get_transform_fn)method;
+  if (!vehicle_debug_get_d3d9_method_compat(device, SAMP_D3D9_GET_VIEWPORT_INDEX, &method)) {
+    return 0;
+  }
+  get_viewport = (samp_d3d9_get_viewport_fn)method;
+  memset(&viewport, 0, sizeof(viewport));
+  memset(&view, 0, sizeof(view));
+  memset(&projection, 0, sizeof(projection));
+  if (FAILED(get_viewport(device, &viewport)) || viewport.width == 0u || viewport.height == 0u) {
+    return 0;
+  }
+  if (FAILED(get_transform(device, SAMP_D3DTS_VIEW, &view)) ||
+      FAILED(get_transform(device, SAMP_D3DTS_PROJECTION, &projection))) {
+    return 0;
+  }
+
+  /*
+   * INFERRED:
+   * The compatibility CLabel path used D3DXVec3Project(world, viewport, projection, view, identity).
+   * This is the same row-vector transform inlined to avoid adding another D3DX entry point.
+   */
+  vehicle_debug_matrix_multiply_compat(&view_projection, &view, &projection);
+  clip_x = (x * view_projection.m[0][0]) + (y * view_projection.m[1][0]) + (z * view_projection.m[2][0]) +
+           view_projection.m[3][0];
+  clip_y = (x * view_projection.m[0][1]) + (y * view_projection.m[1][1]) + (z * view_projection.m[2][1]) +
+           view_projection.m[3][1];
+  clip_z = (x * view_projection.m[0][2]) + (y * view_projection.m[1][2]) + (z * view_projection.m[2][2]) +
+           view_projection.m[3][2];
+  clip_w = (x * view_projection.m[0][3]) + (y * view_projection.m[1][3]) + (z * view_projection.m[2][3]) +
+           view_projection.m[3][3];
+  if (fabsf(clip_w) <= 0.000001f) {
+    return 0;
+  }
+  ndc_x = clip_x / clip_w;
+  ndc_y = clip_y / clip_w;
+  ndc_z = clip_z / clip_w;
+  if (!isfinite(ndc_x) || !isfinite(ndc_y) || !isfinite(ndc_z)) {
+    return 0;
+  }
+
+  out_z = viewport.min_z + (ndc_z * (viewport.max_z - viewport.min_z));
+  if (out_z < 0.0f || out_z > 1.0f) {
+    return 0;
+  }
+  *screen_x = (float)viewport.x + ((1.0f + ndc_x) * ((float)viewport.width * 0.5f));
+  *screen_y = (float)viewport.y + ((1.0f - ndc_y) * ((float)viewport.height * 0.5f));
+  *screen_z = out_z;
+  return isfinite(*screen_x) && isfinite(*screen_y);
+}
+
+static void vehicle_debug_draw_centered_line_compat(samp_id3dx_font_compat *font, int center_x, int y,
+                                                    const char *text, DWORD color) {
+  DWORD flags = DT_NOCLIP | DT_SINGLELINE | DT_CENTER;
+  RECT rect;
+  RECT shadow;
+
+  if (font == NULL || text == NULL || text[0] == '\0') {
+    return;
+  }
+  rect.left = center_x - SAMP_VEHICLE_DEBUG_LABEL_HALF_WIDTH;
+  rect.top = y;
+  rect.right = center_x + SAMP_VEHICLE_DEBUG_LABEL_HALF_WIDTH;
+  rect.bottom = y + SAMP_VEHICLE_DEBUG_LABEL_LINE_HEIGHT + 4;
+
+  shadow = rect;
+  OffsetRect(&shadow, 1, 1);
+  chat_compat_d3dx_draw_text(font, shadow, text, 0xFF000000u, flags);
+  shadow = rect;
+  OffsetRect(&shadow, -1, 0);
+  chat_compat_d3dx_draw_text(font, shadow, text, 0xFF000000u, flags);
+  shadow = rect;
+  OffsetRect(&shadow, 1, 0);
+  chat_compat_d3dx_draw_text(font, shadow, text, 0xFF000000u, flags);
+  shadow = rect;
+  OffsetRect(&shadow, 0, -1);
+  chat_compat_d3dx_draw_text(font, shadow, text, 0xFF000000u, flags);
+  shadow = rect;
+  OffsetRect(&shadow, 0, 1);
+  chat_compat_d3dx_draw_text(font, shadow, text, 0xFF000000u, flags);
+  chat_compat_d3dx_draw_text(font, rect, text, color, flags);
+}
+
+static int vehicle_debug_labels_draw_d3dx_overlay(void *device, samp_id3dx_font_compat *font) {
+  uintptr_t ped = 0u;
+  float ped_x = 0.0f;
+  float ped_y = 0.0f;
+  float ped_z = 0.0f;
+  unsigned int i = 0u;
+  unsigned int labels = 0u;
+  LONG active_count = 0;
+
+  if (InterlockedCompareExchange(&g_runtime.vehicle_debug_labels_active, 0, 0) == 0 || device == NULL ||
+      font == NULL) {
+    return 0;
+  }
+  active_count = InterlockedCompareExchange(&g_runtime.vehicle_active_count, 0, 0);
+  if (active_count <= 0) {
+    return 0;
+  }
+  ped = gta_find_player_ped_compat();
+  if (ped == 0u || !gta_entity_read_position_compat(ped, &ped_x, &ped_y, &ped_z)) {
+    return 0;
+  }
+
+  for (i = 0u; i < SAMP_RAKNET_MAX_VEHICLES; ++i) {
+    samp_vehicle_slot_compat *slot = &g_runtime.vehicle_slots[i];
+    uintptr_t vehicle = 0u;
+    float veh_x = 0.0f;
+    float veh_y = 0.0f;
+    float veh_z = 0.0f;
+    float health = 0.0f;
+    float screen_x = 0.0f;
+    float screen_y = 0.0f;
+    float screen_z = 0.0f;
+    float dx = 0.0f;
+    float dy = 0.0f;
+    float dz = 0.0f;
+    float distance = 0.0f;
+    int label_x = 0;
+    int label_y = 0;
+    char line[160];
+
+    if (InterlockedCompareExchange(&slot->active, 0, 0) == 0 || slot->gta_id == 0u) {
+      continue;
+    }
+    veh_x = slot->pos[0];
+    veh_y = slot->pos[1];
+    veh_z = slot->pos[2];
+    health = slot->health;
+    vehicle = vehicle_compat_game_pool_get_at(slot->gta_id);
+    if (vehicle != 0u) {
+      (void)gta_entity_read_position_compat(vehicle, &veh_x, &veh_y, &veh_z);
+      (void)vehicle_compat_read_live_health(vehicle, &health);
+    }
+
+    dx = veh_x - ped_x;
+    dy = veh_y - ped_y;
+    dz = veh_z - ped_z;
+    distance = sqrtf((dx * dx) + (dy * dy) + (dz * dz));
+    if (!isfinite(distance) || distance > SAMP_VEHICLE_DEBUG_LABEL_DISTANCE) {
+      continue;
+    }
+    if (!vehicle_debug_project_world_compat(device, veh_x, veh_y, veh_z + SAMP_VEHICLE_DEBUG_LABEL_Z_BIAS,
+                                            &screen_x, &screen_y, &screen_z)) {
+      continue;
+    }
+
+    label_x = (int)(screen_x + 0.5f);
+    label_y = (int)(screen_y + 0.5f) - SAMP_VEHICLE_DEBUG_LABEL_LINE_HEIGHT;
+    snprintf(line, sizeof(line), "[id: %u, type: %ld Health: %.1f]", i, (long)slot->model, (double)health);
+    vehicle_debug_draw_centered_line_compat(font, label_x, label_y, line, SAMP_VEHICLE_DEBUG_LABEL_COLOR);
+    label_y += SAMP_VEHICLE_DEBUG_LABEL_LINE_HEIGHT;
+    snprintf(line, sizeof(line), "Distance: %.2fm", (double)distance);
+    vehicle_debug_draw_centered_line_compat(font, label_x, label_y, line, SAMP_VEHICLE_DEBUG_LABEL_COLOR);
+    label_y += SAMP_VEHICLE_DEBUG_LABEL_LINE_HEIGHT;
+    snprintf(line, sizeof(line), "GTA: %lu Ptr: %08lx", (unsigned long)slot->gta_id, (unsigned long)vehicle);
+    vehicle_debug_draw_centered_line_compat(font, label_x, label_y, line, SAMP_VEHICLE_DEBUG_LABEL_COLOR);
+    label_y += SAMP_VEHICLE_DEBUG_LABEL_LINE_HEIGHT;
+    snprintf(line, sizeof(line), "cPos: %.3f,%.3f,%.3f", (double)veh_x, (double)veh_y, (double)veh_z);
+    vehicle_debug_draw_centered_line_compat(font, label_x, label_y, line, SAMP_VEHICLE_DEBUG_LABEL_COLOR);
+    label_y += SAMP_VEHICLE_DEBUG_LABEL_LINE_HEIGHT;
+    snprintf(line, sizeof(line), "sPos: %.3f,%.3f,%.3f", (double)slot->pos[0], (double)slot->pos[1],
+             (double)slot->pos[2]);
+    vehicle_debug_draw_centered_line_compat(font, label_x, label_y, line, SAMP_VEHICLE_DEBUG_LABEL_COLOR);
+    ++labels;
+  }
+
+  if (InterlockedCompareExchange(&g_runtime.vehicle_debug_labels_logged, 1, 0) == 0) {
+    runtime_tracef("vehicle_debug_labels: draw labels=%u active=%ld range=%.1f evidence=INFERRED",
+                   labels, (long)active_count, (double)SAMP_VEHICLE_DEBUG_LABEL_DISTANCE);
+  }
+  return labels != 0u;
 }
 
 static void chat_compat_d3dx_draw_text_outline_segments(samp_id3dx_font_compat *font, RECT rect, const char *text,
@@ -5171,6 +6075,124 @@ static int remote_player_compat_id_valid(uint16_t player_id) {
   return player_id < SAMP_RAKNET_MAX_PLAYERS;
 }
 
+static int map_icon_compat_vec_plausible(const float vec[3]) {
+  return vec != NULL && isfinite(vec[0]) && isfinite(vec[1]) && isfinite(vec[2]) && vec[0] > -30000.0f &&
+         vec[0] < 30000.0f && vec[1] > -30000.0f && vec[1] < 30000.0f && vec[2] > -5000.0f &&
+         vec[2] < 20000.0f;
+}
+
+static void map_icon_compat_disable_slot(uint8_t index, samp_map_icon_slot_compat *slot, const char *reason) {
+  uint32_t marker_id = 0u;
+
+  if (slot == NULL) {
+    return;
+  }
+  marker_id = slot->marker_id;
+  if (marker_id != 0u) {
+    (void)gta_script_command_compat(0x0164u, "i", (int)marker_id);
+  }
+  memset(slot, 0, sizeof(*slot));
+  if (marker_id != 0u) {
+    runtime_tracef("map_icon: disable index=%u marker=%lu reason=%s evidence=INFERRED,TODO_VERIFY",
+                   (unsigned)index, (unsigned long)marker_id, reason != NULL ? reason : "unknown");
+  }
+}
+
+static void map_icon_compat_apply_event(const samp_raknet_map_icon_event *event) {
+  samp_map_icon_slot_compat *slot = NULL;
+  uint32_t marker_id = 0u;
+
+  if (event == NULL || event->index >= SAMP_RAKNET_MAP_ICON_MAX) {
+    return;
+  }
+  slot = &g_runtime.map_icon_slots[event->index];
+
+  if (event->action == SAMP_RAKNET_MAP_ICON_ACTION_REMOVE) {
+    map_icon_compat_disable_slot(event->index, slot, "rpc_remove");
+    return;
+  }
+  if (event->action != SAMP_RAKNET_MAP_ICON_ACTION_SET || !map_icon_compat_vec_plausible(event->pos)) {
+    runtime_tracef("map_icon: ignore seq=%lu index=%u action=%u reason=invalid",
+                   (unsigned long)event->seq, (unsigned)event->index, (unsigned)event->action);
+    return;
+  }
+
+  map_icon_compat_disable_slot(event->index, slot, "replace");
+  /*
+   * INFERRED + TODO_VERIFY:
+   * Compatibility NetGame::SetMapIcon uses create_radar_marker_without_sphere (04CE),
+   * set_marker_color (0165), then show_on_radar (0168) with size 3.
+   */
+  if (!gta_script_command_compat(0x04CEu, "fffiv", event->pos[0], event->pos[1], event->pos[2],
+                                 (int)event->icon, &marker_id) ||
+      marker_id == 0u) {
+    runtime_tracef("map_icon: create_failed seq=%lu index=%u icon=%u pos=(%.3f,%.3f,%.3f)",
+                   (unsigned long)event->seq, (unsigned)event->index, (unsigned)event->icon,
+                   (double)event->pos[0], (double)event->pos[1], (double)event->pos[2]);
+    return;
+  }
+
+  (void)gta_script_command_compat(0x0165u, "ii", (int)marker_id, (int)event->color);
+  (void)gta_script_command_compat(0x0168u, "ii", (int)marker_id, SAMP_MAP_ICON_RADAR_SIZE);
+  slot->seq = event->seq;
+  slot->marker_id = marker_id;
+  slot->icon = event->icon;
+  slot->color = event->color;
+  memcpy(slot->pos, event->pos, sizeof(slot->pos));
+  InterlockedExchange(&slot->active, 1);
+
+  if (InterlockedCompareExchange(&g_runtime.map_icon_logged, 1, 0) == 0) {
+    runtime_tracef("map_icon: bridge active first_seq=%lu evidence=INFERRED,TODO_VERIFY",
+                   (unsigned long)event->seq);
+  }
+  runtime_tracef("map_icon: set seq=%lu index=%u marker=%lu icon=%u color=0x%08lx pos=(%.3f,%.3f,%.3f)",
+                 (unsigned long)event->seq, (unsigned)event->index, (unsigned long)marker_id,
+                 (unsigned)event->icon, (unsigned long)event->color, (double)event->pos[0],
+                 (double)event->pos[1], (double)event->pos[2]);
+}
+
+static void map_icon_compat_update_from_snapshot(const samp_raknet_rpc_probe_snapshot *snapshot) {
+  uint32_t previous_seq = 0u;
+  uint32_t latest_seq = 0u;
+  uint32_t count = 0u;
+  uint32_t i = 0u;
+
+  if (snapshot == NULL) {
+    return;
+  }
+
+  previous_seq = (uint32_t)InterlockedCompareExchange(&g_runtime.map_icon_event_seq, 0, 0);
+  latest_seq = previous_seq;
+  count = snapshot->map_icon_event_count;
+  if (count > SAMP_RAKNET_MAP_ICON_EVENT_RING) {
+    count = SAMP_RAKNET_MAP_ICON_EVENT_RING;
+  }
+  for (i = 0u; i < count; ++i) {
+    const samp_raknet_map_icon_event *event = &snapshot->map_icon_events[i];
+    if (event->seq != 0u && event->seq > previous_seq) {
+      map_icon_compat_apply_event(event);
+      latest_seq = event->seq;
+    }
+  }
+  if (latest_seq != previous_seq) {
+    InterlockedExchange(&g_runtime.map_icon_event_seq, (LONG)latest_seq);
+  }
+}
+
+static void map_icon_compat_reset(const char *reason) {
+  uint32_t i = 0u;
+
+  for (i = 0u; i < SAMP_RAKNET_MAP_ICON_MAX; ++i) {
+    if (InterlockedCompareExchange(&g_runtime.map_icon_slots[i].active, 0, 0) != 0 ||
+        g_runtime.map_icon_slots[i].marker_id != 0u) {
+      map_icon_compat_disable_slot((uint8_t)i, &g_runtime.map_icon_slots[i], reason);
+    }
+  }
+  InterlockedExchange(&g_runtime.map_icon_event_seq, 0);
+  InterlockedExchange(&g_runtime.map_icon_logged, 0);
+  memset(g_runtime.map_icon_slots, 0, sizeof(g_runtime.map_icon_slots));
+}
+
 static int remote_player_compat_skin_valid(int32_t skin) {
   return skin >= 0 && skin <= SAMP_REMOTE_PLAYER_COMPAT_SKIN_MAX && object_compat_model_available(skin);
 }
@@ -5276,6 +6298,7 @@ static int remote_player_compat_bootstrap_from_sync(const samp_raknet_remote_onf
   slot->team = 255u;
   slot->fighting_style = 4u;
   slot->visible = 1u;
+  slot->show_name_tag = 1u;
   slot->health = sync->health;
   slot->armour = sync->armour;
   slot->current_weapon = sync->current_weapon;
@@ -5422,6 +6445,9 @@ static void remote_player_compat_queue_add(const samp_raknet_remote_player_event
   slot->team = event->team;
   slot->fighting_style = event->fighting_style;
   slot->visible = event->visible != 0u ? 1u : 0u;
+  slot->show_name_tag = 1u;
+  slot->health = 100u;
+  slot->armour = 0u;
   slot->skin = event->skin;
   slot->color = event->color;
   memcpy(slot->pos, event->pos, sizeof(slot->pos));
@@ -5538,6 +6564,201 @@ static void remote_player_compat_process_markers(void) {
   }
 }
 
+static void remote_player_compat_apply_name_tag_event(const samp_raknet_name_tag_event *event) {
+  samp_remote_player_slot_compat *slot = NULL;
+
+  if (event == NULL || !remote_player_compat_id_valid(event->player_id) ||
+      remote_player_compat_is_local(event->player_id)) {
+    return;
+  }
+
+  slot = &g_runtime.remote_player_slots[event->player_id];
+  slot->show_name_tag = event->show != 0u ? 1u : 0u;
+  runtime_tracef("name_tag: show seq=%lu id=%u show=%u evidence=INFERRED,TODO_VERIFY",
+                 (unsigned long)event->seq, (unsigned)event->player_id, (unsigned)slot->show_name_tag);
+}
+
+static void remote_player_compat_update_name_tags_from_snapshot(const samp_raknet_rpc_probe_snapshot *snapshot) {
+  uint32_t previous_seq = 0u;
+  uint32_t latest_seq = 0u;
+  uint32_t count = 0u;
+  uint32_t i = 0u;
+
+  if (snapshot == NULL) {
+    return;
+  }
+
+  previous_seq = (uint32_t)InterlockedCompareExchange(&g_runtime.remote_player_name_tag_event_seq, 0, 0);
+  latest_seq = previous_seq;
+  count = snapshot->name_tag_event_count;
+  if (count > SAMP_RAKNET_NAME_TAG_EVENT_RING) {
+    count = SAMP_RAKNET_NAME_TAG_EVENT_RING;
+  }
+  for (i = 0u; i < count; ++i) {
+    const samp_raknet_name_tag_event *event = &snapshot->name_tag_events[i];
+    if (event->seq != 0u && event->seq > previous_seq) {
+      remote_player_compat_apply_name_tag_event(event);
+      latest_seq = event->seq;
+    }
+  }
+  if (latest_seq != previous_seq) {
+    InterlockedExchange(&g_runtime.remote_player_name_tag_event_seq, (LONG)latest_seq);
+  }
+}
+
+static int remote_player_compat_name_tags_enabled(void) {
+  if (InterlockedCompareExchange(&g_runtime.raknet_init_game_applied, 0, 0) == 0) {
+    return 0;
+  }
+  return g_runtime.raknet_init_show_player_tags != 0u;
+}
+
+static int remote_player_compat_name_tags_active(void) {
+  return remote_player_compat_name_tags_enabled() && remote_player_compat_scene_ready() &&
+         InterlockedCompareExchange(&g_runtime.remote_player_active_count, 0, 0) > 0;
+}
+
+static void remote_player_compat_draw_name_tag_text(samp_id3dx_font_compat *font, int center_x, int y,
+                                                    const char *text, DWORD color) {
+  RECT rect;
+  RECT shadow;
+  DWORD flags = DT_NOCLIP | DT_SINGLELINE | DT_CENTER;
+
+  if (font == NULL || text == NULL || text[0] == '\0') {
+    return;
+  }
+
+  rect.left = center_x - SAMP_NAME_TAG_HALF_WIDTH;
+  rect.top = y;
+  rect.right = center_x + SAMP_NAME_TAG_HALF_WIDTH;
+  rect.bottom = y + SAMP_NAME_TAG_LINE_HEIGHT + 4;
+
+  shadow = rect;
+  OffsetRect(&shadow, 1, 1);
+  chat_compat_d3dx_draw_text(font, shadow, text, 0xFF000000u, flags);
+  shadow = rect;
+  OffsetRect(&shadow, -1, 0);
+  chat_compat_d3dx_draw_text(font, shadow, text, 0xFF000000u, flags);
+  shadow = rect;
+  OffsetRect(&shadow, 1, 0);
+  chat_compat_d3dx_draw_text(font, shadow, text, 0xFF000000u, flags);
+  shadow = rect;
+  OffsetRect(&shadow, 0, -1);
+  chat_compat_d3dx_draw_text(font, shadow, text, 0xFF000000u, flags);
+  shadow = rect;
+  OffsetRect(&shadow, 0, 1);
+  chat_compat_d3dx_draw_text(font, shadow, text, 0xFF000000u, flags);
+  chat_compat_d3dx_draw_text(font, rect, text, color, flags);
+}
+
+static void remote_player_compat_draw_name_tag_bar(void *device, int center_x, int y, uint8_t value,
+                                                   DWORD fill_color, DWORD back_color) {
+  int clamped = value > 100u ? 100 : (int)value;
+  int x = center_x - SAMP_NAME_TAG_BAR_HALF_WIDTH;
+  int fill_w = (clamped * (SAMP_NAME_TAG_BAR_WIDTH - 2)) / 100;
+
+  dialog_compat_d3d_fill_rect(device, x - 1, y - 1, SAMP_NAME_TAG_BAR_WIDTH + 2, SAMP_NAME_TAG_BAR_HEIGHT + 2,
+                              0xFF000000u);
+  dialog_compat_d3d_fill_rect(device, x, y, SAMP_NAME_TAG_BAR_WIDTH, SAMP_NAME_TAG_BAR_HEIGHT, back_color);
+  if (fill_w > 0) {
+    dialog_compat_d3d_fill_rect(device, x + 1, y + 1, fill_w, SAMP_NAME_TAG_BAR_HEIGHT - 2, fill_color);
+  }
+}
+
+static int remote_player_compat_draw_name_tags_d3dx_overlay(void *device, samp_id3dx_font_compat *font) {
+  uintptr_t ped = 0u;
+  float ped_x = 0.0f;
+  float ped_y = 0.0f;
+  float ped_z = 0.0f;
+  float draw_distance = 0.0f;
+  unsigned int i = 0u;
+  unsigned int labels = 0u;
+
+  if (!remote_player_compat_name_tags_active() || device == NULL || font == NULL) {
+    return 0;
+  }
+
+  ped = gta_find_player_ped_compat();
+  if (ped == 0u || !gta_entity_read_position_compat(ped, &ped_x, &ped_y, &ped_z)) {
+    return 0;
+  }
+
+  draw_distance = g_runtime.raknet_init_name_tag_draw_distance;
+  if (!isfinite(draw_distance) || draw_distance <= 0.0f) {
+    draw_distance = SAMP_NAME_TAG_DEFAULT_DRAW_DISTANCE;
+  }
+
+  for (i = 0u; i < SAMP_RAKNET_MAX_PLAYERS; ++i) {
+    samp_remote_player_slot_compat *slot = &g_runtime.remote_player_slots[i];
+    const samp_scoreboard_player_compat *scoreboard_slot = NULL;
+    float dx = 0.0f;
+    float dy = 0.0f;
+    float dz = 0.0f;
+    float distance = 0.0f;
+    float screen_x = 0.0f;
+    float screen_y = 0.0f;
+    float screen_z = 0.0f;
+    int tag_x = 0;
+    int tag_y = 0;
+    int bar_y = 0;
+    DWORD color = 0xFFFFFFFFu;
+    char label[SAMP_RAKNET_PLAYER_NAME_BYTES + 12u];
+
+    if (InterlockedCompareExchange(&slot->active, 0, 0) == 0 || slot->visible == 0u ||
+        slot->show_name_tag == 0u || slot->gta_id == 0u) {
+      continue;
+    }
+
+    scoreboard_slot = remote_player_compat_scoreboard_slot((uint16_t)i);
+    if (scoreboard_slot == NULL || scoreboard_slot->name[0] == '\0') {
+      continue;
+    }
+
+    dx = slot->pos[0] - ped_x;
+    dy = slot->pos[1] - ped_y;
+    dz = slot->pos[2] - ped_z;
+    distance = sqrtf((dx * dx) + (dy * dy) + (dz * dz));
+    if (!isfinite(distance) || distance > draw_distance) {
+      continue;
+    }
+    if (!vehicle_debug_project_world_compat(device, slot->pos[0], slot->pos[1],
+                                            slot->pos[2] + SAMP_NAME_TAG_Z_BASE +
+                                                (distance * SAMP_NAME_TAG_Z_DISTANCE_SCALE),
+                                            &screen_x, &screen_y, &screen_z)) {
+      continue;
+    }
+
+    tag_x = (int)(screen_x + 0.5f);
+    tag_y = (int)(screen_y + 0.5f);
+    snprintf(label, sizeof(label), "%s(%u)", scoreboard_slot->name, i);
+    color = slot->color != 0u ? chat_compat_samp_color_to_argb(slot->color)
+                              : chat_compat_samp_color_to_argb(scoreboard_slot->color);
+    remote_player_compat_draw_name_tag_text(font, tag_x, tag_y, label, color);
+
+    /*
+     * INFERRED + TODO_VERIFY:
+     * Compatibility CNewPlayerTags::Draw renders armor above health if armor > 0,
+     * with health shifted down by one 8px row. The fill colors/outline match
+     * the observed 0.3.7-compatible compatibility code path; 0.3.7 static confirmation is pending.
+     */
+    bar_y = tag_y + SAMP_NAME_TAG_LINE_HEIGHT + 4;
+    if (slot->armour > 0u) {
+      remote_player_compat_draw_name_tag_bar(device, tag_x, bar_y, slot->armour, SAMP_NAME_TAG_ARMOUR_FILL,
+                                             SAMP_NAME_TAG_ARMOUR_BACK);
+      bar_y += SAMP_NAME_TAG_BAR_HEIGHT + SAMP_NAME_TAG_BAR_GAP;
+    }
+    remote_player_compat_draw_name_tag_bar(device, tag_x, bar_y, slot->health, SAMP_NAME_TAG_HEALTH_FILL,
+                                           SAMP_NAME_TAG_HEALTH_BACK);
+    ++labels;
+  }
+
+  if (labels != 0u && InterlockedCompareExchange(&g_runtime.remote_player_name_tags_logged, 1, 0) == 0) {
+    runtime_tracef("name_tag: draw labels=%u distance=%.3f evidence=INFERRED,TODO_VERIFY los=not_implemented",
+                   labels, (double)draw_distance);
+  }
+  return labels != 0u;
+}
+
 static void remote_player_compat_flush_pending(uint32_t budget) {
   uint32_t i = 0u;
   uint32_t applied = 0u;
@@ -5632,10 +6853,12 @@ static void remote_player_compat_reset_pool(const char *reason) {
   }
   InterlockedExchange(&g_runtime.remote_player_event_seq, 0);
   InterlockedExchange(&g_runtime.remote_player_sync_seq, 0);
+  InterlockedExchange(&g_runtime.remote_player_name_tag_event_seq, 0);
   InterlockedExchange(&g_runtime.remote_player_active_count, 0);
   InterlockedExchange(&g_runtime.remote_player_pending_count, 0);
   InterlockedExchange(&g_runtime.remote_player_logged, 0);
   InterlockedExchange(&g_runtime.remote_player_orphan_sync_logged, 0);
+  InterlockedExchange(&g_runtime.remote_player_name_tags_logged, 0);
   memset(g_runtime.remote_player_slots, 0, sizeof(g_runtime.remote_player_slots));
 }
 
@@ -6455,6 +7678,241 @@ static void ui_compat_draw_cursor(void *device, int x, int y) {
   }
 }
 
+static int class_selection_compat_active(void) {
+  uint32_t rpc_flags = 0u;
+  LONG class_outcome = 0;
+  LONG spawn_outcome = 0;
+  LONG spawn_info_seq = 0;
+  int spawn_ready = 0;
+
+  if (!g_runtime.settings.play_online) {
+    return 0;
+  }
+
+  rpc_flags = (uint32_t)InterlockedCompareExchange(&g_runtime.raknet_rpc_flags, 0, 0);
+  class_outcome = InterlockedCompareExchange(&g_runtime.raknet_request_class_outcome, 0, 0);
+  spawn_outcome = InterlockedCompareExchange(&g_runtime.raknet_request_spawn_outcome, 0, 0);
+  spawn_info_seq = InterlockedCompareExchange(&g_runtime.raknet_spawn_info_seq, 0, 0);
+  spawn_ready = (rpc_flags & SAMP_RAKNET_RPC_FLAG_REQUEST_SPAWN_REPLY) != 0u &&
+                (spawn_outcome == 1 || spawn_outcome == 2);
+
+  return class_outcome == 1 && !spawn_ready && spawn_info_seq != 0;
+}
+
+static void class_selection_compat_button_rects(int *left_x, int *left_y, int *right_x, int *right_y, int *w,
+                                                int *h) {
+  int viewport_x = 0;
+  int viewport_y = 0;
+  int viewport_w = 0;
+  int viewport_h = 0;
+  int button_w = 72;
+  int button_h = 56;
+  int mid_y = 0;
+
+  chat_compat_viewport_rect(&viewport_x, &viewport_y, &viewport_w, &viewport_h);
+  if (viewport_w < 640) {
+    button_w = 58;
+    button_h = 48;
+  }
+  mid_y = viewport_y + (viewport_h / 2) - (button_h / 2);
+  if (left_x != NULL) {
+    *left_x = viewport_x + 34;
+  }
+  if (right_x != NULL) {
+    *right_x = viewport_x + viewport_w - button_w - 34;
+  }
+  if (left_y != NULL) {
+    *left_y = mid_y;
+  }
+  if (right_y != NULL) {
+    *right_y = mid_y;
+  }
+  if (w != NULL) {
+    *w = button_w;
+  }
+  if (h != NULL) {
+    *h = button_h;
+  }
+}
+
+static void class_selection_compat_update_mouse_mode(void) {
+  const int active = class_selection_compat_active();
+  const int dialog_active = dialog_compat_active();
+  const int textdraw_select_active = InterlockedCompareExchange(&g_runtime.textdraw_select_active, 0, 0) != 0;
+
+  if (active && !dialog_active && !textdraw_select_active) {
+    if (InterlockedExchange(&g_runtime.class_selection_mouse_mode, 1) == 0) {
+      dialog_compat_set_mouse_mode(1);
+      runtime_tracef("class_selection: mouse mode enabled evidence=INFERRED");
+    } else {
+      dialog_compat_set_mouse_mode(1);
+    }
+    return;
+  }
+
+  if (InterlockedExchange(&g_runtime.class_selection_mouse_mode, 0) != 0 && !dialog_active &&
+      !textdraw_select_active) {
+    InterlockedExchange(&g_runtime.class_selection_mouse_down, 0);
+    dialog_compat_set_mouse_mode(0);
+    runtime_tracef("class_selection: mouse mode disabled active=%d dialog=%d textdraw=%d", active, dialog_active,
+                   textdraw_select_active);
+  }
+}
+
+static int class_selection_compat_handle_mouse(HWND hwnd, UINT msg, LPARAM lparam) {
+  LONG x = 0;
+  LONG y = 0;
+  int left_x = 0;
+  int left_y = 0;
+  int right_x = 0;
+  int right_y = 0;
+  int button_w = 0;
+  int button_h = 0;
+  int result = -1;
+
+  if (!class_selection_compat_active() || dialog_compat_active() ||
+      InterlockedCompareExchange(&g_runtime.textdraw_select_active, 0, 0) != 0) {
+    return 0;
+  }
+  if (msg != WM_MOUSEMOVE && msg != WM_LBUTTONDOWN && msg != WM_LBUTTONUP && msg != WM_LBUTTONDBLCLK) {
+    return 0;
+  }
+
+  dialog_compat_record_mouse(hwnd, lparam);
+  x = InterlockedCompareExchange(&g_runtime.dialog_mouse_x, 0, 0);
+  y = InterlockedCompareExchange(&g_runtime.dialog_mouse_y, 0, 0);
+  class_selection_compat_button_rects(&left_x, &left_y, &right_x, &right_y, &button_w, &button_h);
+
+  if (msg == WM_LBUTTONDOWN || msg == WM_LBUTTONDBLCLK) {
+    InterlockedExchange(&g_runtime.class_selection_mouse_down, 1);
+    return 1;
+  }
+  if (msg == WM_LBUTTONUP && InterlockedExchange(&g_runtime.class_selection_mouse_down, 0) != 0) {
+    if (dialog_compat_point_in_rect((int)x, (int)y, left_x, left_y, button_w, button_h)) {
+      result = samp_raknet_client_request_class_delta(g_runtime.net_mgr.raknet_client, -1);
+      runtime_tracef("class_selection: ui_left x=%ld y=%ld result=%d", (long)x, (long)y, result);
+      return 1;
+    }
+    if (dialog_compat_point_in_rect((int)x, (int)y, right_x, right_y, button_w, button_h)) {
+      result = samp_raknet_client_request_class_delta(g_runtime.net_mgr.raknet_client, 1);
+      runtime_tracef("class_selection: ui_right x=%ld y=%ld result=%d", (long)x, (long)y, result);
+      return 1;
+    }
+    return 1;
+  }
+  return 1;
+}
+
+static void class_selection_compat_draw_centered_text(samp_id3dx_font_compat *font, RECT rect, const char *text,
+                                                      DWORD color) {
+  RECT shadow = rect;
+
+  if (font == NULL || font->lpVtbl == NULL || font->lpVtbl->DrawTextA == NULL || text == NULL || text[0] == '\0') {
+    return;
+  }
+  shadow.left -= 1;
+  font->lpVtbl->DrawTextA(font, NULL, text, -1, &shadow, DT_NOCLIP | DT_SINGLELINE | DT_CENTER | DT_VCENTER,
+                          0xFF000000u);
+  shadow.left += 2;
+  font->lpVtbl->DrawTextA(font, NULL, text, -1, &shadow, DT_NOCLIP | DT_SINGLELINE | DT_CENTER | DT_VCENTER,
+                          0xFF000000u);
+  shadow.left -= 1;
+  shadow.top -= 1;
+  font->lpVtbl->DrawTextA(font, NULL, text, -1, &shadow, DT_NOCLIP | DT_SINGLELINE | DT_CENTER | DT_VCENTER,
+                          0xFF000000u);
+  shadow.top += 2;
+  font->lpVtbl->DrawTextA(font, NULL, text, -1, &shadow, DT_NOCLIP | DT_SINGLELINE | DT_CENTER | DT_VCENTER,
+                          0xFF000000u);
+  font->lpVtbl->DrawTextA(font, NULL, text, -1, &rect, DT_NOCLIP | DT_SINGLELINE | DT_CENTER | DT_VCENTER, color);
+}
+
+static int class_selection_compat_draw_d3dx_overlay(void *device, samp_id3dx_font_compat *font) {
+  int viewport_x = 0;
+  int viewport_y = 0;
+  int viewport_w = 0;
+  int viewport_h = 0;
+  int text_x = 0;
+  int text_y = 0;
+  int line_h = SAMP_CHAT_COMPAT_LINE_HEIGHT;
+  int left_x = 0;
+  int left_y = 0;
+  int right_x = 0;
+  int right_y = 0;
+  int button_w = 0;
+  int button_h = 0;
+  LONG mouse_x = 0;
+  LONG mouse_y = 0;
+  RECT rect;
+  char skin_line[64];
+
+  class_selection_compat_update_mouse_mode();
+  if (!class_selection_compat_active() || font == NULL || device == NULL || dialog_compat_active()) {
+    return 0;
+  }
+
+  /*
+   * INFERRED:
+   * Compatibility CSpawnScreen::Draw renders the class-selection text near the bottom-left of the viewport.
+   * The clickable arrows are a replacement-only affordance, but they call the same RequestClass path as
+   * compatibility LEFT/RIGHT selection.
+   */
+  chat_compat_viewport_rect(&viewport_x, &viewport_y, &viewport_w, &viewport_h);
+  text_x = viewport_x + 20;
+  text_y = viewport_y + viewport_h - 130;
+  if (text_y < viewport_y + 40) {
+    text_y = viewport_y + 40;
+  }
+
+  rect.left = text_x;
+  rect.top = text_y;
+  rect.right = viewport_x + viewport_w - 20;
+  rect.bottom = rect.top + line_h + 4;
+  chat_compat_d3dx_draw_text_outline(font, rect, "Use left and right arrow keys to select class.", 0xFFFFFFFFu);
+  rect.top += line_h;
+  rect.bottom += line_h;
+  chat_compat_d3dx_draw_text_outline(font, rect, "Press SHIFT when ready to spawn.", 0xFFFFFFFFu);
+  rect.top += line_h * 2;
+  rect.bottom += line_h * 2;
+  (void)snprintf(skin_line, sizeof(skin_line), "Skin %ld", (long)g_runtime.raknet_spawn_skin);
+  skin_line[sizeof(skin_line) - 1u] = '\0';
+  chat_compat_d3dx_draw_text_outline(font, rect, skin_line, 0xFFFFFFFFu);
+  rect.top += line_h;
+  rect.bottom += line_h;
+  chat_compat_d3dx_draw_text_outline(font, rect, "SA:MP 0.3.7-R5", 0xFF27ABFAu);
+
+  class_selection_compat_button_rects(&left_x, &left_y, &right_x, &right_y, &button_w, &button_h);
+  if (!dialog_compat_d3d_alpha_rect(device, left_x, left_y, button_w, button_h, 0x70000000u)) {
+    dialog_compat_d3d_fill_rect(device, left_x, left_y, button_w, button_h, 0xB0000000u);
+  }
+  if (!dialog_compat_d3d_alpha_rect(device, right_x, right_y, button_w, button_h, 0x70000000u)) {
+    dialog_compat_d3d_fill_rect(device, right_x, right_y, button_w, button_h, 0xB0000000u);
+  }
+  textdraw_compat_draw_rect_outline(device, left_x, left_y, button_w, button_h, 0xFFFFFFFFu);
+  textdraw_compat_draw_rect_outline(device, right_x, right_y, button_w, button_h, 0xFFFFFFFFu);
+
+  rect.left = left_x;
+  rect.top = left_y;
+  rect.right = left_x + button_w;
+  rect.bottom = left_y + button_h;
+  class_selection_compat_draw_centered_text(font, rect, "<", 0xFFFFFFFFu);
+  rect.left = right_x;
+  rect.top = right_y;
+  rect.right = right_x + button_w;
+  rect.bottom = right_y + button_h;
+  class_selection_compat_draw_centered_text(font, rect, ">", 0xFFFFFFFFu);
+
+  if (InterlockedCompareExchange(&g_runtime.class_selection_mouse_mode, 0, 0) != 0) {
+    mouse_x = InterlockedCompareExchange(&g_runtime.dialog_mouse_x, 0, 0);
+    mouse_y = InterlockedCompareExchange(&g_runtime.dialog_mouse_y, 0, 0);
+    ui_compat_draw_cursor(device, (int)mouse_x, (int)mouse_y);
+  }
+  if (InterlockedCompareExchange(&g_runtime.class_selection_overlay_logged, 1, 0) == 0) {
+    runtime_tracef("class_selection: overlay enabled skin=%ld evidence=INFERRED",
+                   (long)g_runtime.raknet_spawn_skin);
+  }
+  return 1;
+}
+
 static void textdraw_compat_draw_preview_placeholder(void *device, const samp_textdraw_slot_compat *slot, int x, int y,
                                                      int w, int h) {
   DWORD fill = 0xFF202020u;
@@ -7027,6 +8485,9 @@ static int chat_compat_draw_d3dx_overlay(void *device) {
   LONG input_active = 0;
   LONG dialog_active = 0;
   LONG textdraw_active = 0;
+  LONG vehicle_debug_active = 0;
+  int name_tags_active = 0;
+  int class_selection_active = 0;
   int loading_active = 0;
   int scoreboard_active = 0;
   int x = 0;
@@ -7037,14 +8498,30 @@ static int chat_compat_draw_d3dx_overlay(void *device) {
     return 0;
   }
   chat_input_try_install_wndproc_compat();
+
+  /*
+   * INFERRED + STATIC_037 + TODO_VERIFY:
+   * Compatibility IDirect3DDevice9Hook renders SA-MP overlays only while !CGame::IsMenuActive().
+   * Let GTA's pause/frontend menu own the frame; screenshots still run from EndScene.
+   */
+  if (gta_frontend_menu_active_compat()) {
+    return 0;
+  }
+
   count = InterlockedCompareExchange(&g_runtime.chat_overlay_line_count, 0, 0);
   input_active = InterlockedCompareExchange(&g_runtime.chat_input_active, 0, 0);
   dialog_active = InterlockedCompareExchange(&g_runtime.dialog_overlay_active, 0, 0);
   textdraw_active = InterlockedCompareExchange(&g_runtime.textdraw_active_count, 0, 0);
+  vehicle_debug_active = InterlockedCompareExchange(&g_runtime.vehicle_debug_labels_active, 0, 0);
+  name_tags_active = remote_player_compat_name_tags_active();
+  class_selection_active = class_selection_compat_active();
   loading_active = loading_screen_compat_active();
   scoreboard_active = scoreboard_compat_active();
   if (count <= 0 && input_active == 0 && dialog_active == 0 && textdraw_active <= 0 && !loading_active &&
-      !scoreboard_active) {
+      !scoreboard_active && vehicle_debug_active == 0 && !name_tags_active && !class_selection_active) {
+    if (InterlockedCompareExchange(&g_runtime.class_selection_mouse_mode, 0, 0) != 0) {
+      class_selection_compat_update_mouse_mode();
+    }
     return 0;
   }
   if (count < 0) {
@@ -7063,6 +8540,11 @@ static int chat_compat_draw_d3dx_overlay(void *device) {
   if (textdraw_active > 0 && !scoreboard_active) {
     (void)textdraw_compat_draw_d3dx_overlay(device);
   }
+  if (class_selection_active && dialog_active == 0 && !scoreboard_active) {
+    (void)class_selection_compat_draw_d3dx_overlay(device, g_runtime.chat_d3dx_font);
+  } else {
+    class_selection_compat_update_mouse_mode();
+  }
   chat_compat_viewport_origin(&x, &y);
   for (i = 0; i < count; ++i) {
     RECT rect;
@@ -7073,6 +8555,12 @@ static int chat_compat_draw_d3dx_overlay(void *device) {
     chat_compat_d3dx_draw_text_outline_segments(
         g_runtime.chat_d3dx_font, rect, g_runtime.chat_overlay_lines[i],
         g_runtime.chat_overlay_colors[i] != 0u ? g_runtime.chat_overlay_colors[i] : SAMP_CHAT_COMPAT_COLOR_INFO);
+  }
+  if (vehicle_debug_active != 0) {
+    (void)vehicle_debug_labels_draw_d3dx_overlay(device, g_runtime.chat_d3dx_font);
+  }
+  if (name_tags_active && !class_selection_active && !scoreboard_active) {
+    (void)remote_player_compat_draw_name_tags_d3dx_overlay(device, g_runtime.chat_d3dx_font);
   }
   if (input_active != 0) {
     char input_line[SAMP_CHAT_INPUT_DRAW_BYTES];
@@ -7111,9 +8599,9 @@ static int chat_compat_draw_d3dx_overlay(void *device) {
   }
 
   if (InterlockedCompareExchange(&g_runtime.chat_d3d_draw_logged, 1, 0) == 0) {
-    runtime_tracef("chat_d3dx: drawing enabled device=0x%08lx lines=%ld dialog=%ld textdraws=%ld scoreboard=%d x=%d y=%d",
+    runtime_tracef("chat_d3dx: drawing enabled device=0x%08lx lines=%ld dialog=%ld textdraws=%ld class_selection=%d scoreboard=%d nametags=%d x=%d y=%d",
                    (unsigned long)(uintptr_t)device, (long)count, (long)dialog_active, (long)textdraw_active,
-                   scoreboard_active, x, y);
+                   class_selection_active, scoreboard_active, name_tags_active, x, y);
   }
   return 1;
 }
@@ -7235,6 +8723,9 @@ static void chat_compat_draw_overlay(void) {
   chat_input_try_install_wndproc_compat();
   chat_compat_try_install_d3d_hook();
   if (chat_d3d_enabled_compat() && InterlockedCompareExchange(&g_runtime.chat_d3d_hooked, 0, 0) != 0) {
+    return;
+  }
+  if (gta_frontend_menu_active_compat()) {
     return;
   }
 
@@ -8007,7 +9498,110 @@ static int samp_asset_custom_model_files_ready_compat(int32_t model, char *reaso
   return 1;
 }
 
+static int samp_asset_txd_slot_for_model_compat(const samp_asset_model_entry_compat *model_entry) {
+  gta_txd_find_slot_fn find_slot = (gta_txd_find_slot_fn)(uintptr_t)SAMP_ADDR_CTXDSTORE_FIND_SLOT;
+  const char *txd_name = NULL;
+
+  if (model_entry == NULL) {
+    return -1;
+  }
+  if (!gta_code_ptr_compat((uintptr_t)find_slot)) {
+    return -2;
+  }
+
+  txd_name = model_entry->txd_name[0] != '\0' ? model_entry->txd_name : model_entry->model_name;
+  if (txd_name == NULL || txd_name[0] == '\0') {
+    return -1;
+  }
+  return find_slot(txd_name);
+}
+
+static void samp_asset_log_object_readiness_compat(uint16_t object_id, uint32_t seq, int32_t model,
+                                                   const char *reason) {
+  const samp_asset_model_entry_compat *model_entry = samp_asset_model_lookup_compat(model);
+  uintptr_t model_info = object_compat_model_info_ptr(model);
+  char asset_reason[96];
+  char dff_name[SAMP_ASSET_NAME_BYTES + 8u];
+  char txd_name[SAMP_ASSET_NAME_BYTES + 8u];
+  char col_name[SAMP_ASSET_NAME_BYTES + 8u];
+  const samp_asset_img_entry_compat *dff_entry = NULL;
+  const samp_asset_img_entry_compat *txd_entry = NULL;
+  const samp_asset_img_entry_compat *col_entry = NULL;
+  int assets_ready = 0;
+  int txd_slot = -1;
+
+  asset_reason[0] = '\0';
+  dff_name[0] = '\0';
+  txd_name[0] = '\0';
+  col_name[0] = '\0';
+  assets_ready = samp_asset_custom_model_files_ready_compat(model, asset_reason, sizeof(asset_reason));
+
+  if (model_entry != NULL) {
+    samp_asset_make_ext_name_compat(dff_name, sizeof(dff_name), model_entry->model_name, "dff");
+    samp_asset_make_ext_name_compat(txd_name, sizeof(txd_name),
+                                    model_entry->txd_name[0] != '\0' ? model_entry->txd_name
+                                                                      : model_entry->model_name,
+                                    "txd");
+    samp_asset_make_ext_name_compat(col_name, sizeof(col_name), model_entry->model_name, "col");
+    dff_entry = samp_asset_find_img_entry_compat(dff_name);
+    txd_entry = samp_asset_find_img_entry_compat(txd_name);
+    col_entry = samp_asset_find_img_entry_compat(col_name);
+    txd_slot = samp_asset_txd_slot_for_model_compat(model_entry);
+  }
+
+  /* PROBE_TRACE + GTA_REVERSED_REF + TODO_VERIFY:
+   * This readiness row is diagnostic only. A custom SA-MP model needs native
+   * CModelInfo/streaming/TXD registration before it may enter GTA's object path.
+   */
+  runtime_tracef("object_asset_readiness: id=%u seq=%lu model=%ld reason=%s ide=%d source=%s section=%s "
+                 "name='%s' txd='%s' dff=%d txd_file=%d col_guess=%d assets_ready=%d asset_reason=%s "
+                 "model_info=0x%08lx txd_slot=%d index_built=%ld evidence=OBSERVED_037,PROBE_TRACE,"
+                 "GTA_REVERSED_REF,TODO_VERIFY",
+                 (unsigned)object_id, (unsigned long)seq, (long)model, reason != NULL ? reason : "unknown",
+                 model_entry != NULL ? 1 : 0,
+                 model_entry != NULL ? samp_asset_ide_source_label_compat(model_entry->source) : "none",
+                 model_entry != NULL ? samp_asset_section_label_compat(model_entry->section) : "none",
+                 model_entry != NULL ? model_entry->model_name : "", model_entry != NULL ? model_entry->txd_name : "",
+                 dff_entry != NULL ? 1 : 0, txd_entry != NULL ? 1 : 0, col_entry != NULL ? 1 : 0, assets_ready,
+                 asset_reason[0] != '\0' ? asset_reason : "unknown", (unsigned long)model_info, txd_slot,
+                 (long)g_runtime.samp_asset_index_built);
+}
+
 static int samp_asset_custom_proxy_enabled_compat(void) {
+  static LONG initialized = 0;
+  static int enabled = 0;
+  const char *value = NULL;
+
+  if (InterlockedCompareExchange(&initialized, 0, 0)) {
+    return enabled;
+  }
+
+  value = getenv(SAMP_OBJECT_COMPAT_CUSTOM_PROXY_ENV);
+  if (value != NULL && value[0] == '1' && value[1] == '\0') {
+    enabled = 1;
+  }
+  InterlockedExchange(&initialized, 1);
+  return enabled;
+}
+
+static int local_spawn_skin_apply_enabled_compat(void) {
+  static LONG initialized = 0;
+  static int enabled = 0;
+  const char *value = NULL;
+
+  if (InterlockedCompareExchange(&initialized, 0, 0)) {
+    return enabled;
+  }
+
+  value = getenv(SAMP_LOCAL_SPAWN_SKIN_APPLY_ENV);
+  if (value != NULL && value[0] == '1' && value[1] == '\0') {
+    enabled = 1;
+  }
+  InterlockedExchange(&initialized, 1);
+  return enabled;
+}
+
+static int class_selection_skin_apply_enabled_compat(void) {
   static LONG initialized = 0;
   static int enabled = 1;
   const char *value = NULL;
@@ -8016,9 +9610,9 @@ static int samp_asset_custom_proxy_enabled_compat(void) {
     return enabled;
   }
 
-  value = getenv("SAMPDLL_CUSTOM_OBJECT_PROXY");
-  if (value != NULL && value[0] == '0' && value[1] == '\0') {
-    enabled = 0;
+  value = getenv(SAMP_CLASS_SELECTION_SKIN_APPLY_ENV);
+  if (value != NULL && value[0] != '\0') {
+    enabled = value[0] != '0' && value[0] != 'n' && value[0] != 'N' && value[0] != 'f' && value[0] != 'F';
   }
   InterlockedExchange(&initialized, 1);
   return enabled;
@@ -8370,6 +9964,25 @@ static const char *raknet_packet_name(int packet_id) {
   }
 }
 
+static void chat_add_connect_retry_message_compat(int packet_id, const char *reason) {
+  const char *message = "The server didn't respond. Retrying..";
+
+  /*
+   * STATIC_037 + INFERRED:
+   * Original 0.3.7 CNetGame packet handlers put these exact debug strings into the chat window
+   * and then return to GAMESTATE_WAIT_CONNECT, letting the normal retry timer reconnect.
+   */
+  if (packet_id == 31) {
+    message = "The server is full. Retrying...";
+  } else if (packet_id == 33) {
+    message = "Lost connection to the server. Reconnecting..";
+  }
+
+  chat_compat_add_message("%s", message);
+  runtime_tracef("network_prepare: connect retry chat reason=%s packet=%d message='%s' evidence=STATIC_037,INFERRED",
+                 reason != NULL ? reason : "unknown", packet_id, message);
+}
+
 static void copy_runtime_token(const char *src, char *dst, size_t dst_size) {
   size_t i = 0;
 
@@ -8523,6 +10136,148 @@ static void write_game_u8(uintptr_t addr, uint8_t value) {
   *(volatile uint8_t *)(uintptr_t)addr = value;
 }
 
+static void write_game_float_compat(uintptr_t addr, float value) {
+  memcpy((void *)(uintptr_t)addr, &value, sizeof(value));
+}
+
+static int read_game_u8_checked_compat(uintptr_t addr, uint8_t *value) {
+  if (value == NULL || !memory_is_readable_compat((const void *)(uintptr_t)addr, sizeof(*value))) {
+    return 0;
+  }
+  *value = read_game_u8(addr);
+  return 1;
+}
+
+static int read_game_u16_checked_compat(uintptr_t addr, uint16_t *value) {
+  if (value == NULL || !memory_is_readable_compat((const void *)(uintptr_t)addr, sizeof(*value))) {
+    return 0;
+  }
+  memcpy(value, (const void *)(uintptr_t)addr, sizeof(*value));
+  return 1;
+}
+
+static int read_game_float_checked_compat(uintptr_t addr, float *value) {
+  if (value == NULL || !memory_is_readable_compat((const void *)(uintptr_t)addr, sizeof(*value))) {
+    return 0;
+  }
+  memcpy(value, (const void *)(uintptr_t)addr, sizeof(*value));
+  return 1;
+}
+
+static int restore_post_spawn_mouse_camera_compat(const char *reason) {
+  uint8_t use_mouse_before = 0xffu;
+  uint8_t use_mouse_after = 0xffu;
+  float accel_h_before = 0.0f;
+  float accel_v_before = 0.0f;
+  float accel_h_after = 0.0f;
+  float accel_v_after = 0.0f;
+  int changed = 0;
+
+  if (!read_game_u8_checked_compat(SAMP_ADDR_CAMERA_USE_MOUSE_3RD_PERSON, &use_mouse_before) ||
+      !read_game_float_checked_compat(SAMP_ADDR_CAMERA_MOUSE_ACCEL_HORIZONTAL, &accel_h_before) ||
+      !read_game_float_checked_compat(SAMP_ADDR_CAMERA_MOUSE_ACCEL_VERTICAL, &accel_v_before)) {
+    runtime_tracef("mp_session_bridge: mouse_camera_restore reason=%s readable=0 "
+                   "evidence=GTA_REVERSED_REF,PROBE_TRACE,TODO_VERIFY",
+                   reason != NULL ? reason : "unknown");
+    return 0;
+  }
+
+  /*
+   * GTA_REVERSED_REF + PROBE_TRACE + INFERRED + TODO_VERIFY:
+   * Plugin-SDK/gta-reversed identify these CCamera fields as the third-person
+   * mouse-camera enable byte and mouse acceleration floats. The current run has
+   * gameplay camera mode 4 after spawn, but mouse deltas still do not rotate the
+   * camera; keep this repair scoped to the post-spawn handoff.
+   */
+  if (use_mouse_before == 0u) {
+    write_game_u8(SAMP_ADDR_CAMERA_USE_MOUSE_3RD_PERSON, 1u);
+    changed = 1;
+  }
+  if (!isfinite(accel_h_before) || accel_h_before <= 0.0f || accel_h_before > 1.0f) {
+    write_game_float_compat(SAMP_ADDR_CAMERA_MOUSE_ACCEL_HORIZONTAL, SAMP_GTA_CAMERA_MOUSE_ACCEL_DEFAULT);
+    changed = 1;
+  }
+  if (!isfinite(accel_v_before) || accel_v_before <= 0.0f || accel_v_before > 1.0f) {
+    write_game_float_compat(SAMP_ADDR_CAMERA_MOUSE_ACCEL_VERTICAL, SAMP_GTA_CAMERA_MOUSE_ACCEL_DEFAULT);
+    changed = 1;
+  }
+
+  (void)read_game_u8_checked_compat(SAMP_ADDR_CAMERA_USE_MOUSE_3RD_PERSON, &use_mouse_after);
+  (void)read_game_float_checked_compat(SAMP_ADDR_CAMERA_MOUSE_ACCEL_HORIZONTAL, &accel_h_after);
+  (void)read_game_float_checked_compat(SAMP_ADDR_CAMERA_MOUSE_ACCEL_VERTICAL, &accel_v_after);
+  runtime_tracef("mp_session_bridge: mouse_camera_restore reason=%s use_mouse=%u->%u accel_h=%.6f->%.6f "
+                 "accel_v=%.6f->%.6f changed=%d evidence=GTA_REVERSED_REF,PROBE_TRACE,INFERRED,TODO_VERIFY",
+                 reason != NULL ? reason : "unknown", (unsigned)use_mouse_before, (unsigned)use_mouse_after,
+                 (double)accel_h_before, (double)accel_h_after, (double)accel_v_before, (double)accel_v_after,
+                 changed);
+  return changed;
+}
+
+static int read_camera_mode_compat(uint8_t *mode, uint16_t *mode2) {
+  uint8_t local_mode = 0xffu;
+  uint16_t local_mode2 = 0xffffu;
+
+  if (!read_game_u8_checked_compat(SAMP_ADDR_CAMERA_MODE, &local_mode)) {
+    return 0;
+  }
+  if (!read_game_u16_checked_compat(SAMP_ADDR_CAMERA_MODE2, &local_mode2)) {
+    return 0;
+  }
+  if (mode != NULL) {
+    *mode = local_mode;
+  }
+  if (mode2 != NULL) {
+    *mode2 = local_mode2;
+  }
+  return 1;
+}
+
+static void log_camera_mode_compat(const char *reason) {
+  uint8_t mode = 0xffu;
+  uint16_t mode2 = 0xffffu;
+
+  if (!read_camera_mode_compat(&mode, &mode2)) {
+    runtime_tracef("mp_session_bridge: camera_mode reason=%s readable=0 evidence=PROBE_TRACE,TODO_VERIFY",
+                   reason != NULL ? reason : "unknown");
+    return;
+  }
+  runtime_tracef("mp_session_bridge: camera_mode reason=%s mode=%u mode2=%u evidence=PROBE_TRACE,TODO_VERIFY",
+                 reason != NULL ? reason : "unknown", (unsigned)mode, (unsigned)mode2);
+}
+
+static int restore_post_spawn_camera_mode_compat(const char *reason) {
+  uint8_t before = 0xffu;
+  uint8_t after = 0xffu;
+  uint16_t mode2 = 0xffffu;
+
+  if (!read_camera_mode_compat(&before, &mode2)) {
+    runtime_tracef("mp_session_bridge: camera_mode_restore reason=%s readable=0 evidence=PROBE_TRACE,TODO_VERIFY",
+                   reason != NULL ? reason : "unknown");
+    return 0;
+  }
+
+  /*
+   * PROBE_TRACE + STATIC_037 + INFERRED + TODO_VERIFY:
+   * Ghidra headless shows original samp.dll dispatching restore/set/point
+   * camera script opcodes around samp.dll+0x000b3e20. Probe logs show the
+   * GTA camera mode byte at 0x00b6f1a8 moving between 15 during frontend
+   * camera ownership and 4 during gameplay/free mouse-look.
+   */
+  if (before == SAMP_GTA_CAMERA_MODE_FRONTEND_FIXED) {
+    write_game_u8(SAMP_ADDR_CAMERA_MODE, SAMP_GTA_CAMERA_MODE_GAMEPLAY);
+    (void)read_game_u8_checked_compat(SAMP_ADDR_CAMERA_MODE, &after);
+    runtime_tracef("mp_session_bridge: camera_mode_restore reason=%s mode=%u->%u mode2=%u "
+                   "evidence=PROBE_TRACE,STATIC_037,INFERRED,TODO_VERIFY",
+                   reason != NULL ? reason : "unknown", (unsigned)before, (unsigned)after, (unsigned)mode2);
+    return 1;
+  }
+
+  runtime_tracef("mp_session_bridge: camera_mode_restore reason=%s mode=%u keep=1 mode2=%u "
+                 "evidence=PROBE_TRACE,STATIC_037,INFERRED,TODO_VERIFY",
+                 reason != NULL ? reason : "unknown", (unsigned)before, (unsigned)mode2);
+  return 0;
+}
+
 static int patch_nop(uintptr_t addr, size_t size) {
   DWORD old_protect = 0;
   DWORD old_protect_restore = 0;
@@ -8565,6 +10320,81 @@ static int patch_write_u32(uintptr_t addr, uint32_t value) {
 
 static int patch_write_u8(uintptr_t addr, uint8_t value) {
   return patch_copy(addr, &value, sizeof(value));
+}
+
+static void center_hwnd_cursor_compat(HWND hwnd) {
+  RECT rect;
+  POINT center;
+
+  if (hwnd == NULL || !GetClientRect(hwnd, &rect)) {
+    return;
+  }
+  center.x = rect.left + ((rect.right - rect.left) / 2);
+  center.y = rect.top + ((rect.bottom - rect.top) / 2);
+  if (ClientToScreen(hwnd, &center)) {
+    SetCursorPos(center.x, center.y);
+  }
+}
+
+static void visible_cursor_recenter_patch_apply_compat(const char *reason) {
+  const uint8_t ret_opcode = 0xC3u;
+  uint8_t before = 0;
+  int saved_now = 0;
+
+  before = read_game_u8(SAMP_ADDR_RS_MOUSE_SET_POS);
+  if (InterlockedCompareExchange(&g_runtime.rs_mouse_set_pos_saved_valid, 1, 0) == 0) {
+    g_runtime.rs_mouse_set_pos_saved_byte = before;
+    saved_now = 1;
+  }
+  if (before == ret_opcode) {
+    InterlockedExchange(&g_runtime.rs_mouse_set_pos_cursor_patch_applied, 1);
+    return;
+  }
+  if (patch_write_u8(SAMP_ADDR_RS_MOUSE_SET_POS, ret_opcode)) {
+    InterlockedExchange(&g_runtime.rs_mouse_set_pos_cursor_patch_applied, 1);
+    runtime_tracef("cursor_patch: apply reason=%s rs_mouse_set_pos=0x%02x->0x%02x saved=0x%02x saved_now=%d "
+                   "evidence=INFERRED,TODO_VERIFY",
+                   reason != NULL ? reason : "unknown", (unsigned)before,
+                   (unsigned)read_game_u8(SAMP_ADDR_RS_MOUSE_SET_POS),
+                   (unsigned)g_runtime.rs_mouse_set_pos_saved_byte, saved_now);
+  } else {
+    runtime_tracef("cursor_patch: apply failed reason=%s rs_mouse_set_pos=0x%02x "
+                   "evidence=INFERRED,TODO_VERIFY",
+                   reason != NULL ? reason : "unknown", (unsigned)before);
+  }
+}
+
+static void visible_cursor_recenter_patch_restore_compat(const char *reason) {
+  const uint8_t ret_opcode = 0xC3u;
+  uint8_t before = 0;
+  uint8_t restore_byte = 0x55u;
+
+  if (InterlockedCompareExchange(&g_runtime.rs_mouse_set_pos_cursor_patch_applied, 0, 0) == 0) {
+    return;
+  }
+  if (InterlockedCompareExchange(&g_runtime.rs_mouse_set_pos_saved_valid, 0, 0) != 0) {
+    restore_byte = g_runtime.rs_mouse_set_pos_saved_byte;
+  }
+
+  before = read_game_u8(SAMP_ADDR_RS_MOUSE_SET_POS);
+  if (before != ret_opcode) {
+    InterlockedExchange(&g_runtime.rs_mouse_set_pos_cursor_patch_applied, 0);
+    runtime_tracef("cursor_patch: restore skipped reason=%s current=0x%02x saved=0x%02x "
+                   "evidence=INFERRED,TODO_VERIFY",
+                   reason != NULL ? reason : "unknown", (unsigned)before, (unsigned)restore_byte);
+    return;
+  }
+  if (patch_write_u8(SAMP_ADDR_RS_MOUSE_SET_POS, restore_byte)) {
+    InterlockedExchange(&g_runtime.rs_mouse_set_pos_cursor_patch_applied, 0);
+    runtime_tracef("cursor_patch: restore reason=%s rs_mouse_set_pos=0x%02x->0x%02x "
+                   "evidence=INFERRED,TODO_VERIFY",
+                   reason != NULL ? reason : "unknown", (unsigned)before,
+                   (unsigned)read_game_u8(SAMP_ADDR_RS_MOUSE_SET_POS));
+  } else {
+    runtime_tracef("cursor_patch: restore failed reason=%s current=0x%02x saved=0x%02x "
+                   "evidence=INFERRED,TODO_VERIFY",
+                   reason != NULL ? reason : "unknown", (unsigned)before, (unsigned)restore_byte);
+  }
 }
 
 static void apply_resolution_unlock_patches_compat(void) {
@@ -9543,6 +11373,18 @@ static void apply_ingame_compat_patches_once(void) {
   SAMP_APPLY_PATCH(patch_nop(SAMP_ADDR_INTERIOR_PEDS_PATCH, 8u));
   SAMP_APPLY_PATCH(patch_nop(SAMP_ADDR_PED_SHADOWS_PATCH, 10u));
   SAMP_APPLY_PATCH(patch_nop(SAMP_ADDR_ANTI_PAUSE_PATCH, 7u));
+  /*
+   * INFERRED + TODO_VERIFY:
+   * Compatibility client/game/patches.cpp keeps GTA from hiding or recentering the
+   * visible multiplayer cursor by NOPing the cursor hide loop, setting GTA's
+   * cursor-enable flag, and turning RsMouseSetPos into an immediate return.
+   * The replacement restores RsMouseSetPos again at gameplay handoff so GTA's
+   * player camera can use its normal mouse recenter path after spawn.
+   */
+  SAMP_APPLY_PATCH(patch_nop(SAMP_ADDR_CURSOR_HIDE_LOOP, 16u));
+  SAMP_APPLY_PATCH(patch_write_u8(SAMP_ADDR_CURSOR_ENABLE_FLAG, 1u));
+  visible_cursor_recenter_patch_apply_compat("ingame_cursor");
+  SAMP_APPLY_PATCH(read_game_u8(SAMP_ADDR_RS_MOUSE_SET_POS) == ret_opcode);
   SAMP_APPLY_PATCH(patch_copy(SAMP_ADDR_RANDOM_WEAPON_PICKUPS, &ret_opcode, sizeof(ret_opcode)));
   SAMP_APPLY_PATCH(patch_copy(SAMP_ADDR_RESPAWN_INTERIOR_RET, &ret_opcode, sizeof(ret_opcode)));
   SAMP_APPLY_PATCH(patch_nop(SAMP_ADDR_RESPAWN_INTERIOR_CALL, 5u));
@@ -9565,10 +11407,14 @@ static void apply_ingame_compat_patches_once(void) {
 
 #undef SAMP_APPLY_PATCH
 
-  runtime_tracef("ingame_patch: story suppression applied=%lu/%lu msg_print=0x%02x script_gate=0x%02x%02x",
+  runtime_tracef("ingame_patch: story suppression applied=%lu/%lu msg_print=0x%02x script_gate=0x%02x%02x "
+                 "cursor_hide=0x%02x cursor_flag=%u rs_mouse_set_pos=0x%02x evidence=INFERRED,TODO_VERIFY",
                  applied, total, (unsigned)read_game_u8(SAMP_ADDR_MESSAGE_PRINT),
                  (unsigned)read_game_u8(SAMP_ADDR_SCRIPT_PROCESS_GATE),
-                 (unsigned)read_game_u8(SAMP_ADDR_SCRIPT_PROCESS_GATE2));
+                 (unsigned)read_game_u8(SAMP_ADDR_SCRIPT_PROCESS_GATE2),
+                 (unsigned)read_game_u8(SAMP_ADDR_CURSOR_HIDE_LOOP),
+                 (unsigned)read_game_u8(SAMP_ADDR_CURSOR_ENABLE_FLAG),
+                 (unsigned)read_game_u8(SAMP_ADDR_RS_MOUSE_SET_POS));
 }
 
 static void clamp_launch_startgame_flags(void) {
@@ -9831,6 +11677,8 @@ static void apply_raknet_init_game_settings_compat(const samp_raknet_rpc_probe_s
   DWORD weather_value = 0u;
   DWORD stunt_value = 0u;
   int gravity_applied = 0;
+  int gravity_fallback = 0;
+  float gravity_to_apply = SAMP_GTA_DEFAULT_GRAVITY;
   int stunt_applied = 0;
   unsigned int vehicle_total = 0u;
   unsigned int top_vehicle_model = 400u;
@@ -9848,7 +11696,9 @@ static void apply_raknet_init_game_settings_compat(const samp_raknet_rpc_probe_s
   g_runtime.raknet_init_local_player_id = snapshot->init_local_player_id;
   g_runtime.raknet_init_world_time = snapshot->init_world_time;
   g_runtime.raknet_init_weather = snapshot->init_weather;
+  g_runtime.raknet_init_show_player_tags = snapshot->init_show_player_tags != 0u ? 1u : 0u;
   g_runtime.raknet_init_show_player_markers = snapshot->init_show_player_markers != 0u ? 1u : 0u;
+  g_runtime.raknet_init_tire_popping = snapshot->init_tire_popping != 0u ? 1u : 0u;
   g_runtime.raknet_weather = snapshot->init_weather;
   g_runtime.raknet_init_gravity = snapshot->init_gravity;
   g_runtime.raknet_init_lan_mode = snapshot->init_lan_mode;
@@ -9876,8 +11726,18 @@ static void apply_raknet_init_game_settings_compat(const samp_raknet_rpc_probe_s
   *(volatile DWORD *)(uintptr_t)SAMP_ADDR_WEATHER_A = weather_value;
   *(volatile DWORD *)(uintptr_t)SAMP_ADDR_WEATHER_B = weather_value;
 
-  if (snapshot->init_gravity > 0.0f && snapshot->init_gravity < 1.0f) {
-    gravity_applied = patch_copy(SAMP_ADDR_GRAVITY, &snapshot->init_gravity, sizeof(snapshot->init_gravity));
+  if (isfinite(snapshot->init_gravity) && snapshot->init_gravity >= 0.0001f && snapshot->init_gravity < 1.0f) {
+    gravity_to_apply = snapshot->init_gravity;
+  } else {
+    gravity_fallback = 1;
+  }
+  if (gravity_fallback != 0) {
+    runtime_tracef("init_game_apply: gravity_fallback decoded=%.9f fallback=%.6f "
+                   "reason=implausible_init_game_gravity evidence=PROBE_TRACE,TODO_VERIFY",
+                   (double)snapshot->init_gravity, (double)gravity_to_apply);
+  }
+  if (gravity_to_apply > 0.0f && gravity_to_apply < 1.0f) {
+    gravity_applied = patch_copy(SAMP_ADDR_GRAVITY, &gravity_to_apply, sizeof(gravity_to_apply));
   }
 
   stunt_value = (DWORD)(snapshot->init_stunt_bonus ? 1u : 0u);
@@ -9891,14 +11751,17 @@ static void apply_raknet_init_game_settings_compat(const samp_raknet_rpc_probe_s
                                            &top_vehicle_count);
 
   runtime_tracef("init_game_apply: spawns=%u local_player=%u host='%.64s' time=%u weather=%u gravity=%.6f "
-                 "gravity_applied=%d lan=%u death_drop=%ld stunt=%u stunt_applied=%d enter_exits_disabled=%u "
+                 "gravity_applied=%d gravity_fallback=%d gravity_effective=%.6f lan=%u death_drop=%ld stunt=%u "
+                 "stunt_applied=%d enter_exits_disabled=%u tags=%u markers=%u "
                  "nametag_dist=%.3f chat_radius=%.3f send_rates=%ld/%ld/%ld/%ld/%ld/%ld "
                  "vehicle_models_nonzero=%u vehicle_total=%u top_vehicle=%u:%u",
                  (unsigned)snapshot->init_spawns_available, (unsigned)snapshot->init_local_player_id,
                  snapshot->init_hostname, (unsigned)snapshot->init_world_time, (unsigned)snapshot->init_weather,
-                 (double)snapshot->init_gravity, gravity_applied, (unsigned)snapshot->init_lan_mode,
-                 (long)snapshot->init_death_drop_money, (unsigned)snapshot->init_stunt_bonus, stunt_applied,
-                 (unsigned)snapshot->init_disable_enter_exits, (double)snapshot->init_name_tag_draw_distance,
+                 (double)snapshot->init_gravity, gravity_applied, gravity_fallback, (double)gravity_to_apply,
+                 (unsigned)snapshot->init_lan_mode, (long)snapshot->init_death_drop_money,
+                 (unsigned)snapshot->init_stunt_bonus, stunt_applied, (unsigned)snapshot->init_disable_enter_exits,
+                 (unsigned)snapshot->init_show_player_tags, (unsigned)snapshot->init_show_player_markers,
+                 (double)snapshot->init_name_tag_draw_distance,
                  (double)snapshot->init_global_chat_radius, (long)snapshot->init_send_rates[0],
                  (long)snapshot->init_send_rates[1], (long)snapshot->init_send_rates[2],
                  (long)snapshot->init_send_rates[3], (long)snapshot->init_send_rates[4],
@@ -9952,7 +11815,9 @@ static uint32_t refresh_raknet_rpc_snapshot_compat(void) {
   dialog_compat_update_from_snapshot(&snapshot);
   textdraw_compat_update_from_snapshot(&snapshot);
   scoreboard_compat_update_from_snapshot(&snapshot);
+  map_icon_compat_update_from_snapshot(&snapshot);
   remote_player_compat_update_from_snapshot(&snapshot);
+  remote_player_compat_update_name_tags_from_snapshot(&snapshot);
   object_compat_update_from_snapshot(&snapshot);
   vehicle_compat_update_from_snapshot(&snapshot);
   previous_chat_seq = (uint32_t)InterlockedCompareExchange(&g_runtime.chat_client_message_seq, 0, 0);
@@ -10476,8 +12341,16 @@ static void gta_streaming_request_model_compat(int32_t model_id, int32_t flags) 
   typedef void(__cdecl *gta_streaming_request_model_fn)(int32_t, int32_t);
   gta_streaming_request_model_fn request_model =
       (gta_streaming_request_model_fn)(uintptr_t)SAMP_ADDR_STREAMING_REQUEST_MODEL;
+  uintptr_t model_info = 0u;
 
   if (model_id < 0) {
+    return;
+  }
+  model_info = object_compat_model_info_ptr(model_id);
+  if (model_info == 0u) {
+    runtime_tracef("streaming_request_model: skip model=%ld flags=0x%lx model_info=0x00000000 "
+                   "evidence=PROBE_TRACE,GTA_REVERSED_REF,TODO_VERIFY",
+                   (long)model_id, (unsigned long)flags);
     return;
   }
   request_model(model_id, flags);
@@ -10520,12 +12393,16 @@ static void gta_prepare_scene_at_compat(const char *reason, float x, float y, fl
   point.y = y;
   point.z = z;
 
-  if (skin_model >= 0) {
+  if (skin_model >= 0 && object_compat_model_available(skin_model)) {
     gta_streaming_request_model_compat(skin_model, 0x06);
+  } else if (skin_model >= 0) {
+    runtime_tracef("scene_prepare: skip_skin_request reason=%s skin=%ld model_info=0x00000000 "
+                   "evidence=PROBE_TRACE,GTA_REVERSED_REF,TODO_VERIFY",
+                   reason != NULL ? reason : "unknown", (long)skin_model);
   }
   gta_streaming_load_scene_collision_compat(&point);
   gta_streaming_load_scene_compat(&point);
-  if (skin_model >= 0) {
+  if (skin_model >= 0 && object_compat_model_available(skin_model)) {
     gta_streaming_load_all_requested_compat(0);
   }
   (void)gta_script_command_compat(0x04E4u, "ff", x, y);
@@ -10636,6 +12513,24 @@ static int gta_ped_is_in_vehicle_compat(uintptr_t ped) {
   return (state_flags & SAMP_PED_STATE_IN_VEHICLE) != 0u ? 1 : 0;
 }
 
+static int gta_ped_read_vehicle_compat(uintptr_t ped, uintptr_t *vehicle) {
+  uint32_t vehicle32 = 0u;
+
+  if (vehicle == NULL) {
+    return 0;
+  }
+  *vehicle = 0u;
+
+  if (!gta_ped_is_in_vehicle_compat(ped) ||
+      !memory_is_readable_compat((const void *)(ped + SAMP_PED_OFFSET_VEHICLE), sizeof(vehicle32))) {
+    return 0;
+  }
+
+  memcpy(&vehicle32, (const void *)(ped + SAMP_PED_OFFSET_VEHICLE), sizeof(vehicle32));
+  *vehicle = (uintptr_t)vehicle32;
+  return *vehicle >= 0x10000u && *vehicle < 0x80000000u;
+}
+
 static int gta_entity_direct_position_compat(uintptr_t entity, float x, float y, float z) {
   uintptr_t matrix = 0;
   float zero = 0.0f;
@@ -10680,6 +12575,46 @@ static int gta_entity_read_position_compat(uintptr_t entity, float *x, float *y,
   memcpy(y, (const void *)(matrix + SAMP_MATRIX_OFFSET_POS + sizeof(float)), sizeof(*y));
   memcpy(z, (const void *)(matrix + SAMP_MATRIX_OFFSET_POS + (sizeof(float) * 2u)), sizeof(*z));
   return 1;
+}
+
+static int gta_entity_read_yaw_quaternion_compat(uintptr_t entity, float quaternion[4], float fallback_angle_rad) {
+  uintptr_t matrix = 0;
+  float right_x = 0.0f;
+  float right_y = 0.0f;
+  float angle_rad = fallback_angle_rad;
+  int read_from_matrix = 0;
+
+  if (quaternion == NULL) {
+    return 0;
+  }
+
+  if (entity >= 0x10000u && entity < 0x80000000u &&
+      memory_is_readable_compat((const void *)(entity + SAMP_PED_OFFSET_MATRIX), sizeof(matrix))) {
+    memcpy(&matrix, (const void *)(entity + SAMP_PED_OFFSET_MATRIX), sizeof(matrix));
+    if (matrix >= 0x10000u && matrix < 0x80000000u &&
+        memory_is_readable_compat((const void *)(matrix + SAMP_MATRIX_OFFSET_RIGHT), sizeof(float) * 2u)) {
+      memcpy(&right_x, (const void *)(matrix + SAMP_MATRIX_OFFSET_RIGHT), sizeof(right_x));
+      memcpy(&right_y, (const void *)(matrix + SAMP_MATRIX_OFFSET_RIGHT + sizeof(float)), sizeof(right_y));
+      if (isfinite(right_x) && isfinite(right_y) && (right_x * right_x + right_y * right_y) > 0.000001f) {
+        angle_rad = atan2f(right_y, right_x);
+        read_from_matrix = 1;
+      }
+    }
+  }
+
+  if (!isfinite(angle_rad)) {
+    angle_rad = 0.0f;
+  }
+  /*
+   * OPENMP_REF + INFERRED:
+   * Keep the component order identical to the current 0.3.7 on-foot sender; the server mainly needs a finite
+   * GTAQuat plus live vehicle position/health, and full orientation can be tightened with an original-DLL trace.
+   */
+  quaternion[0] = cosf(angle_rad * -0.5f);
+  quaternion[1] = 0.0f;
+  quaternion[2] = 0.0f;
+  quaternion[3] = sinf(angle_rad * -0.5f);
+  return read_from_matrix;
 }
 
 static int gta_entity_read_move_speed_compat(uintptr_t entity, float out_speed[3]) {
@@ -10856,8 +12791,12 @@ static int gta_preconnect_position_local_player_compat(uintptr_t ped) {
 }
 
 static int gta_frontend_menu_active_compat(void) {
-  return read_game_u8(SAMP_ADDR_MENU) != 0u || read_game_u8(SAMP_ADDR_MENU2) != 0u ||
-         read_game_u8(SAMP_ADDR_MENU3) != 0u;
+  /*
+   * INFERRED + STATIC_037 + TODO_VERIFY:
+   * Compatibility CGame::IsMenuActive() returns TRUE when *(PDWORD)ADDR_MENU is non-zero.
+   * Keep the same broad frontend-byte check instead of relying on a single flag.
+   */
+  return (*(volatile uint32_t *)(uintptr_t)SAMP_ADDR_MENU) != 0u;
 }
 
 static int preconnect_frontend_connect_allowed_compat(void) {
@@ -11228,7 +13167,7 @@ static void apply_preconnect_frontend_compat(void) {
 
   /*
    * STATIC_037 + INFERRED:
-   * The original client lets GTA own its frontend once MENU is active and only skips SA-MP overlay drawing through
+   * The client lets GTA own its frontend once MENU is active and only skips SA-MP overlay drawing through
    * IsMenuActive(). In pre-connect we also freeze camera/streaming nudges and the delayed RakNet connect while
    * ESC/pause is open, so the user can sit in the GTA menu without the background connect timer expiring.
    */
@@ -11415,6 +13354,117 @@ static uint8_t byte_from_percent_float_compat(float value, uint8_t fallback) {
   return (uint8_t)(value + 0.5f);
 }
 
+static void send_incar_sync_compat(uintptr_t ped) {
+  samp_raknet_incar_sync sync;
+  samp_vehicle_slot_compat *slot = NULL;
+  uintptr_t vehicle = 0u;
+  uint16_t vehicle_id = 0xFFFFu;
+  DWORD now = 0u;
+  DWORD last = 0u;
+  float fallback_angle_rad = 0.0f;
+  float vehicle_health = 1000.0f;
+  float player_health = 100.0f;
+  float player_armour = 0.0f;
+  float speed_sq = 0.0f;
+  int result = 0;
+  LONG send_count = 0;
+
+  if (ped == 0u || g_runtime.net_mgr.raknet_client == NULL ||
+      InterlockedCompareExchange(&g_runtime.mp_session_spawn_finalized, 0, 0) == 0) {
+    return;
+  }
+  if (!gta_ped_read_vehicle_compat(ped, &vehicle) || !vehicle_compat_is_local_driver(vehicle, ped)) {
+    return;
+  }
+  if (!vehicle_compat_find_id_from_gta_ptr(vehicle, &vehicle_id) || !vehicle_compat_id_valid(vehicle_id)) {
+    LONG failures = InterlockedIncrement(&g_runtime.incar_sync_failures);
+    if (failures <= 3 || (failures % 20) == 0) {
+      runtime_tracef("incar_sync: skip failures=%ld vehicle=0x%08lx reason=vehicle_id_lookup", (long)failures,
+                     (unsigned long)vehicle);
+    }
+    return;
+  }
+
+  now = GetTickCount();
+  last = g_runtime.incar_sync_last_tick;
+  if (last != 0u && (DWORD)(now - last) < SAMP_INCAR_SYNC_INTERVAL_MS) {
+    return;
+  }
+  g_runtime.incar_sync_last_tick = now;
+
+  memset(&sync, 0, sizeof(sync));
+  sync.vehicle_id = vehicle_id;
+  slot = &g_runtime.vehicle_slots[vehicle_id];
+  fallback_angle_rad = slot->rotation * SAMP_DEG_TO_RAD;
+
+  if (!gta_entity_read_position_compat(vehicle, &sync.position[0], &sync.position[1], &sync.position[2]) ||
+      !valid_world_position_compat(sync.position[0], sync.position[1], sync.position[2])) {
+    LONG failures = InterlockedIncrement(&g_runtime.incar_sync_failures);
+    if (failures <= 3 || (failures % 20) == 0) {
+      runtime_tracef("incar_sync: skip failures=%ld id=%u vehicle=0x%08lx reason=position", (long)failures,
+                     (unsigned)vehicle_id, (unsigned long)vehicle);
+    }
+    return;
+  }
+
+  (void)gta_entity_read_move_speed_compat(vehicle, sync.move_speed);
+  speed_sq = sync.move_speed[0] * sync.move_speed[0] + sync.move_speed[1] * sync.move_speed[1] +
+             sync.move_speed[2] * sync.move_speed[2];
+  if (!isfinite(speed_sq) || speed_sq > 10000.0f) {
+    sync.move_speed[0] = 0.0f;
+    sync.move_speed[1] = 0.0f;
+    sync.move_speed[2] = 0.0f;
+  }
+  (void)gta_entity_read_yaw_quaternion_compat(vehicle, sync.quaternion, fallback_angle_rad);
+
+  if (!vehicle_compat_read_live_health(vehicle, &vehicle_health) ||
+      !vehicle_compat_health_plausible(vehicle_health)) {
+    vehicle_health = slot->health;
+  }
+  if (!vehicle_compat_health_plausible(vehicle_health)) {
+    vehicle_health = 1000.0f;
+  }
+  sync.vehicle_health = vehicle_health;
+
+  if (memory_is_readable_compat((const void *)(ped + SAMP_PED_OFFSET_HEALTH), sizeof(player_health))) {
+    memcpy(&player_health, (const void *)(ped + SAMP_PED_OFFSET_HEALTH), sizeof(player_health));
+  }
+  if (memory_is_readable_compat((const void *)(ped + SAMP_PED_OFFSET_ARMOUR), sizeof(player_armour))) {
+    memcpy(&player_armour, (const void *)(ped + SAMP_PED_OFFSET_ARMOUR), sizeof(player_armour));
+  }
+  sync.player_health = byte_from_percent_float_compat(player_health, 100u);
+  sync.player_armour = byte_from_percent_float_compat(player_armour, 0u);
+  sync.additional_key_weapon = (uint8_t)(g_runtime.raknet_player_armed_weapon & 0x3Fu);
+  sync.siren = slot->siren != 0u ? 1u : 0u;
+  sync.landing_gear = 0u;
+  sync.trailer_id = 0u;
+  sync.hydra_thrust_angle = 0u;
+
+  /*
+   * INFERRED + OPENMP_REF + PROBE_TRACE + TODO_VERIFY:
+   * Compatibility sends SendInCarFullSyncData() from the local driver branch. The 2026-06-09 trace showed only
+   * PlayerFootSync packets after /vput, so open.mp never received client-side vehicle position/health.
+   */
+  result = samp_raknet_client_send_incar_sync(g_runtime.net_mgr.raknet_client, &sync);
+  if (result == 0) {
+    send_count = InterlockedIncrement(&g_runtime.incar_sync_send_count);
+    if (InterlockedCompareExchange(&g_runtime.incar_sync_logged, 1, 0) == 0 || (send_count % 20) == 0) {
+      runtime_tracef(
+          "incar_sync: send #%ld id=%u pos=(%.3f,%.3f,%.3f) speed=(%.3f,%.3f,%.3f) vhealth=%.3f phealth=%u "
+          "evidence=INFERRED,OPENMP_REF,PROBE_TRACE,TODO_VERIFY",
+          (long)send_count, (unsigned)vehicle_id, (double)sync.position[0], (double)sync.position[1],
+          (double)sync.position[2], (double)sync.move_speed[0], (double)sync.move_speed[1],
+          (double)sync.move_speed[2], (double)sync.vehicle_health, (unsigned)sync.player_health);
+    }
+  } else {
+    LONG failures = InterlockedIncrement(&g_runtime.incar_sync_failures);
+    if (failures <= 3 || (failures % 20) == 0) {
+      runtime_tracef("incar_sync: send failed result=%d failures=%ld id=%u", result, (long)failures,
+                     (unsigned)vehicle_id);
+    }
+  }
+}
+
 static void send_onfoot_sync_compat(uintptr_t ped) {
   samp_raknet_onfoot_sync sync;
   DWORD now = 0u;
@@ -11543,6 +13593,7 @@ static void apply_multiplayer_session_bridge_compat(void) {
   LONG observed_world_visual_seq = 0;
   LONG spawn_info_seq = 0;
   LONG finalized_spawn_seq = 0;
+  LONG class_selection_skin_seq = 0;
   int spawn_finalized = 0;
 
   if (!g_runtime.settings.play_online) {
@@ -11859,7 +13910,7 @@ static void apply_multiplayer_session_bridge_compat(void) {
     }
   }
 
-  if (ped != 0u && class_outcome == 1 && !spawn_ready && (rpc_flags & SAMP_RAKNET_RPC_FLAG_REQUEST_SPAWN_SENT) == 0u) {
+  if (ped != 0u && class_outcome == 1 && !spawn_ready) {
     float health = 100.0f;
     memcpy((void *)(ped + SAMP_PED_OFFSET_HEALTH), &health, sizeof(health));
     if (!gta_script_command_compat(0x01B4u, "ii", SAMP_GTA_PLAYER_LOCAL_ID, 0)) {
@@ -11868,15 +13919,58 @@ static void apply_multiplayer_session_bridge_compat(void) {
     if (!gta_script_command_compat(0x04D7u, "ii", SAMP_GTA_ACTOR_LOCAL_ID, 1)) {
       mp_bridge_record_script_failure("lock_actor_class_select", 0x04D7u);
     }
+    class_selection_skin_seq = InterlockedCompareExchange(&g_runtime.mp_session_class_selection_skin_seq, 0, 0);
+    if (has_spawn_info && spawn_info_seq != 0 && spawn_info_seq != class_selection_skin_seq) {
+      int32_t class_skin = g_runtime.raknet_spawn_skin;
+      uintptr_t class_skin_model_info = object_compat_model_info_ptr(class_skin);
+      int class_skin_apply = class_skin >= 0 && class_skin <= SAMP_REMOTE_PLAYER_COMPAT_SKIN_MAX &&
+                             class_skin_model_info != 0u && class_selection_skin_apply_enabled_compat();
+
+      /*
+       * INFERRED + PROBE_TRACE + TODO_VERIFY:
+       * Compatibility HandleClassSelectionOutcome(TRUE) clears weapons and SetModelIndex(spawn skin) before RequestSpawn.
+       * The latest run showed RequestClass replies for skins 0/7/19 while the local ped stayed at the old model
+       * because this path was guarded off. Apply only valid GTA-SA ped models here; final spawn skin remains
+       * controlled by SAMPDLL_LOCAL_SPAWN_SKIN_APPLY.
+       */
+      if (class_skin_apply) {
+        if (!gta_script_command_compat(0x0247u, "i", (int)class_skin)) {
+          mp_bridge_record_script_failure("request_model_class_select", 0x0247u);
+        }
+        if (!gta_script_command_compat(0x038Bu, "")) {
+          mp_bridge_record_script_failure("load_requested_models_class_select", 0x038Bu);
+        }
+        if (!gta_script_command_compat(0x09C7u, "ii", SAMP_GTA_PLAYER_LOCAL_ID, (int)class_skin)) {
+          mp_bridge_record_script_failure("set_player_skin_class_select", 0x09C7u);
+        } else {
+          (void)gta_reset_ped_audio_attributes_compat(ped, "class_select_skin");
+        }
+      }
+      InterlockedExchange(&g_runtime.mp_session_class_selection_skin_seq, spawn_info_seq);
+      runtime_tracef("mp_session_bridge: class_selection_skin seq=%ld previous=%ld skin=%ld model_info=0x%08lx "
+                     "applied=%d env=%s evidence=INFERRED,PROBE_TRACE,TODO_VERIFY",
+                     (long)spawn_info_seq, (long)class_selection_skin_seq, (long)class_skin,
+                     (unsigned long)class_skin_model_info, class_skin_apply, SAMP_CLASS_SELECTION_SKIN_APPLY_ENV);
+    }
   }
 
   if (ped != 0u && spawn_ready && has_spawn_info && spawn_info_seq != 0 && spawn_info_seq != finalized_spawn_seq) {
     const uint8_t no_fade_patch[3] = {0xC2u, 0x08u, 0x00u};
     float health = 100.0f;
+    int32_t spawn_skin = g_runtime.raknet_spawn_skin;
+    uintptr_t spawn_skin_model_info = object_compat_model_info_ptr(spawn_skin);
+    int spawn_skin_apply = spawn_skin >= 0 && spawn_skin_model_info != 0u && local_spawn_skin_apply_enabled_compat();
     InterlockedExchange(&g_runtime.mp_session_spawn_finalized, 1);
     InterlockedExchange(&g_runtime.mp_session_finalized_spawn_seq, spawn_info_seq);
     InterlockedExchange(&g_runtime.mp_session_post_spawn_camera_restored, 0);
     g_runtime.mp_session_spawn_finalize_tick = GetTickCount();
+
+    runtime_tracef("mp_session_bridge: spawn_finalize_begin seq=%ld previous=%ld outcome=%ld skin=%ld "
+                   "skin_model_info=0x%08lx skin_apply=%d skin_env=%s evidence=PROBE_TRACE,TODO_VERIFY",
+                   (long)spawn_info_seq, (long)finalized_spawn_seq, (long)spawn_outcome, (long)spawn_skin,
+                   (unsigned long)spawn_skin_model_info, spawn_skin_apply,
+                   SAMP_LOCAL_SPAWN_SKIN_APPLY_ENV);
+    log_camera_mode_compat("spawn_finalize_begin");
 
     /*
      * OBSERVED_037 + PROBE_TRACE:
@@ -11899,7 +13993,7 @@ static void apply_multiplayer_session_bridge_compat(void) {
       (void)gta_entity_teleport_compat(ped, target_pos[0], target_pos[1], target_z);
       if (InterlockedCompareExchange(&g_runtime.mp_session_scene_loaded, 1, 0) == 0) {
         gta_prepare_scene_at_compat("spawn", target_pos[0], target_pos[1], target_z,
-                                    g_runtime.raknet_spawn_skin >= 0 ? g_runtime.raknet_spawn_skin : -1);
+                                    spawn_skin_apply ? spawn_skin : -1);
         *(volatile LONG *)(uintptr_t)SAMP_ADDR_ENTRY = 9;
         write_game_u8(SAMP_ADDR_GAME_STARTED, 0u);
         write_game_u8(SAMP_ADDR_STARTGAME, 0u);
@@ -11939,17 +14033,24 @@ static void apply_multiplayer_session_bridge_compat(void) {
     if (!gta_script_command_compat(0x04D7u, "ii", SAMP_GTA_ACTOR_LOCAL_ID, 0)) {
       mp_bridge_record_script_failure("unlock_actor_spawn", 0x04D7u);
     }
-    if (has_spawn_info && g_runtime.raknet_spawn_skin >= 0) {
-      if (!gta_script_command_compat(0x0247u, "i", (int)g_runtime.raknet_spawn_skin)) {
-        mp_bridge_record_script_failure("request_model", 0x0247u);
-      }
-      if (!gta_script_command_compat(0x038Bu, "")) {
-        mp_bridge_record_script_failure("load_requested_models", 0x038Bu);
-      }
-      if (!gta_script_command_compat(0x09C7u, "ii", SAMP_GTA_PLAYER_LOCAL_ID, (int)g_runtime.raknet_spawn_skin)) {
-        mp_bridge_record_script_failure("set_player_skin", 0x09C7u);
+    if (has_spawn_info && spawn_skin >= 0) {
+      if (!spawn_skin_apply) {
+        runtime_tracef("mp_session_bridge: defer_spawn_skin seq=%ld skin=%ld model_info=0x%08lx "
+                       "reason=spawn_request_model_crash_guard env=%s evidence=PROBE_TRACE,TODO_VERIFY",
+                       (long)spawn_info_seq, (long)spawn_skin, (unsigned long)spawn_skin_model_info,
+                       SAMP_LOCAL_SPAWN_SKIN_APPLY_ENV);
       } else {
-        (void)gta_reset_ped_audio_attributes_compat(ped, "spawn_skin");
+        if (!gta_script_command_compat(0x0247u, "i", (int)spawn_skin)) {
+          mp_bridge_record_script_failure("request_model", 0x0247u);
+        }
+        if (!gta_script_command_compat(0x038Bu, "")) {
+          mp_bridge_record_script_failure("load_requested_models", 0x038Bu);
+        }
+        if (!gta_script_command_compat(0x09C7u, "ii", SAMP_GTA_PLAYER_LOCAL_ID, (int)spawn_skin)) {
+          mp_bridge_record_script_failure("set_player_skin", 0x09C7u);
+        } else {
+          (void)gta_reset_ped_audio_attributes_compat(ped, "spawn_skin");
+        }
       }
     }
     if (has_spawn_info) {
@@ -11959,6 +14060,7 @@ static void apply_multiplayer_session_bridge_compat(void) {
         mp_bridge_record_script_failure("set_camera_behind_player_after_spawn_teleport", 0x0373u);
       }
     }
+    log_camera_mode_compat("spawn_finalize_after_camera_restore");
 
     {
       int spawn_notify_result = -1;
@@ -12009,7 +14111,11 @@ static void apply_multiplayer_session_bridge_compat(void) {
       int restore_ok = gta_script_command_compat(0x015Au, "");
       int jumpcut_ok = gta_script_command_compat(0x02EBu, "");
       int behind_ok = gta_script_command_compat(0x0373u, "");
+      int mode_restored = 0;
+      int mouse_camera_restored = 0;
       ui_compat_release_game_mouse("post_spawn_camera_restore");
+      mode_restored = restore_post_spawn_camera_mode_compat("post_spawn_camera_restore");
+      mouse_camera_restored = restore_post_spawn_mouse_camera_compat("post_spawn_camera_restore");
 
       /*
        * PROBE_TRACE + INFERRED + TODO_VERIFY:
@@ -12017,8 +14123,10 @@ static void apply_multiplayer_session_bridge_compat(void) {
        * Original 0.3.7 restores gameplay camera after the spawn handoff; repeat the camera restore after one
        * settled gameplay window instead of continuously forcing camera state.
        */
-      runtime_tracef("mp_session_bridge: post_spawn_camera_restore delay_ms=%lu restore=%d jumpcut=%d behind=%d",
-                     (unsigned long)SAMP_MP_POST_SPAWN_CAMERA_RESTORE_DELAY_MS, restore_ok, jumpcut_ok, behind_ok);
+      runtime_tracef("mp_session_bridge: post_spawn_camera_restore delay_ms=%lu restore=%d jumpcut=%d behind=%d "
+                     "mode_restored=%d mouse_camera_restored=%d",
+                     (unsigned long)SAMP_MP_POST_SPAWN_CAMERA_RESTORE_DELAY_MS, restore_ok, jumpcut_ok, behind_ok,
+                     mode_restored, mouse_camera_restored);
       if (!restore_ok) {
         mp_bridge_record_script_failure("post_spawn_restore_camera", 0x015Au);
       }
@@ -12085,15 +14193,69 @@ static void apply_multiplayer_session_bridge_compat(void) {
   if (ped != 0u && spawn_ready && InterlockedCompareExchange(&g_runtime.mp_session_spawn_finalized, 0, 0) != 0) {
     refresh_local_streaming_from_entity_compat(ped);
     send_onfoot_sync_compat(ped);
+    send_incar_sync_compat(ped);
     vehicle_compat_process_markers(ped);
     remote_player_compat_process_markers();
   }
 
-  if (ped != 0u && !spawn_ready && (game_rpc_flags & SAMP_RAKNET_RPC_FLAG_PLAYER_POS) != 0u &&
-      InterlockedCompareExchange(&g_runtime.mp_session_teleport_count, 0, 0) == 0) {
-    InterlockedExchange(&g_runtime.mp_session_teleport_count, -1);
-    runtime_tracef("mp_session_bridge: suppressing pre-spawn player-pos teleport ped=0x%08lx pos=(%.3f,%.3f,%.3f)",
-                   (unsigned long)ped, (double)target_pos[0], (double)target_pos[1], (double)target_z);
+  if (ped != 0u && !spawn_ready && class_outcome == 1) {
+    /*
+     * INFERRED + PROBE_TRACE:
+     * The compatibility ScrSetPlayerPos and ScrSetInterior RPC handlers run immediately, including during class selection.
+     * Without moving the local ped/streaming anchor into the server-selected interior, the class camera points at an
+     * unloaded room and the screen remains black while only the chat overlay is visible.
+     */
+    if ((game_rpc_flags & SAMP_RAKNET_RPC_FLAG_PLAYER_POS) != 0u) {
+      player_pos_seq = InterlockedCompareExchange(&g_runtime.raknet_player_pos_seq, 0, 0);
+      applied_player_pos_seq = InterlockedCompareExchange(&g_runtime.mp_session_applied_player_pos_seq, 0, 0);
+      if (player_pos_seq != 0 && player_pos_seq != applied_player_pos_seq) {
+        float class_pos[3];
+        int teleported = 0;
+
+        memcpy(class_pos, g_runtime.raknet_player_pos, sizeof(class_pos));
+        if (valid_world_position_compat(class_pos[0], class_pos[1], class_pos[2])) {
+          gta_prepare_scene_at_compat("class_select_player_pos", class_pos[0], class_pos[1], class_pos[2], -1);
+          if ((game_rpc_flags & SAMP_RAKNET_RPC_FLAG_INTERIOR) != 0u) {
+            if (!gta_script_command_compat(0x04BBu, "i", (int)g_runtime.raknet_interior)) {
+              mp_bridge_record_script_failure("select_interior_class_select", 0x04BBu);
+            }
+            if (!gta_script_command_compat(0x0860u, "ii", SAMP_GTA_ACTOR_LOCAL_ID,
+                                           (int)g_runtime.raknet_interior)) {
+              mp_bridge_record_script_failure("link_actor_to_interior_class_select", 0x0860u);
+            }
+          }
+          teleported = gta_entity_teleport_compat(ped, class_pos[0], class_pos[1], class_pos[2]);
+          InterlockedExchange(&g_runtime.mp_session_applied_player_pos_seq, player_pos_seq);
+          runtime_tracef("mp_session_bridge: apply_class_select_player_pos seq=%ld previous=%ld teleported=%d "
+                         "interior=%u pos=(%.3f,%.3f,%.3f) evidence=INFERRED,PROBE_TRACE",
+                         (long)player_pos_seq, (long)applied_player_pos_seq, teleported,
+                         (unsigned)g_runtime.raknet_interior, (double)class_pos[0], (double)class_pos[1],
+                         (double)class_pos[2]);
+        } else {
+          runtime_tracef("mp_session_bridge: skip_invalid_class_select_player_pos seq=%ld pos=(%.3f,%.3f,%.3f)",
+                         (long)player_pos_seq, (double)class_pos[0], (double)class_pos[1], (double)class_pos[2]);
+        }
+      }
+    }
+
+    if ((game_rpc_flags & SAMP_RAKNET_RPC_FLAG_PLAYER_FACING) != 0u) {
+      player_facing_seq = InterlockedCompareExchange(&g_runtime.raknet_player_facing_seq, 0, 0);
+      applied_player_facing_seq = InterlockedCompareExchange(&g_runtime.mp_session_applied_player_facing_seq, 0, 0);
+      if (player_facing_seq != 0 && player_facing_seq != applied_player_facing_seq) {
+        float angle = g_runtime.raknet_player_facing_angle;
+        float angle_rad = angle * SAMP_DEG_TO_RAD;
+
+        memcpy((void *)(ped + SAMP_PED_OFFSET_ROTATION1), &angle_rad, sizeof(angle_rad));
+        memcpy((void *)(ped + SAMP_PED_OFFSET_ROTATION2), &angle_rad, sizeof(angle_rad));
+        if (!gta_script_command_compat(0x0173u, "if", SAMP_GTA_ACTOR_LOCAL_ID, angle)) {
+          mp_bridge_record_script_failure("set_actor_z_angle_class_select", 0x0173u);
+        }
+        InterlockedExchange(&g_runtime.mp_session_applied_player_facing_seq, player_facing_seq);
+        runtime_tracef("mp_session_bridge: apply_class_select_player_facing seq=%ld previous=%ld angle=%.3f "
+                       "evidence=INFERRED,PROBE_TRACE",
+                       (long)player_facing_seq, (long)applied_player_facing_seq, (double)angle);
+      }
+    }
   }
 }
 
@@ -12340,7 +14502,8 @@ static void launch_prepare_network_compat(void) {
       (DWORD)(now_ms - g_runtime.net_mgr_last_connect_attempt_tick) >= SAMP_RAKNET_CONNECT_STALE_MS) {
     InterlockedExchange(&g_runtime.netgame_state, SAMP_NETGAME_WAIT_CONNECT);
     state = SAMP_NETGAME_WAIT_CONNECT;
-    runtime_tracef("network_prepare: connect timeout -> state=WAIT_CONNECT");
+    chat_add_connect_retry_message_compat(29, "connect_timeout");
+    runtime_tracef("network_prepare: connect timeout -> state=WAIT_CONNECT evidence=INFERRED,STATIC_037");
   }
 
   if (state == SAMP_NETGAME_WAIT_CONNECT &&
@@ -12387,6 +14550,7 @@ static void launch_prepare_network_compat(void) {
     InterlockedExchange(&g_runtime.scoreboard_local_player_id_valid, 0);
     InterlockedExchange(&g_runtime.scoreboard_local_player_id, 0);
     memset(g_runtime.scoreboard_players, 0, sizeof(g_runtime.scoreboard_players));
+    map_icon_compat_reset("connect_reset");
     remote_player_compat_reset_pool("connect_reset");
     object_compat_reset_pool("connect_reset");
     vehicle_compat_reset_pool("connect_reset");
@@ -12394,6 +14558,10 @@ static void launch_prepare_network_compat(void) {
     InterlockedExchange(&g_runtime.onfoot_sync_failures, 0);
     InterlockedExchange(&g_runtime.onfoot_sync_logged, 0);
     g_runtime.onfoot_sync_last_tick = 0u;
+    InterlockedExchange(&g_runtime.incar_sync_send_count, 0);
+    InterlockedExchange(&g_runtime.incar_sync_failures, 0);
+    InterlockedExchange(&g_runtime.incar_sync_logged, 0);
+    g_runtime.incar_sync_last_tick = 0u;
     InterlockedExchange(&g_runtime.online_session_drift_seen, 0);
     InterlockedExchange(&g_runtime.online_session_last_entry, 0);
     InterlockedExchange(&g_runtime.online_session_last_game_started, 0);
@@ -12418,6 +14586,10 @@ static void launch_prepare_network_compat(void) {
     InterlockedExchange(&g_runtime.mp_session_frontend_hold_logged, 0);
     InterlockedExchange(&g_runtime.mp_session_spawn_finalized, 0);
     InterlockedExchange(&g_runtime.mp_session_finalized_spawn_seq, 0);
+    InterlockedExchange(&g_runtime.mp_session_class_selection_skin_seq, 0);
+    InterlockedExchange(&g_runtime.class_selection_mouse_mode, 0);
+    InterlockedExchange(&g_runtime.class_selection_mouse_down, 0);
+    InterlockedExchange(&g_runtime.class_selection_overlay_logged, 0);
     InterlockedExchange(&g_runtime.mp_session_post_spawn_camera_restored, 0);
     InterlockedExchange(&g_runtime.mp_session_scene_loaded, 0);
     InterlockedExchange(&g_runtime.raknet_time_apply_logged, 0);
@@ -12445,7 +14617,9 @@ static void launch_prepare_network_compat(void) {
     g_runtime.raknet_world_visual_material_alignment = 0u;
     g_runtime.raknet_init_world_time = 0u;
     g_runtime.raknet_init_weather = 0u;
+    g_runtime.raknet_init_show_player_tags = 0u;
     g_runtime.raknet_init_show_player_markers = 0u;
+    g_runtime.raknet_init_tire_popping = 0u;
     g_runtime.raknet_init_lan_mode = 0u;
     g_runtime.raknet_init_disable_enter_exits = 0u;
     g_runtime.raknet_init_stunt_bonus = 0u;
@@ -12481,6 +14655,8 @@ static void launch_prepare_network_compat(void) {
     InterlockedExchange(&g_runtime.raknet_apply_animation_seq, 0);
     InterlockedExchange(&g_runtime.raknet_world_visual_event_seq, 0);
     InterlockedExchange(&g_runtime.raknet_spawn_info_seq, 0);
+    InterlockedExchange(&g_runtime.remote_player_name_tag_event_seq, 0);
+    InterlockedExchange(&g_runtime.remote_player_name_tags_logged, 0);
     g_runtime.raknet_player_armed_weapon = 0u;
     g_runtime.raknet_play_sound_id = 0u;
     g_runtime.raknet_player_color = 0u;
@@ -12589,13 +14765,22 @@ static void launch_prepare_network_compat(void) {
 
       switch (last_packet_id) {
         case 29: /* ID_CONNECTION_ATTEMPT_FAILED */
+          chat_add_connect_retry_message_compat(last_packet_id, "attempt_failed");
+          InterlockedExchange(&g_runtime.net_mgr_connected, 0);
+          InterlockedExchange(&g_runtime.netgame_state, SAMP_NETGAME_WAIT_CONNECT);
+          runtime_tracef("network_prepare: RakNet connect not ready -> state=WAIT_CONNECT");
+          break;
         case 31: /* ID_NO_FREE_INCOMING_CONNECTIONS */
+          chat_add_connect_retry_message_compat(last_packet_id, "server_full");
           InterlockedExchange(&g_runtime.net_mgr_connected, 0);
           InterlockedExchange(&g_runtime.netgame_state, SAMP_NETGAME_WAIT_CONNECT);
           runtime_tracef("network_prepare: RakNet connect not ready -> state=WAIT_CONNECT");
           break;
         case 32: /* ID_DISCONNECTION_NOTIFICATION */
         case 33: /* ID_CONNECTION_LOST */
+          if (last_packet_id == 33) {
+            chat_add_connect_retry_message_compat(last_packet_id, "connection_lost");
+          }
           disconnect_packet = 1;
           InterlockedExchange(&g_runtime.net_mgr_connected, 0);
           InterlockedExchange(&g_runtime.raknet_join_sent, 0);

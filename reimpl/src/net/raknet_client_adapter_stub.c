@@ -60,6 +60,12 @@ int samp_raknet_client_send_textdraw_click(void *client, uint16_t textdraw_id) {
   return -1;
 }
 
+int samp_raknet_client_request_class_delta(void *client, int delta) {
+  (void)client;
+  (void)delta;
+  return -1;
+}
+
 int samp_raknet_client_drain_packets(void *client, int max_packets) {
   (void)client;
   if (max_packets < 0) {
@@ -108,6 +114,12 @@ int samp_raknet_client_send_spawn_notification_for_seq(void *client, uint32_t sp
 }
 
 int samp_raknet_client_send_onfoot_sync(void *client, const samp_raknet_onfoot_sync *sync) {
+  (void)client;
+  (void)sync;
+  return -1;
+}
+
+int samp_raknet_client_send_incar_sync(void *client, const samp_raknet_incar_sync *sync) {
   (void)client;
   (void)sync;
   return -1;

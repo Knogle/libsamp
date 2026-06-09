@@ -21,6 +21,7 @@ int samp_raknet_client_send_server_command(void *client, const char *command);
 int samp_raknet_client_send_spawn_notification(void *client);
 int samp_raknet_client_send_spawn_notification_for_seq(void *client, uint32_t spawn_info_seq);
 int samp_raknet_client_send_textdraw_click(void *client, uint16_t textdraw_id);
+int samp_raknet_client_request_class_delta(void *client, int delta);
 
 #pragma pack(push, 1)
 typedef struct samp_raknet_onfoot_sync {
@@ -39,9 +40,28 @@ typedef struct samp_raknet_onfoot_sync {
   int16_t current_animation_id;
   int16_t animation_flags;
 } samp_raknet_onfoot_sync;
+
+typedef struct samp_raknet_incar_sync {
+  uint16_t vehicle_id;
+  uint16_t left_right_keys;
+  uint16_t up_down_keys;
+  uint16_t keys;
+  float quaternion[4];
+  float position[3];
+  float move_speed[3];
+  float vehicle_health;
+  uint8_t player_health;
+  uint8_t player_armour;
+  uint8_t additional_key_weapon;
+  uint8_t siren;
+  uint8_t landing_gear;
+  uint16_t trailer_id;
+  uint32_t hydra_thrust_angle;
+} samp_raknet_incar_sync;
 #pragma pack(pop)
 
 int samp_raknet_client_send_onfoot_sync(void *client, const samp_raknet_onfoot_sync *sync);
+int samp_raknet_client_send_incar_sync(void *client, const samp_raknet_incar_sync *sync);
 
 typedef struct samp_raknet_join_profile {
   char nickname[25];
@@ -97,6 +117,11 @@ typedef struct samp_raknet_join_profile {
 #define SAMP_RAKNET_REMOTE_PLAYER_ACTION_ADD 1u
 #define SAMP_RAKNET_REMOTE_PLAYER_ACTION_REMOVE 2u
 #define SAMP_RAKNET_REMOTE_PLAYER_ACTION_DEATH 3u
+#define SAMP_RAKNET_MAP_ICON_EVENT_RING 64u
+#define SAMP_RAKNET_MAP_ICON_MAX 32u
+#define SAMP_RAKNET_MAP_ICON_ACTION_SET 1u
+#define SAMP_RAKNET_MAP_ICON_ACTION_REMOVE 2u
+#define SAMP_RAKNET_NAME_TAG_EVENT_RING 64u
 #define SAMP_RAKNET_REQUIRED_VEHICLE_MODELS 212u
 #define SAMP_RAKNET_DIALOG_TITLE_BYTES 256u
 #define SAMP_RAKNET_DIALOG_INFO_BYTES 4096u
@@ -122,6 +147,7 @@ typedef struct samp_raknet_join_profile {
 #define SAMP_RAKNET_VEHICLE_ACTION_CREATE 1u
 #define SAMP_RAKNET_VEHICLE_ACTION_DESTROY 2u
 #define SAMP_RAKNET_VEHICLE_ACTION_SET_HEALTH 3u
+#define SAMP_RAKNET_VEHICLE_ACTION_PUT_LOCAL_PLAYER 4u
 #define SAMP_RAKNET_ANIM_LIB_BYTES 64u
 #define SAMP_RAKNET_ANIM_NAME_BYTES 64u
 #define SAMP_RAKNET_WORLD_VISUAL_TEXT_BYTES 256u
@@ -184,6 +210,23 @@ typedef struct samp_raknet_remote_onfoot_sync {
   float surfing_offsets[3];
 } samp_raknet_remote_onfoot_sync;
 
+typedef struct samp_raknet_map_icon_event {
+  uint32_t seq;
+  uint8_t action;
+  uint8_t index;
+  uint8_t icon;
+  uint8_t reserved;
+  uint32_t color;
+  float pos[3];
+} samp_raknet_map_icon_event;
+
+typedef struct samp_raknet_name_tag_event {
+  uint32_t seq;
+  uint16_t player_id;
+  uint8_t show;
+  uint8_t reserved;
+} samp_raknet_name_tag_event;
+
 #pragma pack(push, 1)
 typedef struct samp_raknet_textdraw_transmit {
   float letter_width;
@@ -241,6 +284,7 @@ typedef struct samp_raknet_vehicle_event {
   uint8_t light_damage;
   uint8_t tyre_damage;
   uint8_t siren;
+  uint8_t seat_id;
   uint16_t vehicle_id;
   int32_t model;
   float pos[3];
@@ -263,6 +307,8 @@ typedef struct samp_raknet_rpc_probe_snapshot {
   uint32_t score_ping_count;
   uint32_t remote_player_event_count;
   uint32_t remote_player_sync_count;
+  uint32_t map_icon_event_count;
+  uint32_t name_tag_event_count;
   uint8_t textdraw_select_active;
   uint32_t textdraw_select_color;
   uint16_t init_spawns_available;
@@ -374,6 +420,8 @@ typedef struct samp_raknet_rpc_probe_snapshot {
   samp_raknet_score_ping_entry score_ping_entries[SAMP_RAKNET_SCORE_PING_MAX_ENTRIES];
   samp_raknet_remote_player_event remote_player_events[SAMP_RAKNET_REMOTE_PLAYER_EVENT_RING];
   samp_raknet_remote_onfoot_sync remote_player_syncs[SAMP_RAKNET_REMOTE_PLAYER_SYNC_RING];
+  samp_raknet_map_icon_event map_icon_events[SAMP_RAKNET_MAP_ICON_EVENT_RING];
+  samp_raknet_name_tag_event name_tag_events[SAMP_RAKNET_NAME_TAG_EVENT_RING];
 } samp_raknet_rpc_probe_snapshot;
 
 /*

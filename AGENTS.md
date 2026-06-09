@@ -26,6 +26,9 @@ servers and open.mp servers comes first.
 
    * Exports, imports, ordinals, RVAs, calling conventions, memory layouts,
      runtime behavior.
+   * Ghidra static analysis of the original DLL must be used as evidence when
+     rebuilding original-DLL natives. Record the function RVA, binary hash, and
+     whether the claim is `STATIC_037` only or corroborated by runtime traces.
 
 2. **ASI probe / golden traces**
 
@@ -67,7 +70,8 @@ Use these tags in comments, documentation, or commit context:
 
 * `OBSERVED_037` - directly observed with the original 0.3.7 DLL.
 * `PROBE_TRACE` - backed by ASI probe/runtime log evidence.
-* `STATIC_037` - statically analyzed from the original DLL.
+* `STATIC_037` - statically analyzed from the original DLL, including Ghidra
+  analysis when available.
 * `OPENMP_REF` - derived from open.mp.
 * `GTA_REVERSED_REF` - derived from gta-reversed.
 * `MTA_REF` - derived from MTA, low priority only.
