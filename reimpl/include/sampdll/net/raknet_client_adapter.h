@@ -58,10 +58,32 @@ typedef struct samp_raknet_incar_sync {
   uint16_t trailer_id;
   uint32_t hydra_thrust_angle;
 } samp_raknet_incar_sync;
+
+typedef struct samp_raknet_aim_sync {
+  uint8_t camera_mode;
+  float camera_front[3];
+  float camera_position[3];
+  float aim_z;
+  uint8_t zoom_weapon_state;
+  uint8_t aspect_ratio;
+} samp_raknet_aim_sync;
+
+typedef struct samp_raknet_bullet_sync {
+  uint8_t hit_type;
+  uint16_t hit_id;
+  float origin[3];
+  float hit_position[3];
+  float offset[3];
+  uint8_t weapon_id;
+} samp_raknet_bullet_sync;
 #pragma pack(pop)
 
 int samp_raknet_client_send_onfoot_sync(void *client, const samp_raknet_onfoot_sync *sync);
 int samp_raknet_client_send_incar_sync(void *client, const samp_raknet_incar_sync *sync);
+int samp_raknet_client_send_aim_sync(void *client, const samp_raknet_aim_sync *sync);
+int samp_raknet_client_send_bullet_sync(void *client, const samp_raknet_bullet_sync *sync);
+int samp_raknet_client_send_give_take_damage(void *client, uint8_t taking, uint16_t player_id, float damage,
+                                             uint32_t weapon_id, uint32_t bodypart);
 
 typedef struct samp_raknet_join_profile {
   char nickname[25];
@@ -104,6 +126,7 @@ typedef struct samp_raknet_join_profile {
 #define SAMP_RAKNET_RPC_FLAG_REMOTE_PLAYER_SYNC 0x80000000u
 
 #define SAMP_RAKNET_CLIENT_MESSAGE_RING 8u
+#define SAMP_RAKNET_GIVE_WEAPON_EVENT_RING 16u
 #define SAMP_RAKNET_CLIENT_MESSAGE_BYTES 256u
 #define SAMP_RAKNET_HOSTNAME_BYTES 256u
 #define SAMP_RAKNET_MAX_PLAYERS 1000u
@@ -141,6 +164,12 @@ typedef struct samp_raknet_join_profile {
 #define SAMP_RAKNET_OBJECT_ACTION_SET_ROT 4u
 #define SAMP_RAKNET_OBJECT_ACTION_MOVE 5u
 #define SAMP_RAKNET_OBJECT_ACTION_STOP 6u
+#define SAMP_RAKNET_OBJECT_ACTION_ATTACH_PLAYER 7u
+
+#define SAMP_RAKNET_OBJECT_ATTACH_NONE 0u
+#define SAMP_RAKNET_OBJECT_ATTACH_VEHICLE 1u
+#define SAMP_RAKNET_OBJECT_ATTACH_OBJECT 2u
+#define SAMP_RAKNET_OBJECT_ATTACH_PLAYER 3u
 #define SAMP_RAKNET_VEHICLE_EVENT_RING 128u
 #define SAMP_RAKNET_MAX_VEHICLES 2000u
 #define SAMP_RAKNET_VEHICLE_MOD_SLOTS 14u
@@ -265,10 +294,15 @@ typedef struct samp_raknet_object_event {
   uint8_t has_pos;
   uint8_t has_attachment;
   uint8_t materials_count;
+  uint8_t attachment_type;
+  uint8_t attachment_sync_rotation;
   uint16_t object_id;
+  uint16_t attachment_parent_id;
   int32_t model;
   float pos[3];
   float rot[3];
+  float attachment_offset[3];
+  float attachment_rot[3];
   float move_from[3];
   float move_to[3];
   float move_speed;
@@ -297,6 +331,12 @@ typedef struct samp_raknet_vehicle_event {
   int32_t body_color2;
 } samp_raknet_vehicle_event;
 
+typedef struct samp_raknet_given_weapon_event {
+  uint32_t seq;
+  uint32_t weapon;
+  uint32_t ammo;
+} samp_raknet_given_weapon_event;
+
 typedef struct samp_raknet_rpc_probe_snapshot {
   uint32_t flags;
   uint32_t client_message_count;
@@ -309,6 +349,7 @@ typedef struct samp_raknet_rpc_probe_snapshot {
   uint32_t remote_player_sync_count;
   uint32_t map_icon_event_count;
   uint32_t name_tag_event_count;
+  uint32_t given_weapon_event_count;
   uint8_t textdraw_select_active;
   uint32_t textdraw_select_color;
   uint16_t init_spawns_available;
@@ -354,6 +395,7 @@ typedef struct samp_raknet_rpc_probe_snapshot {
   uint32_t camera_behind_seq;
   uint32_t player_armour_seq;
   uint32_t player_armed_weapon_seq;
+  uint32_t player_given_weapon_seq;
   uint32_t reset_player_weapons_seq;
   uint32_t reset_player_money_seq;
   uint32_t play_sound_seq;
@@ -367,6 +409,8 @@ typedef struct samp_raknet_rpc_probe_snapshot {
   uint8_t player_controllable;
   float player_armour;
   uint32_t player_armed_weapon;
+  uint32_t player_given_weapon;
+  uint32_t player_given_weapon_ammo;
   uint32_t play_sound_id;
   float play_sound_pos[3];
   uint16_t player_color_player_id;
@@ -422,6 +466,7 @@ typedef struct samp_raknet_rpc_probe_snapshot {
   samp_raknet_remote_onfoot_sync remote_player_syncs[SAMP_RAKNET_REMOTE_PLAYER_SYNC_RING];
   samp_raknet_map_icon_event map_icon_events[SAMP_RAKNET_MAP_ICON_EVENT_RING];
   samp_raknet_name_tag_event name_tag_events[SAMP_RAKNET_NAME_TAG_EVENT_RING];
+  samp_raknet_given_weapon_event given_weapon_events[SAMP_RAKNET_GIVE_WEAPON_EVENT_RING];
 } samp_raknet_rpc_probe_snapshot;
 
 /*

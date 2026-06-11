@@ -10,8 +10,10 @@ It is intended for local reverse-engineering and compatibility work:
 4. log module-attributed Winsock/loader/patch calls,
 5. optionally patch selected `WSOCK32.dll` exports inline,
 6. optionally patch known `samp.dll` network RVAs for plaintext RakNet payloads,
-7. watch known GTA-SA memory locations that SA-MP commonly patches,
-8. emit decoded `state:` snapshots for the loading-to-session transition.
+7. optionally patch selected GTA-SA asset-loading functions for original-DLL
+   object loading traces,
+8. watch known GTA-SA memory locations that SA-MP commonly patches,
+9. emit decoded `state:` snapshots for the loading-to-session transition.
 
 The first pass rewrites selected import slots inside `samp.dll`, so observed calls are attributable to `samp.dll` rather than process-global Wine/WinDbg noise.
 
@@ -136,6 +138,7 @@ SAMP_PROBE_STATE_ALWAYS=1
 SAMP_PROBE_LOG_ALL_API=1
 SAMP_PROBE_ASSET_PATHS=1
 SAMP_PROBE_FILE_HOOKS=1
+SAMP_PROBE_GTA_ASSET_HOOKS=1
 ```
 
 The asset trace can also be toggled through files next to the ASI:
@@ -144,9 +147,22 @@ The asset trace can also be toggled through files next to the ASI:
 samp_probe_asset_paths.flag
 samp_probe_file_hooks.flag
 samp_probe_samp_code_hooks.flag
+samp_probe_gta_asset_hooks.flag
 ```
 
 Use `samp_probe_asset_paths.flag` for normal original-DLL golden traces. It logs interesting SA-MP asset opens, size queries, seeks, and closes. `samp_probe_file_hooks.flag` additionally hooks `ReadFile`; keep that for short, targeted runs only because original 0.3.7 performs large overlapped reads against the SAMP archives.
+
+Use `samp_probe_gta_asset_hooks.flag` only for short custom-object traces. It
+patches GTA-SA engine asset paths observed through gta-reversed symbols:
+`CStreaming::AddImageToList`, `CStreaming::LoadCdDirectory`,
+`CModelInfo::AddAtomicModel`, `CModelInfo::AddTimeModel`,
+`CModelInfo::AddClumpModel`, `CColStore::AddColSlot`, and
+`CColStore::LoadCol`. It also traces `CPhysical::Add` at GTA-SA `0x00544A30`
+for short object-flood runs; these lines include the entity model id, model
+info pointer, RW object pointer, and current model store counts. Log lines
+include `caller_samp_rva` when the caller is inside `samp.dll`, so a run with
+the original 0.3.7 DLL can be used as `PROBE_TRACE` evidence for the original
+custom-object loading path.
 
 ## Example Log Output
 
@@ -181,6 +197,16 @@ Asset/file tracing:
 ```text
 [asset] CreateFileA caller=samp.dll+0x0004a210 path=C:\Games\GTA San Andreas\SAMP\samp.img access=0x80000000
 [asset] GetFileSize caller=samp.dll+0x0004a2c1 handle=0x00000124 size=10485760
+```
+
+GTA asset tracing:
+
+```text
+[probe] gta_code_hook: installed name=gta.CStreaming.LoadCdDirectory addr=0x005b6170 requested=0x005b6170 target=0x005b6170 trampoline=0x12340000 len=6
+[probe] gta_asset: AddImageToList count=1 caller=0x1004a210 caller_samp_rva=0x0004a210 path='SAMP\samp.img' not_player_img=1 result=5 evidence=PROBE_TRACE,GTA_REVERSED_REF,TODO_VERIFY
+[probe] gta_asset: LoadCdDirectory.begin count=1 caller=0x1004a2c0 caller_samp_rva=0x0004a2c0 path='SAMP\samp.img' image_id=5 atomic=0 time=0 clump=0 evidence=PROBE_TRACE,GTA_REVERSED_REF,TODO_VERIFY
+[probe] gta_asset: AddAtomicModel count=1 caller=0x005b6abc caller_samp_rva=0x00000000 model=19300 store_before=0 store_after=1 result=0x12345678 model_info_ptr=0x12345678 evidence=PROBE_TRACE,GTA_REVERSED_REF,TODO_VERIFY
+[probe] gta_asset: CPhysical.Add.begin count=42 caller=0x0054abcd caller_samp_rva=0x00000000 entity=0x12345678 readable=1 vtable=0x0086abcd rw_object=0x23456789 model=1383 status=0x04 sector_link=0x00000000 model_info_ptr=0x00ab1874 atomic=15417 time=160 clump=71 evidence=PROBE_TRACE,GTA_REVERSED_REF,TODO_VERIFY
 ```
 
 Unknown or stale hook candidates must be logged as evidence gaps, not treated as

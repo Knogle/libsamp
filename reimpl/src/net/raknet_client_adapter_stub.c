@@ -125,6 +125,29 @@ int samp_raknet_client_send_incar_sync(void *client, const samp_raknet_incar_syn
   return -1;
 }
 
+int samp_raknet_client_send_aim_sync(void *client, const samp_raknet_aim_sync *sync) {
+  (void)client;
+  (void)sync;
+  return -1;
+}
+
+int samp_raknet_client_send_bullet_sync(void *client, const samp_raknet_bullet_sync *sync) {
+  (void)client;
+  (void)sync;
+  return -1;
+}
+
+int samp_raknet_client_send_give_take_damage(void *client, uint8_t taking, uint16_t player_id, float damage,
+                                             uint32_t weapon_id, uint32_t bodypart) {
+  (void)client;
+  (void)taking;
+  (void)player_id;
+  (void)damage;
+  (void)weapon_id;
+  (void)bodypart;
+  return -1;
+}
+
 int samp_raknet_client_queue_dialog_response(void *client, uint16_t dialog_id, uint8_t button, int16_t listitem,
                                              const char *input) {
   (void)client;

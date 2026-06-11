@@ -11,6 +11,7 @@
 #define PROBE_ASSET_PATHS_FLAG "samp_probe_asset_paths.flag"
 #define PROBE_FILE_HOOKS_FLAG "samp_probe_file_hooks.flag"
 #define PROBE_SAMP_CODE_HOOKS_FLAG "samp_probe_samp_code_hooks.flag"
+#define PROBE_GTA_ASSET_HOOKS_FLAG "samp_probe_gta_asset_hooks.flag"
 #define PROBE_MAX_IMPORT_LOGS 4096
 #define PROBE_WATCH_INTERVAL_MS 250
 #define PROBE_WAIT_FOR_SAMP_MS 30000
@@ -19,12 +20,24 @@
 #define PROBE_STATE_HEARTBEAT_MS 5000
 #define PROBE_ASSET_HANDLE_SLOTS 64
 
+#define PROBE_GTA_ADDR_MODEL_INFO_PTRS 0x00A9B0C8u
+#define PROBE_GTA_ADDR_MODEL_INFO_ATOMIC_STORE_COUNT 0x00AAE950u
+#define PROBE_GTA_ADDR_MODEL_INFO_TIME_STORE_COUNT 0x00B1C960u
+#define PROBE_GTA_ADDR_MODEL_INFO_CLUMP_STORE_COUNT 0x00B1E958u
+#define PROBE_GTA_MODEL_INFO_MAX 20000u
+#define PROBE_GTA_ENTITY_OFFSET_RW_OBJECT 24u
+#define PROBE_GTA_ENTITY_OFFSET_MODEL_INDEX 34u
+#define PROBE_GTA_ENTITY_OFFSET_STATUS 0x36u
+#define PROBE_GTA_PHYSICAL_OFFSET_SECTOR_LIST 0xb0u
+
 #if defined(__GNUC__)
 #define PROBE_ALWAYS_INLINE static __inline__ __attribute__((always_inline))
 #define PROBE_THREAD_LOCAL __thread
+#define PROBE_THISCALL __attribute__((thiscall))
 #else
 #define PROBE_ALWAYS_INLINE static __inline
 #define PROBE_THREAD_LOCAL __declspec(thread)
+#define PROBE_THISCALL __thiscall
 #endif
 
 typedef int(WINAPI *probe_WSAStartup_fn)(WORD, LPWSADATA);
@@ -56,6 +69,12 @@ typedef DWORD(WINAPI *probe_GetFileSize_fn)(HANDLE, LPDWORD);
 typedef BOOL(WINAPI *probe_CloseHandle_fn)(HANDLE);
 typedef int(WINAPI *probe_samp_socketlayer_sendto_fn)(SOCKET, const char *, int, unsigned long, unsigned short);
 typedef void(WINAPI *probe_samp_process_network_packet_fn)(unsigned long, unsigned short, const char *, int, void *);
+typedef void *(__cdecl *probe_gta_add_model_fn)(int);
+typedef int(__cdecl *probe_gta_add_image_to_list_fn)(const char *, int);
+typedef void(__cdecl *probe_gta_load_cd_directory_fn)(const char *, int);
+typedef int(__cdecl *probe_gta_col_add_slot_fn)(const char *);
+typedef int(__cdecl *probe_gta_col_load_buffer_fn)(int, void *, int);
+typedef void(PROBE_THISCALL *probe_gta_physical_add_fn)(void *);
 
 typedef struct probe_iat_hook {
   const char *dll_name;
@@ -180,6 +199,14 @@ static void *g_orig_GetFileSize;
 static void *g_orig_CloseHandle;
 static void *g_orig_samp_socketlayer_sendto;
 static void *g_orig_samp_process_network_packet;
+static void *g_orig_gta_add_atomic_model;
+static void *g_orig_gta_add_time_model;
+static void *g_orig_gta_add_clump_model;
+static void *g_orig_gta_add_image_to_list;
+static void *g_orig_gta_load_cd_directory;
+static void *g_orig_gta_col_add_slot;
+static void *g_orig_gta_col_load_buffer;
+static void *g_orig_gta_physical_add;
 static probe_WSAGetLastError_fn g_WSAGetLastError_ptr;
 static probe_asset_handle g_asset_handles[PROBE_ASSET_HANDLE_SLOTS];
 static PROBE_THREAD_LOCAL int g_file_hook_depth;
@@ -188,6 +215,7 @@ static int env_or_flag_enabled(const char *env_name, const char *flag_name);
 static int asset_path_hooks_enabled(void);
 static int asset_read_hooks_enabled(void);
 static int samp_code_hooks_enabled(void);
+static int gta_asset_hooks_enabled(void);
 static LONG CALLBACK probe_exception_handler(PEXCEPTION_POINTERS info);
 static int WINAPI hook_WSAStartup(WORD version, LPWSADATA data);
 static int WINAPI hook_WSACleanup(void);
@@ -224,6 +252,14 @@ static int WINAPI hook_samp_socketlayer_sendto(SOCKET s, const char *buf, int le
                                                unsigned short port);
 static void WINAPI hook_samp_process_network_packet(unsigned long binary_address, unsigned short port, const char *data, int len,
                                                     void *rak_peer);
+static void *__cdecl hook_gta_add_atomic_model(int model_id);
+static void *__cdecl hook_gta_add_time_model(int model_id);
+static void *__cdecl hook_gta_add_clump_model(int model_id);
+static int __cdecl hook_gta_add_image_to_list(const char *path, int not_player_img);
+static void __cdecl hook_gta_load_cd_directory(const char *path, int image_id);
+static int __cdecl hook_gta_col_add_slot(const char *name);
+static int __cdecl hook_gta_col_load_buffer(int slot, void *buffer, int size);
+static void PROBE_THISCALL hook_gta_physical_add(void *entity);
 
 static probe_iat_hook g_hooks[] = {
     {"WSOCK32.dll", "WSAStartup", 115, (void *)hook_WSAStartup, &g_orig_WSAStartup, 0},
@@ -337,6 +373,25 @@ static probe_code_hook g_samp_code_hooks[] = {
      {0x83, 0xec, 0x10, 0x57}, 4, NULL, NULL, {0}, 0, 0},
     {"samp.ProcessNetworkPacket", 0x0003b950u, (void *)hook_samp_process_network_packet, &g_orig_samp_process_network_packet,
      {0x6a, 0xff, 0x68}, 3, NULL, NULL, {0}, 0, 0},
+};
+
+static probe_code_hook g_gta_asset_code_hooks[] = {
+    {"gta.CModelInfo.AddAtomicModel", 0x004c6620u, (void *)hook_gta_add_atomic_model, &g_orig_gta_add_atomic_model,
+     {0xa1, 0x50, 0xe9, 0xaa, 0x00}, 5, NULL, NULL, {0}, 0, 0},
+    {"gta.CModelInfo.AddTimeModel", 0x004c66b0u, (void *)hook_gta_add_time_model, &g_orig_gta_add_time_model,
+     {0xa1, 0x60, 0xc9, 0xb1, 0x00}, 5, NULL, NULL, {0}, 0, 0},
+    {"gta.CModelInfo.AddClumpModel", 0x004c6740u, (void *)hook_gta_add_clump_model, &g_orig_gta_add_clump_model,
+     {0xa1, 0x58, 0xe9, 0xb1, 0x00}, 5, NULL, NULL, {0}, 0, 0},
+    {"gta.CStreaming.AddImageToList", 0x00407610u, (void *)hook_gta_add_image_to_list, &g_orig_gta_add_image_to_list,
+     {0}, 0, NULL, NULL, {0}, 0, 0},
+    {"gta.CStreaming.LoadCdDirectory", 0x005b6170u, (void *)hook_gta_load_cd_directory, &g_orig_gta_load_cd_directory,
+     {0x83, 0xec, 0x3c}, 3, NULL, NULL, {0}, 0, 0},
+    {"gta.CColStore.AddColSlot", 0x00411140u, (void *)hook_gta_col_add_slot, &g_orig_gta_col_add_slot,
+     {0}, 0, NULL, NULL, {0}, 0, 0},
+    {"gta.CColStore.LoadCol", 0x004106d0u, (void *)hook_gta_col_load_buffer, &g_orig_gta_col_load_buffer,
+     {0}, 0, NULL, NULL, {0}, 0, 0},
+    {"gta.CPhysical.Add", 0x00544a30u, (void *)hook_gta_physical_add, &g_orig_gta_physical_add,
+     {0x64, 0xa1, 0x00, 0x00, 0x00, 0x00}, 6, NULL, NULL, {0}, 0, 0},
 };
 
 static void probe_log(const char *fmt, ...) {
@@ -550,6 +605,14 @@ static int samp_code_hooks_enabled(void) {
   /* PROBE_TRACE: the older internal hook RVAs are stale for the tested R5 DLL.
    * Keep patching opt-in until we have byte-validated replacement RVAs. */
   return env_or_flag_enabled("SAMP_PROBE_ENABLE_SAMP_CODE_HOOKS", PROBE_SAMP_CODE_HOOKS_FLAG);
+}
+
+static int gta_asset_hooks_enabled(void) {
+  /* PROBE_TRACE + GTA_REVERSED_REF + TODO_VERIFY:
+   * These hooks patch GTA-SA engine functions, not samp.dll. They are only for
+   * short original-vs-rebuild custom-object traces because they sit on hot asset
+   * loading paths and must not become part of normal gameplay runs. */
+  return env_or_flag_enabled("SAMP_PROBE_GTA_ASSET_HOOKS", PROBE_GTA_ASSET_HOOKS_FLAG);
 }
 
 PROBE_ALWAYS_INLINE void *probe_return_address(void) {
@@ -969,6 +1032,68 @@ static DWORD read_u32_or(uintptr_t address, DWORD fallback) {
   }
 
   memcpy(&value, (const void *)address, sizeof(value));
+  return value;
+}
+
+static void safe_cstr_or(const char *value, char *out, size_t out_size, const char *fallback) {
+  size_t i;
+
+  if (out == NULL || out_size == 0) {
+    return;
+  }
+
+  out[0] = '\0';
+  if (value == NULL || !memory_is_readable((uintptr_t)value, 1)) {
+    snprintf(out, out_size, "%s", fallback != NULL ? fallback : "");
+    return;
+  }
+
+  for (i = 0; i + 1 < out_size; ++i) {
+    char ch;
+    if (!memory_is_readable((uintptr_t)(value + i), 1)) {
+      break;
+    }
+    ch = value[i];
+    if (ch == '\0') {
+      break;
+    }
+    if ((unsigned char)ch < 0x20u || (unsigned char)ch >= 0x7fu) {
+      ch = '?';
+    }
+    out[i] = ch;
+  }
+  out[i] = '\0';
+}
+
+static DWORD gta_model_info_store_count_for_name(const char *name) {
+  if (name == NULL) {
+    return 0xffffffffu;
+  }
+  if (strstr(name, "AddAtomicModel") != NULL) {
+    return read_u32_or(PROBE_GTA_ADDR_MODEL_INFO_ATOMIC_STORE_COUNT, 0xffffffffu);
+  }
+  if (strstr(name, "AddTimeModel") != NULL) {
+    return read_u32_or(PROBE_GTA_ADDR_MODEL_INFO_TIME_STORE_COUNT, 0xffffffffu);
+  }
+  if (strstr(name, "AddClumpModel") != NULL) {
+    return read_u32_or(PROBE_GTA_ADDR_MODEL_INFO_CLUMP_STORE_COUNT, 0xffffffffu);
+  }
+  return 0xffffffffu;
+}
+
+static void *gta_model_info_ptr_for_id(int model_id) {
+  uintptr_t slot;
+  void *value = NULL;
+
+  if (model_id < 0 || (unsigned)model_id >= PROBE_GTA_MODEL_INFO_MAX) {
+    return NULL;
+  }
+
+  slot = PROBE_GTA_ADDR_MODEL_INFO_PTRS + ((uintptr_t)(unsigned)model_id * sizeof(void *));
+  if (!memory_is_readable(slot, sizeof(value))) {
+    return NULL;
+  }
+  memcpy(&value, (const void *)slot, sizeof(value));
   return value;
 }
 
@@ -1610,6 +1735,126 @@ static int install_samp_code_hooks(int log_summary) {
   return installed;
 }
 
+static int install_absolute_code_hook(probe_code_hook *hook) {
+  BYTE *target_bytes;
+  void *patch_target;
+  void *requested_target;
+  size_t patch_len;
+  DWORD old_protect = 0;
+  DWORD restore_protect = 0;
+  int32_t rel;
+  size_t i;
+
+  if (hook == NULL || InterlockedCompareExchange(&hook->installed, 0, 0) != 0) {
+    return 0;
+  }
+
+  requested_target = (void *)(uintptr_t)hook->rva;
+  if (requested_target == NULL || requested_target == hook->replacement ||
+      !memory_is_readable((uintptr_t)requested_target, 8)) {
+    return 0;
+  }
+
+  patch_target = resolve_inline_hook_target(requested_target);
+  if (patch_target == NULL || patch_target == hook->replacement || !memory_is_readable((uintptr_t)patch_target, 8)) {
+    return 0;
+  }
+
+  target_bytes = (BYTE *)patch_target;
+  if (target_bytes[0] == 0xe9) {
+    int32_t existing_rel = 0;
+    void *existing_target;
+    memcpy(&existing_rel, target_bytes + 1, sizeof(existing_rel));
+    existing_target = target_bytes + 5 + existing_rel;
+    if (existing_target == hook->replacement) {
+      InterlockedExchange(&hook->installed, 1);
+      return 1;
+    }
+  }
+
+  if (hook->expected_len > 0 && patch_target == requested_target &&
+      memcmp(patch_target, hook->expected, hook->expected_len) != 0) {
+    BYTE bytes[8];
+    char hex[40];
+    memcpy(bytes, patch_target, sizeof(bytes));
+    bytes_to_hex(bytes, sizeof(bytes), hex, sizeof(hex));
+    probe_log("gta_code_hook: skip name=%s addr=0x%08lx target=%p prologue=%s", hook->name,
+              (unsigned long)hook->rva, patch_target, hex);
+    InterlockedExchange(&hook->installed, -1);
+    return 0;
+  }
+
+  patch_len = calculate_patch_length(patch_target);
+  if (patch_len == 0) {
+    BYTE bytes[8];
+    char hex[40];
+    memcpy(bytes, patch_target, sizeof(bytes));
+    bytes_to_hex(bytes, sizeof(bytes), hex, sizeof(hex));
+    probe_log("gta_code_hook: skip name=%s addr=0x%08lx target=%p resolved_from=%p prologue=%s", hook->name,
+              (unsigned long)hook->rva, patch_target, requested_target, hex);
+    InterlockedExchange(&hook->installed, -1);
+    return 0;
+  }
+
+  memcpy(hook->saved, patch_target, patch_len);
+  hook->saved_len = patch_len;
+  hook->patch_target = patch_target;
+  hook->trampoline = create_trampoline(patch_target, hook->saved, hook->saved_len);
+  if (hook->trampoline == NULL) {
+    probe_log("gta_code_hook: trampoline failed name=%s addr=0x%08lx target=%p", hook->name,
+              (unsigned long)hook->rva, patch_target);
+    return 0;
+  }
+
+  if (hook->original_slot != NULL) {
+    *hook->original_slot = hook->trampoline;
+  }
+
+  if (!VirtualProtect(patch_target, patch_len, PAGE_EXECUTE_READWRITE, &old_protect)) {
+    probe_log("gta_code_hook: VirtualProtect failed name=%s addr=0x%08lx target=%p error=%lu", hook->name,
+              (unsigned long)hook->rva, patch_target, (unsigned long)GetLastError());
+    return 0;
+  }
+
+  target_bytes[0] = 0xe9;
+  rel = (int32_t)((intptr_t)hook->replacement - (intptr_t)(target_bytes + 5));
+  memcpy(target_bytes + 1, &rel, sizeof(rel));
+  for (i = 5; i < patch_len; ++i) {
+    target_bytes[i] = 0x90;
+  }
+  FlushInstructionCache(GetCurrentProcess(), patch_target, patch_len);
+  (void)VirtualProtect(patch_target, patch_len, old_protect, &restore_protect);
+
+  InterlockedExchange(&hook->installed, 1);
+  probe_log("gta_code_hook: installed name=%s addr=0x%08lx requested=%p target=%p trampoline=%p len=%lu",
+            hook->name, (unsigned long)hook->rva, requested_target, patch_target, hook->trampoline,
+            (unsigned long)patch_len);
+  return 1;
+}
+
+static int install_gta_asset_code_hooks(int log_summary) {
+  size_t i;
+  int installed = 0;
+
+  if (!gta_asset_hooks_enabled()) {
+    if (log_summary) {
+      probe_log("gta_code_hook: disabled by default; enable with SAMP_PROBE_GTA_ASSET_HOOKS=1 or %s",
+                PROBE_GTA_ASSET_HOOKS_FLAG);
+    }
+    return 0;
+  }
+
+  for (i = 0; i < sizeof(g_gta_asset_code_hooks) / sizeof(g_gta_asset_code_hooks[0]); ++i) {
+    installed += install_absolute_code_hook(&g_gta_asset_code_hooks[i]);
+  }
+
+  if (log_summary) {
+    probe_log("gta_code_hook: summary installed=%d requested=%u", installed,
+              (unsigned)(sizeof(g_gta_asset_code_hooks) / sizeof(g_gta_asset_code_hooks[0])));
+  }
+  return installed;
+}
+
 static int rva_is_sane(PIMAGE_NT_HEADERS nt, DWORD rva, DWORD min_size) {
   return rva != 0 && rva + min_size >= rva && rva + min_size <= nt->OptionalHeader.SizeOfImage;
 }
@@ -1834,8 +2079,8 @@ static DWORD WINAPI probe_worker(LPVOID param) {
 
   init_log_path();
   probe_log("probe: attached build=%s %s", __DATE__, __TIME__);
-  probe_log("probe: options asset_path_hooks=%d asset_read_hooks=%d samp_code_hooks=%d", asset_path_hooks_enabled(),
-            asset_read_hooks_enabled(), samp_code_hooks_enabled());
+  probe_log("probe: options asset_path_hooks=%d asset_read_hooks=%d samp_code_hooks=%d gta_asset_hooks=%d",
+            asset_path_hooks_enabled(), asset_read_hooks_enabled(), samp_code_hooks_enabled(), gta_asset_hooks_enabled());
 
   start_ms = GetTickCount();
   while (WaitForSingleObject(g_stop_event, 50) == WAIT_TIMEOUT) {
@@ -1877,6 +2122,7 @@ static DWORD WINAPI probe_worker(LPVOID param) {
     install_iat_hooks(nt, 1);
     install_inline_hooks(1);
     install_samp_code_hooks(1);
+    install_gta_asset_code_hooks(1);
   }
 
   sample_transition_state("after_samp_load");
@@ -1886,6 +2132,7 @@ static DWORD WINAPI probe_worker(LPVOID param) {
       (void)install_iat_hooks(nt, 0);
       (void)install_inline_hooks(0);
       (void)install_samp_code_hooks(0);
+      (void)install_gta_asset_code_hooks(0);
     }
     sample_watchpoints();
     sample_transition_state("tick");
@@ -1954,6 +2201,170 @@ static void WINAPI hook_samp_process_network_packet(unsigned long binary_address
   if (g_orig_samp_process_network_packet != NULL) {
     ((probe_samp_process_network_packet_fn)g_orig_samp_process_network_packet)(binary_address, port, data, len, rak_peer);
   }
+}
+
+static void log_gta_model_add(const char *name, LONG count, void *caller, int model_id, DWORD before_count, void *result) {
+  DWORD after_count = gta_model_info_store_count_for_name(name);
+  void *model_info = gta_model_info_ptr_for_id(model_id);
+  probe_log("gta_asset: %s count=%ld caller=%p caller_samp_rva=0x%08lx model=%d store_before=%lu store_after=%lu "
+            "result=%p model_info_ptr=%p evidence=PROBE_TRACE,GTA_REVERSED_REF,TODO_VERIFY",
+            name, (long)count, caller, samp_rva_from_address(caller), model_id, (unsigned long)before_count,
+            (unsigned long)after_count, result, model_info);
+}
+
+static void log_gta_physical_entity(const char *phase, LONG count, void *caller, void *entity) {
+  uintptr_t entity_addr = (uintptr_t)entity;
+  int readable = entity_addr != 0 &&
+                 memory_is_readable(entity_addr, PROBE_GTA_PHYSICAL_OFFSET_SECTOR_LIST + sizeof(DWORD));
+  DWORD vtable = read_u32_or(entity_addr, 0xffffffffu);
+  DWORD rw_object = read_u32_or(entity_addr + PROBE_GTA_ENTITY_OFFSET_RW_OBJECT, 0xffffffffu);
+  WORD model = read_u16_or(entity_addr + PROBE_GTA_ENTITY_OFFSET_MODEL_INDEX, 0xffffu);
+  BYTE status = read_u8_or(entity_addr + PROBE_GTA_ENTITY_OFFSET_STATUS, 0xffu);
+  DWORD sector_link = read_u32_or(entity_addr + PROBE_GTA_PHYSICAL_OFFSET_SECTOR_LIST, 0xffffffffu);
+  void *model_info = model != 0xffffu ? gta_model_info_ptr_for_id((int)model) : NULL;
+  int interesting = !readable || model >= 18631u || model == 1383u || should_log_call(count);
+
+  if (!interesting) {
+    return;
+  }
+
+  probe_log("gta_asset: CPhysical.Add.%s count=%ld caller=%p caller_samp_rva=0x%08lx entity=%p readable=%d "
+            "vtable=0x%08lx rw_object=0x%08lx model=%u status=0x%02x sector_link=0x%08lx model_info_ptr=%p "
+            "atomic=%lu time=%lu clump=%lu evidence=PROBE_TRACE,GTA_REVERSED_REF,TODO_VERIFY",
+            phase != NULL ? phase : "unknown", (long)count, caller, samp_rva_from_address(caller), entity, readable,
+            (unsigned long)vtable, (unsigned long)rw_object, (unsigned)model, (unsigned)status,
+            (unsigned long)sector_link, model_info,
+            (unsigned long)read_u32_or(PROBE_GTA_ADDR_MODEL_INFO_ATOMIC_STORE_COUNT, 0xffffffffu),
+            (unsigned long)read_u32_or(PROBE_GTA_ADDR_MODEL_INFO_TIME_STORE_COUNT, 0xffffffffu),
+            (unsigned long)read_u32_or(PROBE_GTA_ADDR_MODEL_INFO_CLUMP_STORE_COUNT, 0xffffffffu));
+}
+
+static void PROBE_THISCALL hook_gta_physical_add(void *entity) {
+  static LONG count;
+  LONG n = next_call_count(&count);
+  void *caller = probe_return_address();
+
+  log_gta_physical_entity("begin", n, caller, entity);
+  if (g_orig_gta_physical_add != NULL) {
+    ((probe_gta_physical_add_fn)g_orig_gta_physical_add)(entity);
+  }
+  log_gta_physical_entity("end", n, caller, entity);
+}
+
+static void *__cdecl hook_gta_add_atomic_model(int model_id) {
+  static LONG count;
+  LONG n = next_call_count(&count);
+  void *caller = probe_return_address();
+  DWORD before_count = gta_model_info_store_count_for_name("AddAtomicModel");
+  void *result = NULL;
+
+  if (g_orig_gta_add_atomic_model != NULL) {
+    result = ((probe_gta_add_model_fn)g_orig_gta_add_atomic_model)(model_id);
+  }
+  log_gta_model_add("AddAtomicModel", n, caller, model_id, before_count, result);
+  return result;
+}
+
+static void *__cdecl hook_gta_add_time_model(int model_id) {
+  static LONG count;
+  LONG n = next_call_count(&count);
+  void *caller = probe_return_address();
+  DWORD before_count = gta_model_info_store_count_for_name("AddTimeModel");
+  void *result = NULL;
+
+  if (g_orig_gta_add_time_model != NULL) {
+    result = ((probe_gta_add_model_fn)g_orig_gta_add_time_model)(model_id);
+  }
+  log_gta_model_add("AddTimeModel", n, caller, model_id, before_count, result);
+  return result;
+}
+
+static void *__cdecl hook_gta_add_clump_model(int model_id) {
+  static LONG count;
+  LONG n = next_call_count(&count);
+  void *caller = probe_return_address();
+  DWORD before_count = gta_model_info_store_count_for_name("AddClumpModel");
+  void *result = NULL;
+
+  if (g_orig_gta_add_clump_model != NULL) {
+    result = ((probe_gta_add_model_fn)g_orig_gta_add_clump_model)(model_id);
+  }
+  log_gta_model_add("AddClumpModel", n, caller, model_id, before_count, result);
+  return result;
+}
+
+static int __cdecl hook_gta_add_image_to_list(const char *path, int not_player_img) {
+  static LONG count;
+  char safe_path[MAX_PATH];
+  LONG n = next_call_count(&count);
+  void *caller = probe_return_address();
+  int result = -1;
+
+  safe_cstr_or(path, safe_path, sizeof(safe_path), "(null)");
+  if (g_orig_gta_add_image_to_list != NULL) {
+    result = ((probe_gta_add_image_to_list_fn)g_orig_gta_add_image_to_list)(path, not_player_img);
+  }
+  probe_log("gta_asset: AddImageToList count=%ld caller=%p caller_samp_rva=0x%08lx path='%s' not_player_img=%d "
+            "result=%d evidence=PROBE_TRACE,GTA_REVERSED_REF,TODO_VERIFY",
+            (long)n, caller, samp_rva_from_address(caller), safe_path, not_player_img, result);
+  return result;
+}
+
+static void __cdecl hook_gta_load_cd_directory(const char *path, int image_id) {
+  static LONG count;
+  char safe_path[MAX_PATH];
+  LONG n = next_call_count(&count);
+  void *caller = probe_return_address();
+  DWORD atomic_before = read_u32_or(PROBE_GTA_ADDR_MODEL_INFO_ATOMIC_STORE_COUNT, 0xffffffffu);
+  DWORD time_before = read_u32_or(PROBE_GTA_ADDR_MODEL_INFO_TIME_STORE_COUNT, 0xffffffffu);
+  DWORD clump_before = read_u32_or(PROBE_GTA_ADDR_MODEL_INFO_CLUMP_STORE_COUNT, 0xffffffffu);
+
+  safe_cstr_or(path, safe_path, sizeof(safe_path), "(null)");
+  probe_log("gta_asset: LoadCdDirectory.begin count=%ld caller=%p caller_samp_rva=0x%08lx path='%s' image_id=%d "
+            "atomic=%lu time=%lu clump=%lu evidence=PROBE_TRACE,GTA_REVERSED_REF,TODO_VERIFY",
+            (long)n, caller, samp_rva_from_address(caller), safe_path, image_id, (unsigned long)atomic_before,
+            (unsigned long)time_before, (unsigned long)clump_before);
+  if (g_orig_gta_load_cd_directory != NULL) {
+    ((probe_gta_load_cd_directory_fn)g_orig_gta_load_cd_directory)(path, image_id);
+  }
+  probe_log("gta_asset: LoadCdDirectory.end count=%ld path='%s' image_id=%d atomic=%lu time=%lu clump=%lu",
+            (long)n, safe_path, image_id,
+            (unsigned long)read_u32_or(PROBE_GTA_ADDR_MODEL_INFO_ATOMIC_STORE_COUNT, 0xffffffffu),
+            (unsigned long)read_u32_or(PROBE_GTA_ADDR_MODEL_INFO_TIME_STORE_COUNT, 0xffffffffu),
+            (unsigned long)read_u32_or(PROBE_GTA_ADDR_MODEL_INFO_CLUMP_STORE_COUNT, 0xffffffffu));
+}
+
+static int __cdecl hook_gta_col_add_slot(const char *name) {
+  static LONG count;
+  char safe_name[128];
+  LONG n = next_call_count(&count);
+  void *caller = probe_return_address();
+  int result = -1;
+
+  safe_cstr_or(name, safe_name, sizeof(safe_name), "(null)");
+  if (g_orig_gta_col_add_slot != NULL) {
+    result = ((probe_gta_col_add_slot_fn)g_orig_gta_col_add_slot)(name);
+  }
+  probe_log("gta_asset: ColStore.AddColSlot count=%ld caller=%p caller_samp_rva=0x%08lx name='%s' result=%d "
+            "evidence=PROBE_TRACE,GTA_REVERSED_REF,TODO_VERIFY",
+            (long)n, caller, samp_rva_from_address(caller), safe_name, result);
+  return result;
+}
+
+static int __cdecl hook_gta_col_load_buffer(int slot, void *buffer, int size) {
+  static LONG count;
+  LONG n = next_call_count(&count);
+  void *caller = probe_return_address();
+  int result = 0;
+
+  probe_log("gta_asset: ColStore.LoadCol.begin count=%ld caller=%p caller_samp_rva=0x%08lx slot=%d buffer=%p size=%d "
+            "evidence=PROBE_TRACE,GTA_REVERSED_REF,TODO_VERIFY",
+            (long)n, caller, samp_rva_from_address(caller), slot, buffer, size);
+  if (g_orig_gta_col_load_buffer != NULL) {
+    result = ((probe_gta_col_load_buffer_fn)g_orig_gta_col_load_buffer)(slot, buffer, size);
+  }
+  probe_log("gta_asset: ColStore.LoadCol.end count=%ld slot=%d size=%d result=%d", (long)n, slot, size, result);
+  return result;
 }
 
 static int WINAPI hook_WSAStartup(WORD version, LPWSADATA data) {

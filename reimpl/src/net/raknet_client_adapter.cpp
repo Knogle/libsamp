@@ -30,6 +30,8 @@ extern "C" const char *samp_raknet_knogle_auth_response(const char *challenge);
 namespace {
 constexpr unsigned char kPacketIdInvalid = 0xFFu;
 constexpr unsigned char kPacketVehicleSync = 200u;
+constexpr unsigned char kPacketAimSync = 203u;
+constexpr unsigned char kPacketBulletSync = 206u;
 constexpr unsigned char kPacketPlayerSync = 207u;
 constexpr RakNet::RPCID kRpcClientJoin = static_cast<RakNet::RPCID>(25u);
 constexpr RakNet::RPCID kRpcDialogResponse = static_cast<RakNet::RPCID>(62u);
@@ -38,6 +40,7 @@ constexpr RakNet::RPCID kRpcServerCommand = static_cast<RakNet::RPCID>(50u);
 constexpr RakNet::RPCID kRpcChat = static_cast<RakNet::RPCID>(101u);
 constexpr RakNet::RPCID kRpcClientCheck = static_cast<RakNet::RPCID>(103u);
 constexpr RakNet::RPCID kRpcClickTextDraw = static_cast<RakNet::RPCID>(83u);
+constexpr RakNet::RPCID kRpcGiveTakeDamage = static_cast<RakNet::RPCID>(115u);
 constexpr unsigned int kRpcScrDialogBox = 61U;
 constexpr RakNet::RPCID kRpcRequestClass = static_cast<RakNet::RPCID>(128u);
 constexpr RakNet::RPCID kRpcRequestSpawn = static_cast<RakNet::RPCID>(129u);
@@ -56,6 +59,7 @@ constexpr RakNet::RakNetTime kPostDialogSpawnDelayMs = 450U;
 constexpr RakNet::RakNetTime kSpawnRetryDelayMs = 1600U;
 constexpr RakNet::RakNetTime kSelectModeClickDelayMs = 250U;
 constexpr RakNet::RakNetTime kScorePingUpdateMs = 3000U;
+constexpr float kRadiansToDegrees = 57.29577951308232f;
 constexpr unsigned int kMaxSpawnRetries = 4U;
 constexpr unsigned short kDefaultFreeroamTextDrawId = 24U;
 constexpr unsigned int kObservedPlayerSpawnInfoBytes = 45U;
@@ -76,6 +80,10 @@ constexpr unsigned int kOpenMpObjectCreateAttachObjectOffset = 37U;
 constexpr unsigned int kOpenMpObjectCreateMaterialCountOffset = 39U;
 constexpr unsigned int kOpenMpObjectCreateAttachDataBytes = 25U;
 constexpr unsigned int kOpenMpObjectCreateMinBytes = kOpenMpObjectCreateMaterialCountOffset + 1U;
+constexpr unsigned int kOpenMpObjectCreateAttachOffsetOffset = 39U;
+constexpr unsigned int kOpenMpObjectCreateAttachRotOffset = 51U;
+constexpr unsigned int kOpenMpObjectCreateAttachSyncOffset = 63U;
+constexpr unsigned int kOpenMpAttachObjectToPlayerMinBytes = 2U + 2U + 6U * 4U;
 constexpr unsigned int kOpenMpObjectSetPosMinBytes = 2U + 3U * 4U;
 constexpr unsigned int kOpenMpObjectSetRotMinBytes = 2U + 3U * 4U;
 constexpr unsigned int kOpenMpObjectDestroyMinBytes = 2U;
@@ -93,6 +101,8 @@ constexpr int kSampVehicleModelMin = 400;
 constexpr int kSampVehicleModelMax = 611;
 static_assert(sizeof(samp_raknet_onfoot_sync) == 68U, "SA-MP 0.3.7 on-foot sync payload must be 68 bytes");
 static_assert(sizeof(samp_raknet_incar_sync) == 63U, "SA-MP 0.3.7 in-car sync payload must be 63 bytes");
+static_assert(sizeof(samp_raknet_aim_sync) == 31U, "SA-MP 0.3.7 aim sync payload must be 31 bytes");
+static_assert(sizeof(samp_raknet_bullet_sync) == 40U, "SA-MP 0.3.7 bullet sync payload must be 40 bytes");
 
 bool packet_resets_session_state(unsigned char packet_id) {
   return packet_id == static_cast<unsigned char>(RakNet::ID_DISCONNECTION_NOTIFICATION) ||
@@ -189,6 +199,7 @@ struct RpcProbeState {
   unsigned int camera_behind_seq;
   unsigned int player_armour_seq;
   unsigned int player_armed_weapon_seq;
+  unsigned int player_given_weapon_seq;
   unsigned int reset_player_weapons_seq;
   unsigned int reset_player_money_seq;
   unsigned int play_sound_seq;
@@ -201,6 +212,9 @@ struct RpcProbeState {
   unsigned char player_controllable;
   float player_armour;
   unsigned int player_armed_weapon;
+  unsigned int player_given_weapon;
+  unsigned int player_given_weapon_ammo;
+  samp_raknet_given_weapon_event player_given_weapon_events[SAMP_RAKNET_GIVE_WEAPON_EVENT_RING];
   unsigned int play_sound_id;
   float play_sound_pos[3];
   unsigned short player_color_player_id;
@@ -446,7 +460,7 @@ const RpcMeta kRpcMeta[] = {
     {19U, "ScrSetPlayerFacingAngle", kRpcLocalImplemented, "PROBE_TRACE"},
     {20U, "ScrResetPlayerMoney", kRpcLocalImplemented, "STATIC_037"},
     {21U, "ScrResetPlayerWeapons", kRpcLocalImplemented, "STATIC_037"},
-    {22U, "ScrGivePlayerWeapon", kRpcLocalDummy, "STATIC_037"},
+    {22U, "ScrGivePlayerWeapon", kRpcLocalImplemented, "STATIC_037,OPENMP_REF,TODO_VERIFY"},
     {23U, "OnPlayerClickPlayer", kRpcLocalOutgoing, "OPENMP_REF"},
     {24U, "ScrSetVehicleParamsEx", kRpcLocalDummy, "SAMPFUNCS_037"},
     {25U, "ClientJoin", kRpcLocalOutgoing, "OPENMP_REF"},
@@ -863,6 +877,7 @@ void reset_rpc_probe_runtime(RakNet::RakClientInterface *client) {
   g_rpc_probe.camera_behind_seq = 0U;
   g_rpc_probe.player_armour_seq = 0U;
   g_rpc_probe.player_armed_weapon_seq = 0U;
+  g_rpc_probe.player_given_weapon_seq = 0U;
   g_rpc_probe.reset_player_weapons_seq = 0U;
   g_rpc_probe.reset_player_money_seq = 0U;
   g_rpc_probe.play_sound_seq = 0U;
@@ -875,6 +890,9 @@ void reset_rpc_probe_runtime(RakNet::RakClientInterface *client) {
   g_rpc_probe.player_controllable = 1U;
   g_rpc_probe.player_armour = 0.0f;
   g_rpc_probe.player_armed_weapon = 0U;
+  g_rpc_probe.player_given_weapon = 0U;
+  g_rpc_probe.player_given_weapon_ammo = 0U;
+  std::memset(g_rpc_probe.player_given_weapon_events, 0, sizeof(g_rpc_probe.player_given_weapon_events));
   g_rpc_probe.play_sound_id = 0U;
   std::memset(g_rpc_probe.play_sound_pos, 0, sizeof(g_rpc_probe.play_sound_pos));
   g_rpc_probe.player_color_player_id = 0U;
@@ -1151,12 +1169,17 @@ bool decode_object_create_payload(const unsigned char *data, unsigned int bytes)
   unsigned short object_id = 0U;
   unsigned short attach_vehicle_id = kOpenMpInvalidVehicleId;
   unsigned short attach_object_id = kOpenMpInvalidObjectId;
+  unsigned int attachment_type = SAMP_RAKNET_OBJECT_ATTACH_NONE;
+  unsigned short attachment_parent_id = kOpenMpInvalidObjectId;
+  unsigned char attachment_sync_rotation = 1U;
   unsigned int material_count_offset = kOpenMpObjectCreateMaterialCountOffset;
   unsigned int materials_count = 0U;
   std::int32_t model = 0;
   float draw_distance = 0.0f;
   float pos[3] = {0.0f, 0.0f, 0.0f};
   float rot[3] = {0.0f, 0.0f, 0.0f};
+  float attachment_offset[3] = {0.0f, 0.0f, 0.0f};
+  float attachment_rot[3] = {0.0f, 0.0f, 0.0f};
   samp_raknet_object_event *event = nullptr;
   const bool has_attachment = data != nullptr && bytes >= kOpenMpObjectCreateMinBytes &&
                               (read_le16(data + kOpenMpObjectCreateAttachVehicleOffset) != kOpenMpInvalidVehicleId ||
@@ -1180,6 +1203,25 @@ bool decode_object_create_payload(const unsigned char *data, unsigned int bytes)
                  static_cast<unsigned int>(attach_vehicle_id), static_cast<unsigned int>(attach_object_id));
       return false;
     }
+    if (attach_vehicle_id != kOpenMpInvalidVehicleId) {
+      attachment_type = SAMP_RAKNET_OBJECT_ATTACH_VEHICLE;
+      attachment_parent_id = attach_vehicle_id;
+    } else {
+      attachment_type = SAMP_RAKNET_OBJECT_ATTACH_OBJECT;
+      attachment_parent_id = attach_object_id;
+    }
+    read_vec3(data + kOpenMpObjectCreateAttachOffsetOffset, attachment_offset);
+    read_vec3(data + kOpenMpObjectCreateAttachRotOffset, attachment_rot);
+    attachment_sync_rotation = data[kOpenMpObjectCreateAttachSyncOffset] != 0U ? 1U : 0U;
+    if (!object_vec_plausible(attachment_offset) || !object_rot_plausible(attachment_rot)) {
+      trace_netf("object-decode: create invalid_attachment_transform id=%u bytes=%u type=%u parent=%u offset=%.3f %.3f %.3f rot=%.3f %.3f %.3f",
+                 static_cast<unsigned int>(object_id), bytes, attachment_type,
+                 static_cast<unsigned int>(attachment_parent_id), static_cast<double>(attachment_offset[0]),
+                 static_cast<double>(attachment_offset[1]), static_cast<double>(attachment_offset[2]),
+                 static_cast<double>(attachment_rot[0]), static_cast<double>(attachment_rot[1]),
+                 static_cast<double>(attachment_rot[2]));
+      return false;
+    }
   }
   materials_count = static_cast<unsigned int>(data[material_count_offset]);
   if (!object_id_valid(object_id) || !object_model_plausible(model) || !object_vec_plausible(pos) ||
@@ -1199,11 +1241,57 @@ bool decode_object_create_payload(const unsigned char *data, unsigned int bytes)
   std::memcpy(event->rot, rot, sizeof(event->rot));
   event->has_pos = 1U;
   event->has_attachment = has_attachment ? 1U : 0U;
+  event->attachment_type = static_cast<unsigned char>(attachment_type);
+  event->attachment_parent_id = attachment_parent_id;
+  event->attachment_sync_rotation = attachment_sync_rotation;
+  std::memcpy(event->attachment_offset, attachment_offset, sizeof(event->attachment_offset));
+  std::memcpy(event->attachment_rot, attachment_rot, sizeof(event->attachment_rot));
   event->materials_count = static_cast<unsigned char>(materials_count);
-  trace_netf("object-decode: create seq=%u id=%u model=%d draw=%.3f attach=%u materials=%u pos=%.3f %.3f %.3f rot=%.3f %.3f %.3f",
+  trace_netf("object-decode: create seq=%u id=%u model=%d draw=%.3f attach=%u type=%u parent=%u sync=%u materials=%u pos=%.3f %.3f %.3f rot=%.3f %.3f %.3f attach_offset=%.3f %.3f %.3f attach_rot=%.3f %.3f %.3f",
              event->seq, static_cast<unsigned int>(object_id), static_cast<int>(model),
-             static_cast<double>(draw_distance), has_attachment ? 1U : 0U, materials_count,
+             static_cast<double>(draw_distance), has_attachment ? 1U : 0U, attachment_type,
+             static_cast<unsigned int>(attachment_parent_id), static_cast<unsigned int>(attachment_sync_rotation),
+             materials_count,
              static_cast<double>(pos[0]), static_cast<double>(pos[1]), static_cast<double>(pos[2]),
+             static_cast<double>(rot[0]), static_cast<double>(rot[1]), static_cast<double>(rot[2]),
+             static_cast<double>(attachment_offset[0]), static_cast<double>(attachment_offset[1]),
+             static_cast<double>(attachment_offset[2]), static_cast<double>(attachment_rot[0]),
+             static_cast<double>(attachment_rot[1]), static_cast<double>(attachment_rot[2]));
+  return true;
+}
+
+bool decode_object_attach_player_payload(const unsigned char *data, unsigned int bytes) {
+  unsigned short object_id = 0U;
+  unsigned short player_id = 0U;
+  float offset[3] = {0.0f, 0.0f, 0.0f};
+  float rot[3] = {0.0f, 0.0f, 0.0f};
+  samp_raknet_object_event *event = nullptr;
+
+  if (data == nullptr || bytes < kOpenMpAttachObjectToPlayerMinBytes) {
+    return false;
+  }
+  object_id = read_le16(data);
+  player_id = read_le16(data + 2U);
+  read_vec3(data + 4U, offset);
+  read_vec3(data + 16U, rot);
+  if (!object_id_valid(object_id) || !object_vec_plausible(offset) || !object_rot_plausible(rot)) {
+    trace_netf("object-decode: attach_player invalid object=%u player=%u bytes=%u offset=%.3f %.3f %.3f rot=%.3f %.3f %.3f",
+               static_cast<unsigned int>(object_id), static_cast<unsigned int>(player_id), bytes,
+               static_cast<double>(offset[0]), static_cast<double>(offset[1]), static_cast<double>(offset[2]),
+               static_cast<double>(rot[0]), static_cast<double>(rot[1]), static_cast<double>(rot[2]));
+    return false;
+  }
+
+  event = queue_object_event(SAMP_RAKNET_OBJECT_ACTION_ATTACH_PLAYER, object_id);
+  event->has_attachment = 1U;
+  event->attachment_type = SAMP_RAKNET_OBJECT_ATTACH_PLAYER;
+  event->attachment_parent_id = player_id;
+  event->attachment_sync_rotation = 1U;
+  std::memcpy(event->attachment_offset, offset, sizeof(event->attachment_offset));
+  std::memcpy(event->attachment_rot, rot, sizeof(event->attachment_rot));
+  trace_netf("object-decode: attach_player seq=%u object=%u player=%u offset=%.3f %.3f %.3f rot=%.3f %.3f %.3f",
+             event->seq, static_cast<unsigned int>(object_id), static_cast<unsigned int>(player_id),
+             static_cast<double>(offset[0]), static_cast<double>(offset[1]), static_cast<double>(offset[2]),
              static_cast<double>(rot[0]), static_cast<double>(rot[1]), static_cast<double>(rot[2]));
   return true;
 }
@@ -1518,7 +1606,7 @@ bool decode_put_player_in_vehicle_payload(const unsigned char *data, unsigned in
 }
 
 bool decode_init_game_payload(const unsigned char *data, unsigned int bytes) {
-  unsigned short spawns_available = 0;
+  unsigned int spawns_available = 0U;
   unsigned short local_player_id = 0;
   bool show_player_tags = false;
   bool show_player_markers = false;
@@ -1546,41 +1634,112 @@ bool decode_init_game_payload(const unsigned char *data, unsigned int bytes) {
   unsigned int vehicle_model_total = 0U;
   unsigned int top_vehicle_model = 400U;
   unsigned int top_vehicle_count = 0U;
+  const char *layout = "samp037";
 
   if (data == nullptr || bytes == 0U) {
     return false;
   }
 
-  RakNet::BitStream bs(const_cast<unsigned char *>(data), bytes, false);
+  {
+    bool manual_vehicle_engine_lights = false;
+    std::uint32_t spawn_info_count = 0U;
+    std::uint32_t player_markers = 0U;
+    std::uint32_t death_drop_amount = 0U;
+    std::uint32_t onfoot_rate = 0U;
+    std::uint32_t incar_rate = 0U;
+    std::uint32_t weapon_rate = 0U;
+    std::uint32_t multiplier = 0U;
+    std::uint32_t lag_compensation = 0U;
+    std::uint32_t vehicle_friendly_fire = 0U;
+    char openmp_hostname[SAMP_RAKNET_HOSTNAME_BYTES] = {0};
+    unsigned char openmp_vehicle_models[SAMP_RAKNET_REQUIRED_VEHICLE_MODELS] = {0};
+    RakNet::BitStream openmp_bs(const_cast<unsigned char *>(data), bytes, false);
 
-  if (!bs.Read(spawns_available) || !bs.Read(local_player_id) || !bs.Read(show_player_tags) ||
-      !bs.Read(show_player_markers) || !bs.Read(tire_popping) || !bs.Read(world_time) || !bs.Read(weather) ||
-      !bs.Read(gravity) || !bs.Read(lan_mode) || !bs.Read(death_drop_money) || !bs.Read(instagib) ||
-      !bs.Read(zone_names) || !bs.Read(use_cj_walk) || !bs.Read(allow_weapons) ||
-      !bs.Read(limit_global_chat_radius) || !bs.Read(global_chat_radius) || !bs.Read(stunt_bonus) ||
-      !bs.Read(name_tag_draw_distance) || !bs.Read(disable_enter_exits) || !bs.Read(name_tag_los)) {
-    return false;
-  }
-
-  for (unsigned int i = 0U; i < 6U; ++i) {
-    if (!bs.Read(send_rates[i])) {
-      return false;
+    /* OPENMP_REF + PROBE_TRACE:
+     * open.mp's RPC 139 PlayerInit layout starts with zone/CJ/interior/chat flags and
+     * sends SpawnInfoCount/PlayerID later. The 2026-06-10 bare run decoded with the
+     * old sequential order shifted every following field: player=33796, tags=0,
+     * nametag_dist=0, gravity garbage.
+     */
+    if (openmp_bs.Read(zone_names) && openmp_bs.Read(use_cj_walk) && openmp_bs.Read(allow_weapons) &&
+        openmp_bs.Read(limit_global_chat_radius) && openmp_bs.Read(global_chat_radius) &&
+        openmp_bs.Read(stunt_bonus) && openmp_bs.Read(name_tag_draw_distance) &&
+        openmp_bs.Read(disable_enter_exits) && openmp_bs.Read(name_tag_los) &&
+        openmp_bs.Read(manual_vehicle_engine_lights) && openmp_bs.Read(spawn_info_count) &&
+        openmp_bs.Read(local_player_id) && openmp_bs.Read(show_player_tags) && openmp_bs.Read(player_markers) &&
+        openmp_bs.Read(world_time) && openmp_bs.Read(weather) && openmp_bs.Read(gravity) &&
+        openmp_bs.Read(lan_mode) && openmp_bs.Read(death_drop_amount) && openmp_bs.Read(instagib) &&
+        openmp_bs.Read(onfoot_rate) && openmp_bs.Read(incar_rate) && openmp_bs.Read(weapon_rate) &&
+        openmp_bs.Read(multiplier) && openmp_bs.Read(lag_compensation) && openmp_bs.Read(hostname_len) &&
+        hostname_len < SAMP_RAKNET_HOSTNAME_BYTES &&
+        (hostname_len == 0U || openmp_bs.Read(openmp_hostname, static_cast<int>(hostname_len))) &&
+        openmp_bs.Read(reinterpret_cast<char *>(openmp_vehicle_models), SAMP_RAKNET_REQUIRED_VEHICLE_MODELS) &&
+        openmp_bs.Read(vehicle_friendly_fire) && spawn_info_count < 65536U &&
+        static_cast<unsigned int>(local_player_id) < SAMP_RAKNET_MAX_PLAYERS && world_time <= 23U &&
+        std::isfinite(gravity) && std::isfinite(global_chat_radius) && std::isfinite(name_tag_draw_distance) &&
+        gravity > -10.0f && gravity < 10.0f && global_chat_radius >= 0.0f &&
+        name_tag_draw_distance >= 0.0f && name_tag_draw_distance <= 10000.0f) {
+      spawns_available = spawn_info_count;
+      show_player_markers = player_markers != 0U;
+      death_drop_money = static_cast<std::int32_t>(death_drop_amount);
+      send_rates[0] = static_cast<std::int32_t>(onfoot_rate);
+      send_rates[1] = static_cast<std::int32_t>(onfoot_rate);
+      send_rates[2] = static_cast<std::int32_t>(incar_rate);
+      send_rates[3] = static_cast<std::int32_t>(incar_rate);
+      send_rates[4] = static_cast<std::int32_t>(weapon_rate);
+      send_rates[5] = static_cast<std::int32_t>(multiplier);
+      std::memcpy(hostname, openmp_hostname, sizeof(hostname));
+      std::memcpy(vehicle_models, openmp_vehicle_models, sizeof(vehicle_models));
+      layout = "openmp";
+      (void)manual_vehicle_engine_lights;
+      (void)lag_compensation;
+      (void)vehicle_friendly_fire;
     }
   }
 
-  if (!bs.Read(hostname_len)) {
-    return false;
-  }
-  if (hostname_len > 0U && !bs.Read(hostname, static_cast<int>(hostname_len))) {
-    return false;
+  if (std::strcmp(layout, "openmp") != 0) {
+    std::int32_t spawns_available_i = 0;
+    RakNet::BitStream bs(const_cast<unsigned char *>(data), bytes, false);
+
+    /* STATIC_037 + PROBE_TRACE:
+     * The sequential 0.3.7 client path reads the first field as NetGame's int
+     * spawn count. Keep this as a fallback for non-open.mp servers.
+     */
+    if (!bs.Read(spawns_available_i) || !bs.Read(local_player_id) || !bs.Read(show_player_tags) ||
+        !bs.Read(show_player_markers) || !bs.Read(tire_popping) || !bs.Read(world_time) || !bs.Read(weather) ||
+        !bs.Read(gravity) || !bs.Read(lan_mode) || !bs.Read(death_drop_money) || !bs.Read(instagib) ||
+        !bs.Read(zone_names) || !bs.Read(use_cj_walk) || !bs.Read(allow_weapons) ||
+        !bs.Read(limit_global_chat_radius) || !bs.Read(global_chat_radius) || !bs.Read(stunt_bonus) ||
+        !bs.Read(name_tag_draw_distance) || !bs.Read(disable_enter_exits) || !bs.Read(name_tag_los)) {
+      return false;
+    }
+
+    if (spawns_available_i < 0 || spawns_available_i >= 65536 || world_time > 23U || !std::isfinite(gravity) ||
+        !std::isfinite(global_chat_radius) || !std::isfinite(name_tag_draw_distance)) {
+      return false;
+    }
+    spawns_available = static_cast<unsigned int>(spawns_available_i);
+
+    for (unsigned int i = 0U; i < 6U; ++i) {
+      if (!bs.Read(send_rates[i])) {
+        return false;
+      }
+    }
+
+    if (!bs.Read(hostname_len) || hostname_len >= SAMP_RAKNET_HOSTNAME_BYTES) {
+      return false;
+    }
+    if (hostname_len > 0U && !bs.Read(hostname, static_cast<int>(hostname_len))) {
+      return false;
+    }
+
+    if (!bs.Read(reinterpret_cast<char *>(vehicle_models), SAMP_RAKNET_REQUIRED_VEHICLE_MODELS)) {
+      return false;
+    }
   }
   hostname[SAMP_RAKNET_HOSTNAME_BYTES - 1U] = '\0';
 
-  if (!bs.Read(reinterpret_cast<char *>(vehicle_models), SAMP_RAKNET_REQUIRED_VEHICLE_MODELS)) {
-    return false;
-  }
-
-  g_rpc_probe.init_spawns_available = spawns_available;
+  g_rpc_probe.init_spawns_available = static_cast<unsigned short>(spawns_available);
   g_rpc_probe.init_local_player_id = local_player_id;
   g_rpc_probe.init_show_player_tags = show_player_tags ? 1U : 0U;
   g_rpc_probe.init_show_player_markers = show_player_markers ? 1U : 0U;
@@ -1617,11 +1776,12 @@ bool decode_init_game_payload(const unsigned char *data, unsigned int bytes) {
     }
   }
 
-  trace_netf("rpc-state id=139 init_game spawns=%u local_player=%u tags=%u markers=%u tire=%u time=%u weather=%u "
+  trace_netf("rpc-state id=139 init_game layout=%s spawns=%u local_player=%u tags=%u markers=%u tire=%u "
+             "time=%u weather=%u "
              "gravity=%.6f lan=%u death_drop=%d instagib=%u zones=%u cj=%u weapons=%u chat_limit=%u "
              "chat_radius=%.3f stunt=%u nametag_dist=%.3f enter_exits_disabled=%u los=%u "
              "send_rates=%d/%d/%d/%d/%d/%d host='%s' veh_nonzero=%u veh_total=%u top_vehicle=%u:%u",
-             static_cast<unsigned int>(spawns_available), static_cast<unsigned int>(local_player_id),
+             layout, static_cast<unsigned int>(spawns_available), static_cast<unsigned int>(local_player_id),
              show_player_tags ? 1U : 0U, show_player_markers ? 1U : 0U, tire_popping ? 1U : 0U,
              static_cast<unsigned int>(world_time), static_cast<unsigned int>(weather), static_cast<double>(gravity),
              lan_mode ? 1U : 0U, static_cast<int>(death_drop_money), instagib ? 1U : 0U, zone_names ? 1U : 0U,
@@ -1911,6 +2071,23 @@ unsigned char decode_health_armour_nibble(unsigned char nibble) {
   return static_cast<unsigned char>(nibble * 7U);
 }
 
+float yaw_degrees_from_gta_quat(float w, float x, float y, float z) {
+  const float siny_cosp = 2.0f * ((w * z) + (x * y));
+  const float cosy_cosp = 1.0f - (2.0f * ((y * y) + (z * z)));
+  float yaw = std::atan2(siny_cosp, cosy_cosp) * kRadiansToDegrees;
+
+  if (!std::isfinite(yaw)) {
+    return 0.0f;
+  }
+  while (yaw < 0.0f) {
+    yaw += 360.0f;
+  }
+  while (yaw >= 360.0f) {
+    yaw -= 360.0f;
+  }
+  return yaw;
+}
+
 void queue_remote_onfoot_sync(const samp_raknet_remote_onfoot_sync *sync) {
   const unsigned int seq = bump_seq(&g_rpc_probe.remote_player_sync_seq);
   const unsigned int index = (seq - 1U) % SAMP_RAKNET_REMOTE_PLAYER_SYNC_RING;
@@ -1926,12 +2103,17 @@ void queue_remote_onfoot_sync(const samp_raknet_remote_onfoot_sync *sync) {
 bool decode_remote_onfoot_sync_packet(const unsigned char *data, unsigned int bytes) {
   unsigned char packet_id = 0U;
   unsigned char health_armour = 0U;
+  unsigned char weapon_additional = 0U;
   bool has_lr = false;
   bool has_ud = false;
-  bool has_move_x = false;
-  bool has_move_y = false;
-  bool has_move_z = false;
   bool has_surfing = false;
+  bool has_animation = false;
+  unsigned short animation_id = 0U;
+  unsigned short animation_flags = 0U;
+  float quat_w = 1.0f;
+  float quat_x = 0.0f;
+  float quat_y = 0.0f;
+  float quat_z = 0.0f;
   samp_raknet_remote_onfoot_sync sync;
   RakNet::BitStream bs(const_cast<unsigned char *>(data), bytes, false);
 
@@ -1943,9 +2125,13 @@ bool decode_remote_onfoot_sync_packet(const unsigned char *data, unsigned int by
   }
 
   /*
-   * STATIC_037 + OPENMP_REF + TODO_VERIFY:
-   * Server -> client on-foot sync is packet 207 plus a bit-packed remote-player payload. The old client stores
-   * it into ONFOOT_SYNC_DATA and marks the remote player UPDATE_TYPE_ONFOOT.
+   * OPENMP_REF + PROBE_TRACE + TODO_VERIFY:
+   * Server -> client on-foot sync is packet 207 plus the open.mp PlayerFootSync
+   * write layout: optional LR/UD keys, raw position, GTA quaternion, one
+   * compressed health/armour byte, weapon/additional-key byte, special action,
+   * compressed velocity, optional surfing and optional animation. The previous
+   * float-rotation/axis-flag decode shifted hp/armour/weapon/speed, visible as
+   * impossible remote sync traces like hp=0 armour=100 for a living player.
    */
   if (!bs.Read(has_lr)) {
     return false;
@@ -1960,29 +2146,16 @@ bool decode_remote_onfoot_sync_packet(const unsigned char *data, unsigned int by
     return false;
   }
   if (!bs.Read(sync.keys) || !bs.Read(reinterpret_cast<char *>(sync.position), static_cast<int>(sizeof(sync.position))) ||
-      !bs.Read(sync.rotation) || !bs.Read(health_armour) || !bs.Read(sync.current_weapon) ||
-      !bs.Read(sync.special_action)) {
+      !bs.ReadNormQuat(quat_w, quat_x, quat_y, quat_z) || !bs.Read(health_armour) ||
+      !bs.Read(weapon_additional) || !bs.Read(sync.special_action)) {
     return false;
   }
+  sync.rotation = yaw_degrees_from_gta_quat(quat_w, quat_x, quat_y, quat_z);
   sync.armour = decode_health_armour_nibble(static_cast<unsigned char>(health_armour & 0x0FU));
   sync.health = decode_health_armour_nibble(static_cast<unsigned char>(health_armour >> 4U));
+  sync.current_weapon = static_cast<unsigned char>(weapon_additional & 0x3FU);
 
-  if (!bs.Read(has_move_x)) {
-    return false;
-  }
-  if (has_move_x && !bs.Read(sync.move_speed[0])) {
-    return false;
-  }
-  if (!bs.Read(has_move_y)) {
-    return false;
-  }
-  if (has_move_y && !bs.Read(sync.move_speed[1])) {
-    return false;
-  }
-  if (!bs.Read(has_move_z)) {
-    return false;
-  }
-  if (has_move_z && !bs.Read(sync.move_speed[2])) {
+  if (!bs.ReadVector(sync.move_speed[0], sync.move_speed[1], sync.move_speed[2])) {
     return false;
   }
   if (!bs.Read(has_surfing)) {
@@ -1990,6 +2163,12 @@ bool decode_remote_onfoot_sync_packet(const unsigned char *data, unsigned int by
   }
   if (has_surfing && (!bs.Read(sync.surfing_vehicle_id) || !bs.Read(sync.surfing_offsets[0]) ||
                       !bs.Read(sync.surfing_offsets[1]) || !bs.Read(sync.surfing_offsets[2]))) {
+    return false;
+  }
+  if (!bs.Read(has_animation)) {
+    return false;
+  }
+  if (has_animation && (!bs.Read(animation_id) || !bs.Read(animation_flags))) {
     return false;
   }
 
@@ -2141,6 +2320,30 @@ bool decode_player_armed_weapon_payload(const unsigned char *data, unsigned int 
   g_rpc_probe.player_armed_weapon = weapon;
   const unsigned int seq = bump_seq(&g_rpc_probe.player_armed_weapon_seq);
   trace_netf("rpc-state id=67 armed_weapon_seq=%u weapon=%u apply_pending=1", seq, weapon);
+  return true;
+}
+
+bool decode_give_player_weapon_payload(const unsigned char *data, unsigned int bytes) {
+  if (data == nullptr || bytes < 8U) {
+    return false;
+  }
+  const unsigned int weapon = read_le32(data);
+  const unsigned int ammo = read_le32(data + 4U);
+  if (weapon > 255U || ammo > 1000000U) {
+    trace_netf("rpc-state id=22 invalid_give_weapon weapon=%u ammo=%u bytes=%u ignored=1", weapon, ammo, bytes);
+    return false;
+  }
+  g_rpc_probe.player_given_weapon = weapon;
+  g_rpc_probe.player_given_weapon_ammo = ammo;
+  const unsigned int give_seq = bump_seq(&g_rpc_probe.player_given_weapon_seq);
+  samp_raknet_given_weapon_event &event =
+      g_rpc_probe.player_given_weapon_events[(give_seq - 1U) % SAMP_RAKNET_GIVE_WEAPON_EVENT_RING];
+  event.seq = give_seq;
+  event.weapon = weapon;
+  event.ammo = ammo;
+  trace_netf("rpc-state id=22 give_weapon_seq=%u weapon=%u ammo=%u apply_pending=1 "
+             "evidence=OPENMP_REF,STATIC_037",
+             give_seq, weapon, ammo);
   return true;
 }
 
@@ -3778,7 +3981,9 @@ void rpc_observer(RakNet::RPCParameters *rpc_params, void *extra) {
       trace_netf("rpc-state id=47 object_destroy decode_failed bytes=%u", bytes);
     }
   } else if (rpc_id == 75U) {
-    trace_netf("rpc-state id=75 object_attach unsupported_yet=1 bytes=%u observe_only=1", bytes);
+    if (rpc_params == nullptr || !decode_object_attach_player_payload(rpc_params->input, bytes)) {
+      trace_netf("rpc-state id=75 object_attach_player decode_failed bytes=%u", bytes);
+    }
   } else if (rpc_id == 80U) {
     if (rpc_params == nullptr || !decode_show_name_tag_payload(rpc_params->input, bytes)) {
       trace_netf("rpc-state id=80 show_name_tag decode_failed bytes=%u", bytes);
@@ -3829,6 +4034,10 @@ void rpc_observer(RakNet::RPCParameters *rpc_params, void *extra) {
   } else if (rpc_id == 66U) {
     if (rpc_params == nullptr || !decode_player_armour_payload(rpc_params->input, bytes)) {
       trace_netf("rpc-state id=66 player_armour decode_failed bytes=%u", bytes);
+    }
+  } else if (rpc_id == 22U) {
+    if (rpc_params == nullptr || !decode_give_player_weapon_payload(rpc_params->input, bytes)) {
+      trace_netf("rpc-state id=22 give_player_weapon decode_failed bytes=%u", bytes);
     }
   } else if (rpc_id == 67U) {
     if (rpc_params == nullptr || !decode_player_armed_weapon_payload(rpc_params->input, bytes)) {
@@ -4461,10 +4670,117 @@ int samp_raknet_client_send_onfoot_sync(void *client, const samp_raknet_onfoot_s
              ->Send(&bs_send, RakNet::HIGH_PRIORITY, RakNet::UNRELIABLE_SEQUENCED, 0)
              ? 1
              : 0;
-  trace_netf("packet-user-out id=%u name=PlayerFootSync sent=%d pos=%.3f %.3f %.3f health=%u weapon=%u",
+  trace_netf("packet-user-out id=%u name=PlayerFootSync sent=%d pos=%.3f %.3f %.3f health=%u keys=0x%04x "
+             "lr=0x%04x ud=0x%04x weapon=%u q=%.5f %.5f %.5f %.5f anim=%d anim_flags=0x%04x",
              static_cast<unsigned int>(kPacketPlayerSync), sent, static_cast<double>(sync->position[0]),
              static_cast<double>(sync->position[1]), static_cast<double>(sync->position[2]),
-             static_cast<unsigned int>(sync->health), static_cast<unsigned int>(sync->current_weapon));
+             static_cast<unsigned int>(sync->health), static_cast<unsigned int>(sync->keys),
+             static_cast<unsigned int>(sync->left_right_keys), static_cast<unsigned int>(sync->up_down_keys),
+             static_cast<unsigned int>(sync->current_weapon), static_cast<double>(sync->quaternion[0]),
+             static_cast<double>(sync->quaternion[1]), static_cast<double>(sync->quaternion[2]),
+             static_cast<double>(sync->quaternion[3]),
+             static_cast<int>(sync->current_animation_id),
+             static_cast<unsigned int>(static_cast<std::uint16_t>(sync->animation_flags)));
+  return sent ? 0 : -2;
+}
+
+int samp_raknet_client_send_give_take_damage(void *client, uint8_t taking, uint16_t player_id, float damage,
+                                             uint32_t weapon_id, uint32_t bodypart) {
+  RakNet::BitStream bs_send;
+  int sent = 0;
+
+  if (client == nullptr || client != g_rpc_probe.client || damage < 0.0f) {
+    return -1;
+  }
+  if (bodypart < 3U || bodypart > 9U) {
+    return -1;
+  }
+
+  /*
+   * OPENMP_REF + TODO_VERIFY:
+   * open.mp's OnPlayerGiveTakeDamage RPC reader consumes one bit for Taking,
+   * then UINT16 player id, float damage, UINT32 weapon id and UINT32 bodypart.
+   */
+  bs_send.Write(taking != 0U);
+  bs_send.Write(static_cast<unsigned short>(player_id));
+  bs_send.Write(damage);
+  bs_send.Write(static_cast<unsigned int>(weapon_id));
+  bs_send.Write(static_cast<unsigned int>(bodypart));
+  sent = static_cast<RakNet::RakClientInterface *>(client)
+             ->RPC(kRpcGiveTakeDamage, &bs_send, RakNet::HIGH_PRIORITY, RakNet::RELIABLE, 0, false,
+                   RakNet::UNASSIGNED_NETWORK_ID, nullptr)
+             ? 1
+             : 0;
+  trace_netf(
+      "rpc-user-out id=115 name=GiveTakeDamage sent=%d taking=%u player=%u damage=%.3f weapon=%u bodypart=%u "
+      "evidence=OPENMP_REF,TODO_VERIFY",
+      sent, static_cast<unsigned int>(taking != 0U), static_cast<unsigned int>(player_id),
+      static_cast<double>(damage), static_cast<unsigned int>(weapon_id), static_cast<unsigned int>(bodypart));
+  return sent ? 0 : -2;
+}
+
+int samp_raknet_client_send_aim_sync(void *client, const samp_raknet_aim_sync *sync) {
+  RakNet::BitStream bs_send;
+  int sent = 0;
+
+  if (client == nullptr || client != g_rpc_probe.client || sync == nullptr) {
+    return -1;
+  }
+
+  /*
+   * OPENMP_REF + STATIC_037 + INFERRED:
+   * Client -> server aim sync is packet 203 followed by camMode, camera front,
+   * camera position, aimZ, packed zoom/weapon-state and aspect-ratio. The
+   * original local player path sends this as high-priority unreliable sequenced.
+   */
+  bs_send.Write(kPacketAimSync);
+  bs_send.Write(reinterpret_cast<const char *>(sync), static_cast<int>(sizeof(*sync)));
+  sent = static_cast<RakNet::RakClientInterface *>(client)
+             ->Send(&bs_send, RakNet::HIGH_PRIORITY, RakNet::UNRELIABLE_SEQUENCED, 0)
+             ? 1
+             : 0;
+  trace_netf("packet-user-out id=%u name=AimSync sent=%d mode=%u front=%.5f %.5f %.5f "
+             "pos=%.3f %.3f %.3f aim_z=%.5f zoom_state=0x%02x aspect=%u "
+             "evidence=OPENMP_REF,STATIC_037,INFERRED,TODO_VERIFY",
+             static_cast<unsigned int>(kPacketAimSync), sent, static_cast<unsigned int>(sync->camera_mode),
+             static_cast<double>(sync->camera_front[0]), static_cast<double>(sync->camera_front[1]),
+             static_cast<double>(sync->camera_front[2]), static_cast<double>(sync->camera_position[0]),
+             static_cast<double>(sync->camera_position[1]), static_cast<double>(sync->camera_position[2]),
+             static_cast<double>(sync->aim_z), static_cast<unsigned int>(sync->zoom_weapon_state),
+             static_cast<unsigned int>(sync->aspect_ratio));
+  return sent ? 0 : -2;
+}
+
+int samp_raknet_client_send_bullet_sync(void *client, const samp_raknet_bullet_sync *sync) {
+  RakNet::BitStream bs_send;
+  int sent = 0;
+
+  if (client == nullptr || client != g_rpc_probe.client || sync == nullptr) {
+    return -1;
+  }
+
+  /*
+   * OPENMP_REF + INFERRED + TODO_VERIFY:
+   * Bullet sync is packet 206 with hit type/id, origin, hit position, offset
+   * and weapon id. This lets open.mp fire OnPlayerWeaponShot for the local
+   * player while GiveTakeDamage remains the damage-RPC path.
+   */
+  bs_send.Write(kPacketBulletSync);
+  bs_send.Write(reinterpret_cast<const char *>(sync), static_cast<int>(sizeof(*sync)));
+  sent = static_cast<RakNet::RakClientInterface *>(client)
+             ->Send(&bs_send, RakNet::HIGH_PRIORITY, RakNet::UNRELIABLE_SEQUENCED, 0)
+             ? 1
+             : 0;
+  trace_netf("packet-user-out id=%u name=BulletSync sent=%d hit_type=%u hit_id=%u weapon=%u "
+             "origin=%.3f %.3f %.3f hit=%.3f %.3f %.3f offset=%.3f %.3f %.3f "
+             "evidence=OPENMP_REF,INFERRED,TODO_VERIFY",
+             static_cast<unsigned int>(kPacketBulletSync), sent, static_cast<unsigned int>(sync->hit_type),
+             static_cast<unsigned int>(sync->hit_id), static_cast<unsigned int>(sync->weapon_id),
+             static_cast<double>(sync->origin[0]), static_cast<double>(sync->origin[1]),
+             static_cast<double>(sync->origin[2]), static_cast<double>(sync->hit_position[0]),
+             static_cast<double>(sync->hit_position[1]), static_cast<double>(sync->hit_position[2]),
+             static_cast<double>(sync->offset[0]), static_cast<double>(sync->offset[1]),
+             static_cast<double>(sync->offset[2]));
   return sent ? 0 : -2;
 }
 
@@ -4570,7 +4886,8 @@ int samp_raknet_client_get_rpc_probe_snapshot(void *client, samp_raknet_rpc_prob
     flags |= SAMP_RAKNET_RPC_FLAG_CAMERA_BEHIND;
   }
   if (g_rpc_probe.player_armour_seq > 0U || g_rpc_probe.player_armed_weapon_seq > 0U ||
-      g_rpc_probe.reset_player_weapons_seq > 0U || g_rpc_probe.reset_player_money_seq > 0U ||
+      g_rpc_probe.player_given_weapon_seq > 0U || g_rpc_probe.reset_player_weapons_seq > 0U ||
+      g_rpc_probe.reset_player_money_seq > 0U ||
       g_rpc_probe.play_sound_seq > 0U || g_rpc_probe.stop_audio_stream_seq > 0U ||
       g_rpc_probe.player_color_seq > 0U || g_rpc_probe.player_team_seq > 0U ||
       g_rpc_probe.apply_animation_seq > 0U) {
@@ -4625,6 +4942,7 @@ int samp_raknet_client_get_rpc_probe_snapshot(void *client, samp_raknet_rpc_prob
   out_snapshot->remote_player_sync_count = 0U;
   out_snapshot->map_icon_event_count = 0U;
   out_snapshot->name_tag_event_count = 0U;
+  out_snapshot->given_weapon_event_count = 0U;
   out_snapshot->player_pool_event_count = 0U;
   out_snapshot->score_ping_count = 0U;
   out_snapshot->textdraw_select_active = g_rpc_probe.textdraw_select_active;
@@ -4673,6 +4991,7 @@ int samp_raknet_client_get_rpc_probe_snapshot(void *client, samp_raknet_rpc_prob
   out_snapshot->camera_behind_seq = g_rpc_probe.camera_behind_seq;
   out_snapshot->player_armour_seq = g_rpc_probe.player_armour_seq;
   out_snapshot->player_armed_weapon_seq = g_rpc_probe.player_armed_weapon_seq;
+  out_snapshot->player_given_weapon_seq = g_rpc_probe.player_given_weapon_seq;
   out_snapshot->reset_player_weapons_seq = g_rpc_probe.reset_player_weapons_seq;
   out_snapshot->reset_player_money_seq = g_rpc_probe.reset_player_money_seq;
   out_snapshot->play_sound_seq = g_rpc_probe.play_sound_seq;
@@ -4686,6 +5005,21 @@ int samp_raknet_client_get_rpc_probe_snapshot(void *client, samp_raknet_rpc_prob
   out_snapshot->player_controllable = g_rpc_probe.player_controllable;
   out_snapshot->player_armour = g_rpc_probe.player_armour;
   out_snapshot->player_armed_weapon = g_rpc_probe.player_armed_weapon;
+  out_snapshot->player_given_weapon = g_rpc_probe.player_given_weapon;
+  out_snapshot->player_given_weapon_ammo = g_rpc_probe.player_given_weapon_ammo;
+  if (g_rpc_probe.player_given_weapon_seq > 0U) {
+    const unsigned int available = g_rpc_probe.player_given_weapon_seq < SAMP_RAKNET_GIVE_WEAPON_EVENT_RING
+                                       ? g_rpc_probe.player_given_weapon_seq
+                                       : SAMP_RAKNET_GIVE_WEAPON_EVENT_RING;
+    const unsigned int first_seq = g_rpc_probe.player_given_weapon_seq - available + 1U;
+    for (unsigned int seq = first_seq; seq <= g_rpc_probe.player_given_weapon_seq; ++seq) {
+      const samp_raknet_given_weapon_event &event =
+          g_rpc_probe.player_given_weapon_events[(seq - 1U) % SAMP_RAKNET_GIVE_WEAPON_EVENT_RING];
+      if (event.seq == seq && out_snapshot->given_weapon_event_count < SAMP_RAKNET_GIVE_WEAPON_EVENT_RING) {
+        out_snapshot->given_weapon_events[out_snapshot->given_weapon_event_count++] = event;
+      }
+    }
+  }
   out_snapshot->play_sound_id = g_rpc_probe.play_sound_id;
   std::memcpy(out_snapshot->play_sound_pos, g_rpc_probe.play_sound_pos, sizeof(out_snapshot->play_sound_pos));
   out_snapshot->player_color_player_id = g_rpc_probe.player_color_player_id;
