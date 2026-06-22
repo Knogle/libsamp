@@ -167,6 +167,7 @@
 #define SAMP_ADDR_STREAMING_LOAD_SCENE 0x40EB70u
 #define SAMP_ADDR_STREAMING_LOAD_SCENE_COLLISION 0x40ED80u
 #define SAMP_ADDR_STREAMING_LOAD_CD_DIRECTORY 0x5B6170u
+#define SAMP_ADDR_STREAMING_MEMORY_LIMIT 0x5B8E6Au
 #define SAMP_ADDR_COLSTORE_ADD_COL_SLOT 0x411140u
 #define SAMP_ADDR_COLSTORE_LOAD_COL_BUFFER 0x4106D0u
 #define SAMP_ADDR_FILELOADER_LOAD_COLLISION_FIRST_TIME 0x5B5000u
@@ -273,6 +274,17 @@
 #define SAMP_ANIM_IDX_PED_WALK_PLAYER 1268
 #define SAMP_ANIM_IDX_PED_WALK_START 1271
 #define SAMP_ADDR_ENTRY_INFO_NODE_POOL_PTR 0xB7448Cu
+#define SAMP_ADDR_POOL_ENTRY_INFO_ALLOC 0x550FB9u
+#define SAMP_ADDR_POOL_VEHICLE_ALLOC 0x551024u
+#define SAMP_ADDR_POOL_PED_ALLOC_BYTE 0x550FF2u
+#define SAMP_ADDR_POOL_PED_INTELLIGENCE_ALLOC_BYTE 0x551283u
+#define SAMP_ADDR_POOL_OBJECT_ALLOC 0x551096u
+#define SAMP_ADDR_POOL_TASK_ALLOC_BYTE 0x551140u
+#define SAMP_ADDR_POOL_EVENT_ALLOC_BYTE 0x551178u
+#define SAMP_ADDR_POOL_MATRIX_ALLOC_BYTE 0x54F3A2u
+#define SAMP_ADDR_POOL_COLLISION_ALLOC 0x551106u
+#define SAMP_ADDR_POOL_VEHICLE_STRUCT_ALLOC 0x5B8FDEu
+#define SAMP_ADDR_POOL_BUILDING_ALLOC_BYTE 0x551060u
 #define SAMP_ADDR_HIGH_SPEED_MOTION_BLUR_PATCH 0x704E8Au
 #define SAMP_ADDR_PED_AUDIO_INIT 0x4E68D0u
 #define SAMP_ADDR_PLAYERPED_DONT_RESTORE_PLAYER_ANIMS 0x609A4Eu
@@ -478,10 +490,18 @@
 #define SAMP_OBJECT_COMPAT_CREATE_BUDGET 16u
 #define SAMP_OBJECT_COMPAT_CREATE_BUDGET_ENV "SAMPDLL_OBJECT_CREATE_BUDGET"
 #define SAMP_OBJECT_COMPAT_CREATE_BUDGET_MAX 64u
-#define SAMP_OBJECT_COMPAT_ACTIVE_SOFT_CAP 192
+#define SAMP_OBJECT_COMPAT_ACTIVE_SOFT_CAP SAMP_RAKNET_MAX_OBJECTS
 #define SAMP_OBJECT_COMPAT_ACTIVE_CAP_ENV "SAMPDLL_OBJECT_ACTIVE_CAP"
 #define SAMP_OBJECT_COMPAT_ACTIVE_CAP_MIN 64
-#define SAMP_OBJECT_COMPAT_ACTIVE_CAP_MAX 224
+#define SAMP_OBJECT_COMPAT_ACTIVE_CAP_MAX SAMP_RAKNET_MAX_OBJECTS
+#define SAMP_GTA_OBJECT_POOL_SIZE_ENV "SAMPDLL_GTA_OBJECT_POOL_SIZE"
+#define SAMP_GTA_OBJECT_POOL_SIZE_DEFAULT SAMP_RAKNET_MAX_OBJECTS
+#define SAMP_GTA_OBJECT_POOL_SIZE_MIN 350u
+#define SAMP_GTA_OBJECT_POOL_SIZE_MAX SAMP_RAKNET_MAX_OBJECTS
+#define SAMP_ENTRY_INFO_POOL_SIZE_ENV "SAMPDLL_ENTRY_INFO_POOL_SIZE"
+#define SAMP_ENTRY_INFO_POOL_SIZE_DEFAULT 8192u
+#define SAMP_ENTRY_INFO_POOL_SIZE_MIN 2048u
+#define SAMP_ENTRY_INFO_POOL_SIZE_MAX 32768u
 #define SAMP_OBJECT_COMPAT_RECREATE_DELAY_MS 100u
 #define SAMP_OBJECT_COMPAT_POST_SPAWN_HOLD_MS 1500u
 #define SAMP_OBJECT_COMPAT_BACKPRESSURE_LOG_INTERVAL_MS 2000u
@@ -2256,12 +2276,12 @@ static void dialog_compat_set_mouse_mode(int enabled) {
   int i = 0;
 
   if (enabled) {
-    visible_cursor_recenter_patch_apply_compat("dialog_mouse_enable");
     if (InterlockedExchange(&g_runtime.dialog_mouse_mode, 1) != 0) {
       SetCursor(LoadCursorA(NULL, IDC_ARROW));
       return;
     }
 
+    visible_cursor_recenter_patch_apply_compat("dialog_mouse_enable");
     hwnd = read_game_hwnd_compat();
     if (hwnd != NULL && GetCursorPos(&cursor) && ScreenToClient(hwnd, &cursor)) {
       mouse_x = cursor.x;
@@ -2322,7 +2342,7 @@ static void ui_compat_release_game_mouse(const char *reason) {
    * mouse-look remains inert until GTA's pause menu toggles focus/cursor state.
    * Keep this scoped to spawn handoff and delayed post-spawn restore so dialog
    * and textdraw select mode can still own the cursor while active.
-   */
+  */
   InterlockedExchange(&g_runtime.dialog_mouse_down, 0);
   center_hwnd_cursor_compat(hwnd);
   visible_cursor_recenter_patch_restore_compat(reason != NULL ? reason : "game_mouse_release");
@@ -2349,7 +2369,8 @@ static void ui_compat_release_game_mouse(const char *reason) {
 }
 
 static void dialog_compat_close(void) {
-  if (InterlockedCompareExchange(&g_runtime.textdraw_select_active, 0, 0) == 0) {
+  if (InterlockedCompareExchange(&g_runtime.textdraw_select_active, 0, 0) == 0 &&
+      InterlockedCompareExchange(&g_runtime.class_selection_mouse_mode, 0, 0) == 0) {
     dialog_compat_set_mouse_mode(0);
   }
   InterlockedExchange(&g_runtime.dialog_overlay_active, 0);
@@ -2969,6 +2990,16 @@ static uint32_t object_compat_create_budget(void) {
                                SAMP_OBJECT_COMPAT_CREATE_BUDGET_MAX);
 }
 
+static uint32_t gta_entry_info_pool_size_compat(void) {
+  return object_compat_env_u32(SAMP_ENTRY_INFO_POOL_SIZE_ENV, SAMP_ENTRY_INFO_POOL_SIZE_DEFAULT,
+                               SAMP_ENTRY_INFO_POOL_SIZE_MIN, SAMP_ENTRY_INFO_POOL_SIZE_MAX);
+}
+
+static uint32_t gta_object_pool_size_compat(void) {
+  return object_compat_env_u32(SAMP_GTA_OBJECT_POOL_SIZE_ENV, SAMP_GTA_OBJECT_POOL_SIZE_DEFAULT,
+                               SAMP_GTA_OBJECT_POOL_SIZE_MIN, SAMP_GTA_OBJECT_POOL_SIZE_MAX);
+}
+
 static int object_compat_recreate_delay_elapsed(uint16_t object_id, DWORD now) {
   DWORD destroyed_at = 0u;
 
@@ -3385,11 +3416,10 @@ static int object_compat_apply_pending_slot(uint16_t object_id, samp_object_slot
   active = object_compat_active_count();
   pending = InterlockedCompareExchange(&g_runtime.object_pending_count, 0, 0);
   if (active >= cap) {
-    /* PROBE_TRACE + INFERRED + TODO_VERIFY:
-     * Earlier replacement runs crashed near this pool-pressure area, while later proxy
-     * runs survived 128 active objects and still had visible pending server objects.
-     * Keep the server object state pending and make the soft cap configurable while
-     * we validate the real 0.3.7 streaming/object-pool behaviour.
+    /* OPENMP_REF + PROBE_TRACE + INFERRED + TODO_VERIFY:
+     * Object stream-in/out is server-authoritative. This cap is not a client
+     * distance streamer; it only guards the protocol slot range and can be
+     * lowered by env for crash triage.
      */
     object_compat_log_backpressure(active, pending, "active_soft_cap");
     return 0;
@@ -8629,14 +8659,16 @@ static void textdraw_compat_clear_select_mode(const char *reason) {
   LONG was_down = InterlockedExchange(&g_runtime.textdraw_mouse_down, 0);
   LONG mouse_mode = InterlockedCompareExchange(&g_runtime.dialog_mouse_mode, 0, 0);
   int dialog_active = dialog_compat_active();
+  int class_selection_mouse_mode = InterlockedCompareExchange(&g_runtime.class_selection_mouse_mode, 0, 0) != 0;
 
-  if (!dialog_active && (was_select != 0 || was_down != 0 || mouse_mode != 0)) {
+  if (!dialog_active && !class_selection_mouse_mode && (was_select != 0 || was_down != 0 || mouse_mode != 0)) {
     dialog_compat_set_mouse_mode(0);
   }
-  if (was_select != 0 || was_down != 0 || (!dialog_active && mouse_mode != 0)) {
-    runtime_tracef("textdraw: select mode cleared reason=%s active=%ld mouse_down=%ld dialog=%d mouse_mode=%ld",
+  if (was_select != 0 || was_down != 0 || (!dialog_active && !class_selection_mouse_mode && mouse_mode != 0)) {
+    runtime_tracef("textdraw: select mode cleared reason=%s active=%ld mouse_down=%ld dialog=%d class_mouse=%d "
+                   "mouse_mode=%ld",
                    reason != NULL ? reason : "unknown", (long)was_select, (long)was_down, dialog_active,
-                   (long)mouse_mode);
+                   class_selection_mouse_mode, (long)mouse_mode);
   }
 }
 
@@ -8764,8 +8796,6 @@ static void class_selection_compat_update_mouse_mode(void) {
     if (InterlockedExchange(&g_runtime.class_selection_mouse_mode, 1) == 0) {
       dialog_compat_set_mouse_mode(1);
       runtime_tracef("class_selection: mouse mode enabled evidence=INFERRED");
-    } else {
-      dialog_compat_set_mouse_mode(1);
     }
     return;
   }
@@ -12064,6 +12094,22 @@ static void write_game_u8(uintptr_t addr, uint8_t value) {
   *(volatile uint8_t *)(uintptr_t)addr = value;
 }
 
+static uint8_t gta_apply_disable_enter_exits_compat(int disable_enter_exits, const char *reason) {
+  /*
+   * STATIC_037:
+   * InitGame only touches GTA's enter/exit byte when the server-side
+   * DisableInteriorEnterExits flag is set. When the flag is clear, the
+   * original path leaves GTA's current state alone.
+   */
+  if (disable_enter_exits != 0) {
+    write_game_u8(SAMP_ADDR_ENTER_EXITS, 0u);
+  }
+  runtime_tracef("enter_exits: disabled=%d touched=%d gta_byte=%u reason=%s evidence=STATIC_037,PROBE_TRACE",
+                 disable_enter_exits != 0 ? 1 : 0, disable_enter_exits != 0 ? 1 : 0,
+                 (unsigned)read_game_u8(SAMP_ADDR_ENTER_EXITS), reason != NULL ? reason : "unknown");
+  return read_game_u8(SAMP_ADDR_ENTER_EXITS);
+}
+
 static void write_game_float_compat(uintptr_t addr, float value) {
   memcpy((void *)(uintptr_t)addr, &value, sizeof(value));
 }
@@ -12236,6 +12282,53 @@ static int patch_copy(uintptr_t addr, const void *src, size_t size) {
   FlushInstructionCache(GetCurrentProcess(), (LPCVOID)addr, size);
   (void)VirtualProtect((LPVOID)addr, size, old_protect, &old_protect_restore);
   return 1;
+}
+
+static int patch_copy_expected_first_byte(uintptr_t addr, const void *src, size_t size, uint8_t expected_first,
+                                          const char *label) {
+  uint8_t before = 0u;
+  int applied = 0;
+
+  if (addr == 0u || src == NULL || size == 0u || label == NULL) {
+    return 0;
+  }
+
+  before = read_game_u8(addr);
+  if (before != expected_first && before != ((const uint8_t *)src)[0]) {
+    runtime_tracef("pool_patch: skip label=%s addr=0x%08lx expected=0x%02x before=0x%02x "
+                   "evidence=INFERRED,TODO_VERIFY",
+                   label, (unsigned long)addr, (unsigned)expected_first, (unsigned)before);
+    return 0;
+  }
+
+  applied = patch_copy(addr, src, size);
+  runtime_tracef("pool_patch: %s label=%s addr=0x%08lx size=%lu before=0x%02x after=0x%02x "
+                 "evidence=INFERRED,GTA_REVERSED_REF,TODO_VERIFY",
+                 applied ? "apply" : "failed", label, (unsigned long)addr, (unsigned long)size,
+                 (unsigned)before, (unsigned)read_game_u8(addr));
+  return applied;
+}
+
+static int patch_push_imm32_expected_opcode(uintptr_t addr, uint32_t value, uint8_t expected_opcode,
+                                            const char *label) {
+  uint8_t patch[5] = {0x68u, 0x00u, 0x00u, 0x00u, 0x00u};
+  uint32_t patched_value = 0u;
+  int applied = 0;
+
+  if (label == NULL) {
+    return 0;
+  }
+
+  memcpy(&patch[1], &value, sizeof(value));
+  applied = patch_copy_expected_first_byte(addr, patch, sizeof(patch), expected_opcode, label);
+  if (memory_is_readable_compat((const void *)(uintptr_t)(addr + 1u), sizeof(patched_value))) {
+    memcpy(&patched_value, (const void *)(uintptr_t)(addr + 1u), sizeof(patched_value));
+  }
+  runtime_tracef("pool_patch: push_imm32 label=%s requested=%lu patched=%lu applied=%d "
+                 "opcode=0x%02x evidence=INFERRED,GTA_REVERSED_REF,TODO_VERIFY",
+                 label, (unsigned long)value, (unsigned long)patched_value, applied,
+                 (unsigned)read_game_u8(addr));
+  return applied;
 }
 
 static int game_pointer_plausible_compat(uintptr_t ptr) {
@@ -13256,6 +13349,13 @@ static void apply_pregame_compat_patches_once(void) {
     runtime_tracef("pregame_patch: loading_screen string patch skipped/failed");
   }
 
+  {
+    uint32_t streaming_memory = 134217728u;
+    int streaming_memory_applied = patch_write_u32(SAMP_ADDR_STREAMING_MEMORY_LIMIT, streaming_memory);
+    runtime_tracef("pregame_patch: streaming_memory limit=%lu applied=%d evidence=INFERRED,TODO_VERIFY",
+                   (unsigned long)streaming_memory, streaming_memory_applied);
+  }
+
   if (usa_probe == 0x89u) {
     InterlockedExchange(&g_runtime.gta_version, SAMP_GTA_VERSION_USA10);
     (void)patch_nop(SAMP_ADDR_BYPASS_VIDS_USA10, 6u);
@@ -13284,6 +13384,11 @@ static void apply_ingame_compat_patches_once(void) {
   const uint8_t no_ped_patch[3] = {0x33u, 0xC0u, 0xC3u};
   const uint8_t drown_vehicle_patch[3] = {0xB0u, 0x00u, 0x90u};
   const uint8_t return_true_patch[5] = {0xB0u, 0x01u, 0x90u, 0x90u, 0x90u};
+  const uint8_t vehicle_pool_patch[7] = {0x6Au, 0x00u, 0x68u, 0xC6u, 0x02u, 0x00u, 0x00u};
+  const uint8_t collision_pool_patch[5] = {0x68u, 0xFFu, 0x7Eu, 0x00u, 0x00u};
+  const uint8_t vehicle_struct_pool_patch[7] = {0x6Au, 0x00u, 0x68u, 0x7Fu, 0x00u, 0x00u, 0x00u};
+  const uint32_t entry_info_pool_size = gta_entry_info_pool_size_compat();
+  const uint32_t object_pool_size = gta_object_pool_size_compat();
   unsigned long applied = 0;
   unsigned long total = 0;
 
@@ -13298,6 +13403,36 @@ static void apply_ingame_compat_patches_once(void) {
       ++applied;                                                                                                      \
     }                                                                                                                 \
   } while (0)
+
+  /*
+   * INFERRED + GTA_REVERSED_REF + TODO_VERIFY:
+   * Entity-heavy MP scenes need GTA's CPools sized closer to an MP-compatible
+   * client before we start feeding streamed vehicles and objects into
+   * CPhysical::Add. The crash at 0x00544bc8 with EntryInfoNodePool size=500/top=0
+   * points at world-sector entry node exhaustion rather than DFF/TXD streaming
+   * memory. Keep this as a normal 32-bit GTA pool: every CWorld consumer stores
+   * raw in-process node pointers, so 48-bit handles or compressed backing memory
+   * cannot be introduced here without rewriting all sector/entity list users.
+   */
+  SAMP_APPLY_PATCH(patch_push_imm32_expected_opcode(SAMP_ADDR_POOL_ENTRY_INFO_ALLOC, entry_info_pool_size,
+                                                    0x68u, "entry_info_pool"));
+  SAMP_APPLY_PATCH(
+      patch_push_imm32_expected_opcode(SAMP_ADDR_POOL_OBJECT_ALLOC, object_pool_size, 0x68u, "object_pool"));
+  SAMP_APPLY_PATCH(
+      patch_copy_expected_first_byte(SAMP_ADDR_POOL_VEHICLE_ALLOC, vehicle_pool_patch, sizeof(vehicle_pool_patch),
+                                     0x68u, "vehicle_pool_710"));
+  SAMP_APPLY_PATCH(patch_write_u8(SAMP_ADDR_POOL_PED_ALLOC_BYTE, 210u));
+  SAMP_APPLY_PATCH(patch_write_u8(SAMP_ADDR_POOL_PED_INTELLIGENCE_ALLOC_BYTE, 210u));
+  SAMP_APPLY_PATCH(patch_write_u8(SAMP_ADDR_POOL_TASK_ALLOC_BYTE, 0x05u));
+  SAMP_APPLY_PATCH(patch_write_u8(SAMP_ADDR_POOL_EVENT_ALLOC_BYTE, 0x01u));
+  SAMP_APPLY_PATCH(patch_write_u8(SAMP_ADDR_POOL_MATRIX_ALLOC_BYTE, 0x10u));
+  SAMP_APPLY_PATCH(
+      patch_copy_expected_first_byte(SAMP_ADDR_POOL_COLLISION_ALLOC, collision_pool_patch,
+                                     sizeof(collision_pool_patch), 0x68u, "collision_pool_32511"));
+  SAMP_APPLY_PATCH(patch_copy_expected_first_byte(SAMP_ADDR_POOL_VEHICLE_STRUCT_ALLOC,
+                                                  vehicle_struct_pool_patch, sizeof(vehicle_struct_pool_patch),
+                                                  0x6Au, "vehicle_struct_pool_127"));
+  SAMP_APPLY_PATCH(patch_write_u8(SAMP_ADDR_POOL_BUILDING_ALLOC_BYTE, 0x42u));
 
   SAMP_APPLY_PATCH(patch_nop(SAMP_ADDR_PROC_GEOMETRY_PATCH, 5u));
   SAMP_APPLY_PATCH(patch_nop(SAMP_ADDR_REPLAY_PROCESS_PATCH, 5u));
@@ -13363,13 +13498,31 @@ static void apply_ingame_compat_patches_once(void) {
 #undef SAMP_APPLY_PATCH
 
   runtime_tracef("ingame_patch: story suppression applied=%lu/%lu msg_print=0x%02x script_gate=0x%02x%02x "
-                 "cursor_hide=0x%02x cursor_flag=%u rs_mouse_set_pos=0x%02x evidence=INFERRED,TODO_VERIFY",
+                 "cursor_hide=0x%02x cursor_flag=%u rs_mouse_set_pos=0x%02x "
+                 "pool_entry_info_opcode=0x%02x pool_entry_info_target=%lu "
+                 "pool_object_opcode=0x%02x pool_object_target=%lu pool_vehicle=0x%02x "
+                 "pool_ped=%u pool_ped_intel=%u pool_task=0x%02x pool_event=0x%02x "
+                 "pool_matrix=0x%02x pool_collision=0x%02x pool_vehicle_struct=0x%02x pool_building=0x%02x "
+                 "evidence=INFERRED,TODO_VERIFY",
                  applied, total, (unsigned)read_game_u8(SAMP_ADDR_MESSAGE_PRINT),
                  (unsigned)read_game_u8(SAMP_ADDR_SCRIPT_PROCESS_GATE),
                  (unsigned)read_game_u8(SAMP_ADDR_SCRIPT_PROCESS_GATE2),
                  (unsigned)read_game_u8(SAMP_ADDR_CURSOR_HIDE_LOOP),
                  (unsigned)read_game_u8(SAMP_ADDR_CURSOR_ENABLE_FLAG),
-                 (unsigned)read_game_u8(SAMP_ADDR_RS_MOUSE_SET_POS));
+                 (unsigned)read_game_u8(SAMP_ADDR_RS_MOUSE_SET_POS),
+                 (unsigned)read_game_u8(SAMP_ADDR_POOL_ENTRY_INFO_ALLOC),
+                 (unsigned long)entry_info_pool_size,
+                 (unsigned)read_game_u8(SAMP_ADDR_POOL_OBJECT_ALLOC),
+                 (unsigned long)object_pool_size,
+                 (unsigned)read_game_u8(SAMP_ADDR_POOL_VEHICLE_ALLOC),
+                 (unsigned)read_game_u8(SAMP_ADDR_POOL_PED_ALLOC_BYTE),
+                 (unsigned)read_game_u8(SAMP_ADDR_POOL_PED_INTELLIGENCE_ALLOC_BYTE),
+                 (unsigned)read_game_u8(SAMP_ADDR_POOL_TASK_ALLOC_BYTE),
+                 (unsigned)read_game_u8(SAMP_ADDR_POOL_EVENT_ALLOC_BYTE),
+                 (unsigned)read_game_u8(SAMP_ADDR_POOL_MATRIX_ALLOC_BYTE),
+                 (unsigned)read_game_u8(SAMP_ADDR_POOL_COLLISION_ALLOC),
+                 (unsigned)read_game_u8(SAMP_ADDR_POOL_VEHICLE_STRUCT_ALLOC),
+                 (unsigned)read_game_u8(SAMP_ADDR_POOL_BUILDING_ALLOC_BYTE));
 }
 
 static void clamp_launch_startgame_flags(void) {
@@ -13635,6 +13788,8 @@ static void apply_raknet_init_game_settings_compat(const samp_raknet_rpc_probe_s
   int gravity_fallback = 0;
   float gravity_to_apply = SAMP_GTA_DEFAULT_GRAVITY;
   int stunt_applied = 0;
+  uint8_t enter_exits_gta_byte = 1u;
+  unsigned int enter_exits_touched = 0u;
   unsigned int vehicle_total = 0u;
   unsigned int top_vehicle_model = 400u;
   unsigned int top_vehicle_count = 0u;
@@ -13703,9 +13858,9 @@ static void apply_raknet_init_game_settings_compat(const samp_raknet_rpc_probe_s
 
   stunt_value = (DWORD)(snapshot->init_stunt_bonus ? 1u : 0u);
   stunt_applied = patch_copy(SAMP_ADDR_STUNT_BONUS, &stunt_value, sizeof(stunt_value));
-  if (snapshot->init_disable_enter_exits != 0u) {
-    write_game_u8(SAMP_ADDR_ENTER_EXITS, 0u);
-  }
+  enter_exits_touched = snapshot->init_disable_enter_exits != 0u ? 1u : 0u;
+  enter_exits_gta_byte =
+      gta_apply_disable_enter_exits_compat(snapshot->init_disable_enter_exits != 0u, "init_game_disable_enter_exits");
 
   vehicle_nonzero =
       count_required_vehicle_models_compat(snapshot->init_vehicle_models, &vehicle_total, &top_vehicle_model,
@@ -13713,7 +13868,8 @@ static void apply_raknet_init_game_settings_compat(const samp_raknet_rpc_probe_s
 
   runtime_tracef("init_game_apply: spawns=%u local_player=%u host='%.64s' time=%u weather=%u gravity=%.6f "
                  "gravity_applied=%d gravity_fallback=%d gravity_effective=%.6f lan=%u death_drop=%ld stunt=%u "
-                 "stunt_applied=%d enter_exits_disabled=%u tags=%u markers=%u "
+                 "stunt_applied=%d enter_exits_disabled=%u enter_exits_touched=%u enter_exits_gta_byte=%u "
+                 "tags=%u markers=%u "
                  "nametag_dist=%.3f chat_radius=%.3f send_rates=%ld/%ld/%ld/%ld/%ld/%ld "
                  "vehicle_models_nonzero=%u vehicle_total=%u top_vehicle=%u:%u",
                  (unsigned)snapshot->init_spawns_available, (unsigned)snapshot->init_local_player_id,
@@ -13721,8 +13877,8 @@ static void apply_raknet_init_game_settings_compat(const samp_raknet_rpc_probe_s
                  (double)snapshot->init_gravity, gravity_applied, gravity_fallback, (double)gravity_to_apply,
                  (unsigned)snapshot->init_lan_mode, (long)snapshot->init_death_drop_money,
                  (unsigned)snapshot->init_stunt_bonus, stunt_applied, (unsigned)snapshot->init_disable_enter_exits,
-                 (unsigned)snapshot->init_show_player_tags, (unsigned)snapshot->init_show_player_markers,
-                 (double)snapshot->init_name_tag_draw_distance,
+                 enter_exits_touched, (unsigned)enter_exits_gta_byte, (unsigned)snapshot->init_show_player_tags,
+                 (unsigned)snapshot->init_show_player_markers, (double)snapshot->init_name_tag_draw_distance,
                  (double)snapshot->init_global_chat_radius, (long)snapshot->init_send_rates[0],
                  (long)snapshot->init_send_rates[1], (long)snapshot->init_send_rates[2],
                  (long)snapshot->init_send_rates[3], (long)snapshot->init_send_rates[4],

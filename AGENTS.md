@@ -100,6 +100,10 @@ Example:
 * Probe logs are primary evidence.
 * Keep original-DLL and replacement-DLL runs comparable.
 * Normalize pointers, module bases, timestamps, and random values before diffing.
+* Local replacement-DLL test runs should use the Lutris/Wine prefix at
+  `/home/chairman/Games/san-andreas-multiplayer-legacy-libsamp`.
+  Deploy `build-win32/samp.dll` to that prefix's GTA San Andreas directory
+  unless a task explicitly names another prefix.
 * Document important scenarios as golden traces:
 
   * Load/Init
