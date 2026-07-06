@@ -152,6 +152,7 @@ typedef struct samp_raknet_join_profile {
 #define SAMP_RAKNET_DIALOG_INPUT_BYTES 256u
 #define SAMP_RAKNET_TEXTDRAW_EVENT_RING 64u
 #define SAMP_RAKNET_TEXTDRAW_TEXT_BYTES 256u
+#define SAMP_RAKNET_GAMETEXT_TEXT_BYTES 512u
 #define SAMP_RAKNET_MAX_TEXTDRAWS 4096u
 #define SAMP_RAKNET_TEXTDRAW_ACTION_SHOW 1u
 #define SAMP_RAKNET_TEXTDRAW_ACTION_HIDE 2u
@@ -406,6 +407,9 @@ typedef struct samp_raknet_rpc_probe_snapshot {
   uint32_t world_visual_event_seq;
   uint32_t player_pool_event_seq;
   uint32_t score_ping_seq;
+  uint32_t game_text_seq;
+  int32_t game_text_style;
+  int32_t game_text_time_ms;
   uint8_t player_controllable;
   float player_armour;
   uint32_t player_armed_weapon;
@@ -456,6 +460,7 @@ typedef struct samp_raknet_rpc_probe_snapshot {
   float spawn_rotation;
   int32_t spawn_weapons[3];
   int32_t spawn_weapon_ammo[3];
+  char game_text[SAMP_RAKNET_GAMETEXT_TEXT_BYTES];
   samp_raknet_client_message_probe client_messages[SAMP_RAKNET_CLIENT_MESSAGE_RING];
   samp_raknet_textdraw_event textdraw_events[SAMP_RAKNET_TEXTDRAW_EVENT_RING];
   samp_raknet_object_event object_events[SAMP_RAKNET_OBJECT_EVENT_RING];

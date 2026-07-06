@@ -12,6 +12,8 @@
 #define PROBE_FILE_HOOKS_FLAG "samp_probe_file_hooks.flag"
 #define PROBE_SAMP_CODE_HOOKS_FLAG "samp_probe_samp_code_hooks.flag"
 #define PROBE_GTA_ASSET_HOOKS_FLAG "samp_probe_gta_asset_hooks.flag"
+#define PROBE_TEXTDRAW_HOOKS_FLAG "samp_probe_textdraw_hooks.flag"
+#define PROBE_TEXTDRAW_VERBOSE_FLAG "samp_probe_textdraw_verbose.flag"
 #define PROBE_MAX_IMPORT_LOGS 4096
 #define PROBE_WATCH_INTERVAL_MS 250
 #define PROBE_WAIT_FOR_SAMP_MS 30000
@@ -75,6 +77,12 @@ typedef void(__cdecl *probe_gta_load_cd_directory_fn)(const char *, int);
 typedef int(__cdecl *probe_gta_col_add_slot_fn)(const char *);
 typedef int(__cdecl *probe_gta_col_load_buffer_fn)(int, void *, int);
 typedef void(PROBE_THISCALL *probe_gta_physical_add_fn)(void *);
+typedef void(__cdecl *probe_gta_font_set_scale_fn)(float, float);
+typedef void(__cdecl *probe_gta_font_set_color_fn)(DWORD);
+typedef void(__cdecl *probe_gta_font_set_int_fn)(int);
+typedef void(__cdecl *probe_gta_font_set_float_fn)(float);
+typedef void(__cdecl *probe_gta_font_use_box_fn)(int, int);
+typedef void(__cdecl *probe_gta_font_print_string_fn)(float, float, char *);
 
 typedef struct probe_iat_hook {
   const char *dll_name;
@@ -207,15 +215,32 @@ static void *g_orig_gta_load_cd_directory;
 static void *g_orig_gta_col_add_slot;
 static void *g_orig_gta_col_load_buffer;
 static void *g_orig_gta_physical_add;
+static void *g_orig_gta_font_set_scale;
+static void *g_orig_gta_font_set_color;
+static void *g_orig_gta_font_set_style;
+static void *g_orig_gta_font_set_line_width;
+static void *g_orig_gta_font_set_line_height;
+static void *g_orig_gta_font_set_drop_color;
+static void *g_orig_gta_font_set_shadow;
+static void *g_orig_gta_font_set_outline;
+static void *g_orig_gta_font_set_proportional;
+static void *g_orig_gta_font_use_box;
+static void *g_orig_gta_font_use_box_color;
+static void *g_orig_gta_font_unk12;
+static void *g_orig_gta_font_set_justify;
+static void *g_orig_gta_font_print_string;
 static probe_WSAGetLastError_fn g_WSAGetLastError_ptr;
 static probe_asset_handle g_asset_handles[PROBE_ASSET_HANDLE_SLOTS];
 static PROBE_THREAD_LOCAL int g_file_hook_depth;
+static LONG g_textdraw_font_call_count;
 
 static int env_or_flag_enabled(const char *env_name, const char *flag_name);
 static int asset_path_hooks_enabled(void);
 static int asset_read_hooks_enabled(void);
 static int samp_code_hooks_enabled(void);
 static int gta_asset_hooks_enabled(void);
+static int textdraw_hooks_enabled(void);
+static int textdraw_verbose_enabled(void);
 static LONG CALLBACK probe_exception_handler(PEXCEPTION_POINTERS info);
 static int WINAPI hook_WSAStartup(WORD version, LPWSADATA data);
 static int WINAPI hook_WSACleanup(void);
@@ -260,6 +285,20 @@ static void __cdecl hook_gta_load_cd_directory(const char *path, int image_id);
 static int __cdecl hook_gta_col_add_slot(const char *name);
 static int __cdecl hook_gta_col_load_buffer(int slot, void *buffer, int size);
 static void PROBE_THISCALL hook_gta_physical_add(void *entity);
+static void __cdecl hook_gta_font_set_scale(float x, float y);
+static void __cdecl hook_gta_font_set_color(DWORD color);
+static void __cdecl hook_gta_font_set_style(int style);
+static void __cdecl hook_gta_font_set_line_width(float width);
+static void __cdecl hook_gta_font_set_line_height(float height);
+static void __cdecl hook_gta_font_set_drop_color(DWORD color);
+static void __cdecl hook_gta_font_set_shadow(int shadow);
+static void __cdecl hook_gta_font_set_outline(int outline);
+static void __cdecl hook_gta_font_set_proportional(int proportional);
+static void __cdecl hook_gta_font_use_box(int use, int unk);
+static void __cdecl hook_gta_font_use_box_color(DWORD color);
+static void __cdecl hook_gta_font_unk12(int value);
+static void __cdecl hook_gta_font_set_justify(int justify);
+static void __cdecl hook_gta_font_print_string(float x, float y, char *text);
 
 static probe_iat_hook g_hooks[] = {
     {"WSOCK32.dll", "WSAStartup", 115, (void *)hook_WSAStartup, &g_orig_WSAStartup, 0},
@@ -392,6 +431,47 @@ static probe_code_hook g_gta_asset_code_hooks[] = {
      {0}, 0, NULL, NULL, {0}, 0, 0},
     {"gta.CPhysical.Add", 0x00544a30u, (void *)hook_gta_physical_add, &g_orig_gta_physical_add,
      {0x64, 0xa1, 0x00, 0x00, 0x00, 0x00}, 6, NULL, NULL, {0}, 0, 0},
+};
+
+static probe_code_hook g_gta_textdraw_code_hooks[] = {
+    /* GTA_REVERSED_REF + TODO_VERIFY:
+     * Trace-only CFont hooks for GTA SA 1.0 US in the local libsamp prefix.
+     * gta_sa.exe SHA256=a559aa772fd136379155efa71f00c47aad34bbfeae6196b0fe1047d0645cbd26.
+     * These hooks log only SAMP caller RVAs by default and stay opt-in. */
+    {"gta.CFont.SetScale", 0x00719380u, (void *)hook_gta_font_set_scale, &g_orig_gta_font_set_scale,
+     {0x8b, 0x44, 0x24, 0x04, 0x8b, 0x4c, 0x24, 0x08}, 8, NULL, NULL, {0}, 0, 0},
+    {"gta.CFont.SetColor", 0x00719430u, (void *)hook_gta_font_set_color, &g_orig_gta_font_set_color,
+     {0xd9, 0x05, 0x80, 0x1a, 0xc7, 0x00}, 6, NULL, NULL, {0}, 0, 0},
+    {"gta.CFont.SetFontStyle", 0x00719490u, (void *)hook_gta_font_set_style, &g_orig_gta_font_set_style,
+     {0x8a, 0x4c, 0x24, 0x04, 0x0f, 0xb6, 0xc1}, 7, NULL, NULL, {0}, 0, 0},
+    {"gta.CFont.SetLineWidth", 0x007194d0u, (void *)hook_gta_font_set_line_width,
+     &g_orig_gta_font_set_line_width, {0x8b, 0x44, 0x24, 0x04, 0xa3, 0x88, 0x1a, 0xc7}, 8, NULL,
+     NULL, {0}, 0, 0},
+    {"gta.CFont.SetLineHeight", 0x007194e0u, (void *)hook_gta_font_set_line_height,
+     &g_orig_gta_font_set_line_height, {0x8b, 0x44, 0x24, 0x04, 0xa3, 0x8c, 0x1a, 0xc7}, 8, NULL,
+     NULL, {0}, 0, 0},
+    {"gta.CFont.SetDropColor", 0x00719510u, (void *)hook_gta_font_set_drop_color,
+     &g_orig_gta_font_set_drop_color, {0x8b, 0x44, 0x24, 0x04, 0xd9, 0x05, 0x80, 0x1a}, 8, NULL,
+     NULL, {0}, 0, 0},
+    {"gta.CFont.SetShadow", 0x00719570u, (void *)hook_gta_font_set_shadow, &g_orig_gta_font_set_shadow,
+     {0x32, 0xc0, 0xa2, 0x9b, 0x1a, 0xc7, 0x00}, 7, NULL, NULL, {0}, 0, 0},
+    {"gta.CFont.SetOutline", 0x00719590u, (void *)hook_gta_font_set_outline, &g_orig_gta_font_set_outline,
+     {0x8a, 0x44, 0x24, 0x04, 0xc6, 0x05, 0x96, 0x1a}, 8, NULL, NULL, {0}, 0, 0},
+    {"gta.CFont.SetProportional", 0x007195b0u, (void *)hook_gta_font_set_proportional,
+     &g_orig_gta_font_set_proportional, {0x8a, 0x44, 0x24, 0x04, 0xa2, 0x7d, 0x1a, 0xc7}, 8, NULL,
+     NULL, {0}, 0, 0},
+    {"gta.CFont.UseBox", 0x007195c0u, (void *)hook_gta_font_use_box, &g_orig_gta_font_use_box,
+     {0x8a, 0x44, 0x24, 0x04, 0x8a, 0x4c, 0x24, 0x08}, 8, NULL, NULL, {0}, 0, 0},
+    {"gta.CFont.UseBoxColor", 0x007195e0u, (void *)hook_gta_font_use_box_color,
+     &g_orig_gta_font_use_box_color, {0x8b, 0x44, 0x24, 0x04, 0xa2, 0x84, 0x1a, 0xc7}, 8, NULL,
+     NULL, {0}, 0, 0},
+    {"gta.CFont.UnknownState", 0x00719600u, (void *)hook_gta_font_unk12, &g_orig_gta_font_unk12,
+     {0x8a, 0x44, 0x24, 0x04, 0xa2, 0x78, 0x1a, 0xc7}, 8, NULL, NULL, {0}, 0, 0},
+    {"gta.CFont.SetJustify", 0x00719610u, (void *)hook_gta_font_set_justify, &g_orig_gta_font_set_justify,
+     {0x0f, 0xb6, 0x44, 0x24, 0x04, 0x33, 0xc9}, 7, NULL, NULL, {0}, 0, 0},
+    {"gta.CFont.PrintString", 0x0071a700u, (void *)hook_gta_font_print_string,
+     &g_orig_gta_font_print_string, {0x83, 0xec, 0x10, 0x53, 0x8b, 0x5c, 0x24, 0x20}, 8, NULL,
+     NULL, {0}, 0, 0},
 };
 
 static void probe_log(const char *fmt, ...) {
@@ -613,6 +693,17 @@ static int gta_asset_hooks_enabled(void) {
    * short original-vs-rebuild custom-object traces because they sit on hot asset
    * loading paths and must not become part of normal gameplay runs. */
   return env_or_flag_enabled("SAMP_PROBE_GTA_ASSET_HOOKS", PROBE_GTA_ASSET_HOOKS_FLAG);
+}
+
+static int textdraw_hooks_enabled(void) {
+  /* GTA_REVERSED_REF + TODO_VERIFY:
+   * Optional CFont hooks are for focused 0.3.7 textdraw traces only. They are
+   * noisy on render paths, so normal probe runs leave them disabled. */
+  return env_or_flag_enabled("SAMP_PROBE_TEXTDRAW_HOOKS", PROBE_TEXTDRAW_HOOKS_FLAG);
+}
+
+static int textdraw_verbose_enabled(void) {
+  return env_or_flag_enabled("SAMP_PROBE_TEXTDRAW_VERBOSE", PROBE_TEXTDRAW_VERBOSE_FLAG);
 }
 
 PROBE_ALWAYS_INLINE void *probe_return_address(void) {
@@ -1401,17 +1492,20 @@ static size_t x86_instruction_length(const BYTE *code) {
   if (op == 0x6a) {
     return pos + 1;
   }
-  if (op == 0x68 || (op >= 0xb8 && op <= 0xbf) || op == 0xa1 || op == 0xa3) {
+  if (op == 0x68 || (op >= 0xb8 && op <= 0xbf) || op == 0xa1 || op == 0xa2 || op == 0xa3) {
     return pos + 4;
   }
   if (op == 0xe8 || op == 0xe9 || op == 0xeb) {
     return 0;
   }
-  if (op == 0x8b || op == 0x89 || op == 0x8d || op == 0x85 || op == 0x3b || op == 0x33 || op == 0x31 ||
-      op == 0x39 || op == 0x8f || op == 0xff) {
+  if (op == 0x8b || op == 0x8a || op == 0x89 || op == 0x88 || op == 0x8d || op == 0x85 || op == 0x3b ||
+      op == 0x33 || op == 0x32 || op == 0x31 || op == 0x2b || op == 0x39 || op == 0x8f || op == 0xff) {
     return pos + modrm_extra_length(code, pos);
   }
   if (op == 0x80 || op == 0x82 || op == 0x83) {
+    return pos + modrm_extra_length(code, pos) + 1;
+  }
+  if (op == 0xc6) {
     return pos + modrm_extra_length(code, pos) + 1;
   }
   if (op == 0x81 || op == 0xc7) {
@@ -1422,6 +1516,9 @@ static size_t x86_instruction_length(const BYTE *code) {
     if (op2 >= 0x80 && op2 <= 0x8f) {
       return 0;
     }
+    return pos + modrm_extra_length(code, pos);
+  }
+  if (op >= 0xd8 && op <= 0xdf) {
     return pos + modrm_extra_length(code, pos);
   }
 
@@ -1855,6 +1952,29 @@ static int install_gta_asset_code_hooks(int log_summary) {
   return installed;
 }
 
+static int install_gta_textdraw_code_hooks(int log_summary) {
+  size_t i;
+  int installed = 0;
+
+  if (!textdraw_hooks_enabled()) {
+    if (log_summary) {
+      probe_log("textdraw_code_hook: disabled by default; enable with SAMP_PROBE_TEXTDRAW_HOOKS=1 or %s",
+                PROBE_TEXTDRAW_HOOKS_FLAG);
+    }
+    return 0;
+  }
+
+  for (i = 0; i < sizeof(g_gta_textdraw_code_hooks) / sizeof(g_gta_textdraw_code_hooks[0]); ++i) {
+    installed += install_absolute_code_hook(&g_gta_textdraw_code_hooks[i]);
+  }
+
+  if (log_summary) {
+    probe_log("textdraw_code_hook: summary installed=%d requested=%u", installed,
+              (unsigned)(sizeof(g_gta_textdraw_code_hooks) / sizeof(g_gta_textdraw_code_hooks[0])));
+  }
+  return installed;
+}
+
 static int rva_is_sane(PIMAGE_NT_HEADERS nt, DWORD rva, DWORD min_size) {
   return rva != 0 && rva + min_size >= rva && rva + min_size <= nt->OptionalHeader.SizeOfImage;
 }
@@ -2079,8 +2199,10 @@ static DWORD WINAPI probe_worker(LPVOID param) {
 
   init_log_path();
   probe_log("probe: attached build=%s %s", __DATE__, __TIME__);
-  probe_log("probe: options asset_path_hooks=%d asset_read_hooks=%d samp_code_hooks=%d gta_asset_hooks=%d",
-            asset_path_hooks_enabled(), asset_read_hooks_enabled(), samp_code_hooks_enabled(), gta_asset_hooks_enabled());
+  probe_log("probe: options asset_path_hooks=%d asset_read_hooks=%d samp_code_hooks=%d gta_asset_hooks=%d "
+            "textdraw_hooks=%d textdraw_verbose=%d",
+            asset_path_hooks_enabled(), asset_read_hooks_enabled(), samp_code_hooks_enabled(), gta_asset_hooks_enabled(),
+            textdraw_hooks_enabled(), textdraw_verbose_enabled());
 
   start_ms = GetTickCount();
   while (WaitForSingleObject(g_stop_event, 50) == WAIT_TIMEOUT) {
@@ -2122,6 +2244,7 @@ static DWORD WINAPI probe_worker(LPVOID param) {
     install_iat_hooks(nt, 1);
     install_inline_hooks(1);
     install_samp_code_hooks(1);
+    install_gta_textdraw_code_hooks(1);
     install_gta_asset_code_hooks(1);
   }
 
@@ -2132,6 +2255,7 @@ static DWORD WINAPI probe_worker(LPVOID param) {
       (void)install_iat_hooks(nt, 0);
       (void)install_inline_hooks(0);
       (void)install_samp_code_hooks(0);
+      (void)install_gta_textdraw_code_hooks(0);
       (void)install_gta_asset_code_hooks(0);
     }
     sample_watchpoints();
@@ -2200,6 +2324,195 @@ static void WINAPI hook_samp_process_network_packet(unsigned long binary_address
 
   if (g_orig_samp_process_network_packet != NULL) {
     ((probe_samp_process_network_packet_fn)g_orig_samp_process_network_packet)(binary_address, port, data, len, rak_peer);
+  }
+}
+
+static int should_log_textdraw_font_call(void *caller, LONG count) {
+  if (!address_in_samp(caller) && !env_flag_enabled("SAMP_PROBE_TEXTDRAW_LOG_ALL_FONT")) {
+    return 0;
+  }
+  if (textdraw_verbose_enabled()) {
+    return 1;
+  }
+  return should_log_call(count);
+}
+
+static void log_textdraw_font_call(void *caller, LONG count, const char *name, const char *detail) {
+  if (!should_log_textdraw_font_call(caller, count)) {
+    return;
+  }
+  probe_log("textdraw_font: seq=%ld caller=%p caller_samp_rva=0x%08lx name=%s %s",
+            (long)count, caller, samp_rva_from_address(caller), name != NULL ? name : "unknown",
+            detail != NULL ? detail : "");
+}
+
+static void __cdecl hook_gta_font_set_scale(float x, float y) {
+  void *caller = probe_return_address();
+  LONG n = next_call_count(&g_textdraw_font_call_count);
+  char detail[96];
+
+  snprintf(detail, sizeof(detail), "x=%.6f y=%.6f", x, y);
+  log_textdraw_font_call(caller, n, "CFont.SetScale", detail);
+  if (g_orig_gta_font_set_scale != NULL) {
+    ((probe_gta_font_set_scale_fn)g_orig_gta_font_set_scale)(x, y);
+  }
+}
+
+static void __cdecl hook_gta_font_set_color(DWORD color) {
+  void *caller = probe_return_address();
+  LONG n = next_call_count(&g_textdraw_font_call_count);
+  char detail[64];
+
+  snprintf(detail, sizeof(detail), "color=0x%08lx", (unsigned long)color);
+  log_textdraw_font_call(caller, n, "CFont.SetColor", detail);
+  if (g_orig_gta_font_set_color != NULL) {
+    ((probe_gta_font_set_color_fn)g_orig_gta_font_set_color)(color);
+  }
+}
+
+static void __cdecl hook_gta_font_set_style(int style) {
+  void *caller = probe_return_address();
+  LONG n = next_call_count(&g_textdraw_font_call_count);
+  char detail[64];
+
+  snprintf(detail, sizeof(detail), "style=%d", style);
+  log_textdraw_font_call(caller, n, "CFont.SetFontStyle", detail);
+  if (g_orig_gta_font_set_style != NULL) {
+    ((probe_gta_font_set_int_fn)g_orig_gta_font_set_style)(style);
+  }
+}
+
+static void __cdecl hook_gta_font_set_line_width(float width) {
+  void *caller = probe_return_address();
+  LONG n = next_call_count(&g_textdraw_font_call_count);
+  char detail[64];
+
+  snprintf(detail, sizeof(detail), "width=%.6f", width);
+  log_textdraw_font_call(caller, n, "CFont.SetLineWidth", detail);
+  if (g_orig_gta_font_set_line_width != NULL) {
+    ((probe_gta_font_set_float_fn)g_orig_gta_font_set_line_width)(width);
+  }
+}
+
+static void __cdecl hook_gta_font_set_line_height(float height) {
+  void *caller = probe_return_address();
+  LONG n = next_call_count(&g_textdraw_font_call_count);
+  char detail[64];
+
+  snprintf(detail, sizeof(detail), "height=%.6f", height);
+  log_textdraw_font_call(caller, n, "CFont.SetLineHeight", detail);
+  if (g_orig_gta_font_set_line_height != NULL) {
+    ((probe_gta_font_set_float_fn)g_orig_gta_font_set_line_height)(height);
+  }
+}
+
+static void __cdecl hook_gta_font_set_drop_color(DWORD color) {
+  void *caller = probe_return_address();
+  LONG n = next_call_count(&g_textdraw_font_call_count);
+  char detail[64];
+
+  snprintf(detail, sizeof(detail), "color=0x%08lx", (unsigned long)color);
+  log_textdraw_font_call(caller, n, "CFont.SetDropColor", detail);
+  if (g_orig_gta_font_set_drop_color != NULL) {
+    ((probe_gta_font_set_color_fn)g_orig_gta_font_set_drop_color)(color);
+  }
+}
+
+static void __cdecl hook_gta_font_set_shadow(int shadow) {
+  void *caller = probe_return_address();
+  LONG n = next_call_count(&g_textdraw_font_call_count);
+  char detail[64];
+
+  snprintf(detail, sizeof(detail), "shadow=%d", shadow);
+  log_textdraw_font_call(caller, n, "CFont.SetShadow", detail);
+  if (g_orig_gta_font_set_shadow != NULL) {
+    ((probe_gta_font_set_int_fn)g_orig_gta_font_set_shadow)(shadow);
+  }
+}
+
+static void __cdecl hook_gta_font_set_outline(int outline) {
+  void *caller = probe_return_address();
+  LONG n = next_call_count(&g_textdraw_font_call_count);
+  char detail[64];
+
+  snprintf(detail, sizeof(detail), "outline=%d", outline);
+  log_textdraw_font_call(caller, n, "CFont.SetOutline", detail);
+  if (g_orig_gta_font_set_outline != NULL) {
+    ((probe_gta_font_set_int_fn)g_orig_gta_font_set_outline)(outline);
+  }
+}
+
+static void __cdecl hook_gta_font_set_proportional(int proportional) {
+  void *caller = probe_return_address();
+  LONG n = next_call_count(&g_textdraw_font_call_count);
+  char detail[64];
+
+  snprintf(detail, sizeof(detail), "proportional=%d", proportional);
+  log_textdraw_font_call(caller, n, "CFont.SetProportional", detail);
+  if (g_orig_gta_font_set_proportional != NULL) {
+    ((probe_gta_font_set_int_fn)g_orig_gta_font_set_proportional)(proportional);
+  }
+}
+
+static void __cdecl hook_gta_font_use_box(int use, int unk) {
+  void *caller = probe_return_address();
+  LONG n = next_call_count(&g_textdraw_font_call_count);
+  char detail[80];
+
+  snprintf(detail, sizeof(detail), "use=%d unk=%d", use, unk);
+  log_textdraw_font_call(caller, n, "CFont.UseBox", detail);
+  if (g_orig_gta_font_use_box != NULL) {
+    ((probe_gta_font_use_box_fn)g_orig_gta_font_use_box)(use, unk);
+  }
+}
+
+static void __cdecl hook_gta_font_use_box_color(DWORD color) {
+  void *caller = probe_return_address();
+  LONG n = next_call_count(&g_textdraw_font_call_count);
+  char detail[64];
+
+  snprintf(detail, sizeof(detail), "color=0x%08lx", (unsigned long)color);
+  log_textdraw_font_call(caller, n, "CFont.UseBoxColor", detail);
+  if (g_orig_gta_font_use_box_color != NULL) {
+    ((probe_gta_font_set_color_fn)g_orig_gta_font_use_box_color)(color);
+  }
+}
+
+static void __cdecl hook_gta_font_unk12(int value) {
+  void *caller = probe_return_address();
+  LONG n = next_call_count(&g_textdraw_font_call_count);
+  char detail[64];
+
+  snprintf(detail, sizeof(detail), "value=%d", value);
+  log_textdraw_font_call(caller, n, "CFont.UnknownState", detail);
+  if (g_orig_gta_font_unk12 != NULL) {
+    ((probe_gta_font_set_int_fn)g_orig_gta_font_unk12)(value);
+  }
+}
+
+static void __cdecl hook_gta_font_set_justify(int justify) {
+  void *caller = probe_return_address();
+  LONG n = next_call_count(&g_textdraw_font_call_count);
+  char detail[64];
+
+  snprintf(detail, sizeof(detail), "justify=%d", justify);
+  log_textdraw_font_call(caller, n, "CFont.SetJustify", detail);
+  if (g_orig_gta_font_set_justify != NULL) {
+    ((probe_gta_font_set_int_fn)g_orig_gta_font_set_justify)(justify);
+  }
+}
+
+static void __cdecl hook_gta_font_print_string(float x, float y, char *text) {
+  void *caller = probe_return_address();
+  LONG n = next_call_count(&g_textdraw_font_call_count);
+  char safe_text[192];
+  char detail[320];
+
+  safe_cstr_or(text, safe_text, sizeof(safe_text), "(null)");
+  snprintf(detail, sizeof(detail), "x=%.6f y=%.6f text='%s'", x, y, safe_text);
+  log_textdraw_font_call(caller, n, "CFont.PrintString", detail);
+  if (g_orig_gta_font_print_string != NULL) {
+    ((probe_gta_font_print_string_fn)g_orig_gta_font_print_string)(x, y, text);
   }
 }
 

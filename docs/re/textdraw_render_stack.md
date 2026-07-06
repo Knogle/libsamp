@@ -33,10 +33,15 @@ Current replacement equivalent:
 
 ## Render Order
 
-`STATIC_037` + `GTA_REVERSED_REF` + `TODO_VERIFY`: original-DLL RE and
-gta-reversed both point to GTA `CFont` as the correct text path for normal
-textdraw text and background boxes. The replacement keeps a D3DX fallback for
-preview-model placeholders and unverified edge cases.
+`OBSERVED_037` + `PROBE_TRACE` + `GTA_REVERSED_REF`: the original 0.3.7 DLL
+routes normal textdraw text and boxes through GTA `CFont`.
+
+Trace: `analysis/generated/textdraw_probe_037_verbose_20260706`, original
+`samp.dll` SHA256=`b72b5dbe725f81864ca3f78bc7063bda56cc05fc7188af822fa7a754432553a2`,
+GTA SA exe SHA256=`a559aa772fd136379155efa71f00c47aad34bbfeae6196b0fe1047d0645cbd26`.
+
+The replacement keeps a D3DX fallback for preview-model placeholders and
+unverified edge cases.
 
 Important GTA addresses:
 
@@ -55,18 +60,23 @@ Important GTA addresses:
 - `0x719610`: justification/orientation state
 - `0x71A700`: `CFont::PrintString`
 
-Current call sequence:
+Observed normal textdraw call sequence:
 
 1. set scale from script-space letter size and HUD scale
 2. set letter color
-3. set justification/orientation from left/center/right flags
-4. set wrap/centre size from line width/height
-5. set background box and box color
-6. set proportional flag
-7. set drop color, outline or shadow
-8. set font style
-9. print at script-space converted to screen-space
-10. reset outline/shadow
+3. set unknown font state to `0`
+4. set justification/orientation from left/center/right flags
+5. set wrap/centre size from line width/height
+6. set background box and box color
+7. set proportional flag
+8. set drop color
+9. set outline when `outline != 0`, otherwise set shadow
+10. set font style
+11. print at script-space converted to screen-space
+12. reset outline to `0`
+
+`OBSERVED_037`: the traced stack does not issue a matching `SetShadow(0)` after
+`PrintString`.
 
 ## String Conversion Risk
 
@@ -75,24 +85,96 @@ Current call sequence:
 converter. `STATIC_037` + `TODO_VERIFY`: the original-DLL text conversion thunk
 near `0x69DE90` still needs a focused call-convention trace.
 
-`INFERRED`: directly calling either helper from our overlay path can corrupt the
-stack or jump through an invalid output buffer. Until `OBSERVED_037` proves the
-exact call convention and buffer contract, the replacement normalizes underscores
-locally and leaves GTA conversion helpers disabled.
+`OBSERVED_037` + `PROBE_TRACE`: original `PrintString` input keeps SAMP
+color/newline tokens such as `~r~`, `~g~`, and `~n~`, while underscores are
+visible as spaces and `~k~~VEHICLE_ENTER_EXIT~` becomes the key name.
 
 ## Implementation Plan
 
 Stable default path:
 
-- use GTA `CFont` for normal textdraw text and background boxes when enabled
-- keep D3DX fallback for preview-model placeholders and hit-tests
-- use local SAMP tag stripping and `_` to space conversion
+- keep D3DX as the default replacement draw path for now
+- keep GTA `CFont` as an opt-in experiment for normal textdraw text and
+  background boxes until it is moved out of the EndScene overlay
+- preserve SAMP color/newline tags on the GTA `CFont` path and normalize `_` to
+  spaces before `PrintString`
 - treat preview-model textdraws as placeholders until their render path is
   implemented separately
+
+Crash note:
+
+`PROBE_TRACE` + `TODO_VERIFY`: the 2026-07-06 libsamp replacement EndScene
+CFont run crashed immediately after the first successful
+`textdraw_gta_font: drawing enabled` line with
+`exception_filter: code=0xc0000005 ip=0x00000000`. The later GameProcess CFont
+run also reached the first TD00 draw log and then faulted at `ip=0`, which
+points more strongly at stack cleanup/calling-convention drift than malformed
+textdraw state. An `esp`-neutral wrapper alone did not change that fingerprint,
+and the stack/register-neutral 2026-07-06 22:34 run still faulted at the same
+point. The replacement now also passes a persistent slot buffer to `PrintString`
+and keeps the GTA control-key converter opt-in while its 0.3.7 contract is
+`TODO_VERIFY`. The path stays opt-in until its ABI and render phase are
+verified against 0.3.7.
+
+`OBSERVED_037` + `PROBE_TRACE`: with the GTA converter disabled, the screenshot
+comparison `sa-mp-000.png` vs. `sa-mp-020.png` still requires local expansion
+of `~k~~VEHICLE_ENTER_EXIT~` to `RETURN` before `CFont::PrintString`; otherwise
+TD08 renders a placeholder glyph instead of the key name.
+
+D3DX fallback note:
+
+`PROBE_TRACE` + `INFERRED`: the 2026-07-06 screenshot comparison
+`sa-mp-000.png` original vs. `sa-mp-016.png` replacement confirms the fallback
+is not visually 1:1: glyphs are too thin/small, outline/shadow are too weak,
+and GTA control-key tokens need local expansion. Runtime fallback adjustments
+may improve comparison screenshots, but they are not proof of original-DLL
+behavior and must not replace the GTA `CFont` render path.
+
+Experimental replacement CFont path:
+
+`STATIC_037` + `PROBE_TRACE` + `TODO_VERIFY`: prefer
+`SAMP_TEXTDRAW_GTA_FONT_GAMEPROCESS=1`. The replacement draws from the
+GameProcess hook phase with a register-preserving generated stub. The GTA
+`CFont` calls in this mode are stack- and register-neutral on i386 so a
+callee/caller cleanup mismatch or unexpected caller-register clobber cannot
+drift the C callback while the original ABI is still `TODO_VERIFY`.
+
+Preferred local configuration is `sampdll.ini` beside `samp.dll`:
+
+```ini
+[sampdll]
+SAMPDLL_GRAPHICS_HOOK_POST_CALLBACK=0
+SAMP_TEXTDRAW_GTA_FONT_GAMEPROCESS=1
+SAMP_TEXTDRAW_GTA_FONT_CONVERT=0
+SAMP_TEXTDRAW_GTA_FONT_GRAPHICS=0
+SAMP_TEXTDRAW_GTA_FONT=0
+```
+
+Avoid using `SAMPDLL_GRAPHICS_HOOK_POST_CALLBACK=1` with
+`SAMP_TEXTDRAW_GTA_FONT_GRAPHICS=1` for normal testing. That route calls CFont
+from the graphics callback after the original target returns and crashed in the
+2026-07-06 libsamp run at `ip=0`.
+
+Stable fallback configuration while the CFont render phase is still
+`TODO_VERIFY`:
+
+```ini
+[sampdll]
+SAMP_TEXTDRAW_GTA_FONT_GAMEPROCESS=0
+SAMP_TEXTDRAW_GTA_FONT_CONVERT=0
+SAMPDLL_GRAPHICS_HOOK_POST_CALLBACK=0
+SAMP_TEXTDRAW_GTA_FONT_GRAPHICS=0
+SAMP_TEXTDRAW_GTA_FONT=0
+```
+
+Flag lookup order is `sampdll.ini`, process environment, Wine prefix registry,
+then the compiled default. This makes per-prefix test configuration auditable
+even when Wine turns registry environment values into process variables.
 
 Open verification tasks:
 
 - capture a focused original-DLL trace for textdraw background color alpha
+- verify the GameProcess-hook CFont path against the 0.3.7 original screenshots
 - verify `CFont` setter order for centered/right-aligned textdraws
 - validate preview-model textdraw object/material ownership
 - verify click/select hit-test bounds against original 0.3.7 behavior

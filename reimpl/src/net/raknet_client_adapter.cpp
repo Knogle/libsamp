@@ -283,6 +283,10 @@ struct RpcProbeState {
   unsigned int score_ping_seq;
   unsigned int score_ping_count;
   samp_raknet_score_ping_entry score_ping_entries[SAMP_RAKNET_SCORE_PING_MAX_ENTRIES];
+  unsigned int game_text_seq;
+  std::int32_t game_text_style;
+  std::int32_t game_text_time_ms;
+  char game_text[SAMP_RAKNET_GAMETEXT_TEXT_BYTES];
   RakNet::RakNetTime class_selection_ready_time;
   RakNet::RakNetTime last_request_class_time;
   RakNet::RakNetTime next_request_spawn_time;
@@ -507,7 +511,7 @@ const RpcMeta kRpcMeta[] = {
     {70U, "ScrPutPlayerInVehicle", kRpcLocalImplemented, "PROBE_TRACE,STATIC_037,TODO_VERIFY"},
     {71U, "ScrRemovePlayerFromVehicle", kRpcLocalDummy, "STATIC_037"},
     {72U, "ScrSetPlayerColor", kRpcLocalDecoded, "OPENMP_REF"},
-    {73U, "ScrDisplayGameText", kRpcLocalDummy, "STATIC_037"},
+    {73U, "ScrDisplayGameText", kRpcLocalImplemented, "STATIC_037,OPENMP_REF,TODO_VERIFY"},
     {74U, "ScrForceClassSelection", kRpcLocalDummy, "STATIC_037"},
     {75U, "ScrAttachObjectToPlayer", kRpcLocalDecoded, "PROBE_TRACE"},
     {76U, "ScrInitMenu", kRpcLocalDummy, "STATIC_037"},
@@ -887,6 +891,10 @@ void reset_rpc_probe_runtime(RakNet::RakClientInterface *client) {
   g_rpc_probe.apply_animation_seq = 0U;
   g_rpc_probe.world_visual_event_seq = 0U;
   g_rpc_probe.client_check_response_count = 0U;
+  g_rpc_probe.game_text_seq = 0U;
+  g_rpc_probe.game_text_style = 0;
+  g_rpc_probe.game_text_time_ms = 0;
+  g_rpc_probe.game_text[0] = '\0';
   g_rpc_probe.player_controllable = 1U;
   g_rpc_probe.player_armour = 0.0f;
   g_rpc_probe.player_armed_weapon = 0U;
@@ -3005,6 +3013,60 @@ bool decode_textdraw_edit_payload(const unsigned char *data, unsigned int bytes)
   return true;
 }
 
+bool decode_game_text_payload(const unsigned char *data, unsigned int bytes) {
+  std::int32_t style = 0;
+  std::int32_t time_ms = 0;
+  std::int32_t text_len = 0;
+  unsigned int copy_len = 0U;
+
+  if (data == nullptr || bytes < 12U) {
+    return false;
+  }
+
+  /*
+   * STATIC_037 + OPENMP_REF + TODO_VERIFY:
+   * ScrDisplayGameText is serialized as int style, int display time, int text
+   * length, then raw text bytes. Keep the local renderer isolated from GTA
+   * CMessages so this MP HUD path can be compared directly against MTA-style DX
+   * text output.
+   */
+  style = read_le_i32(data);
+  time_ms = read_le_i32(data + 4U);
+  text_len = read_le_i32(data + 8U);
+  if (text_len < 0 || text_len > (std::int32_t)SAMP_RAKNET_GAMETEXT_TEXT_BYTES - 1 ||
+      (unsigned int)text_len > bytes - 12U) {
+    trace_netf("rpc-state id=73 game_text invalid style=%d time=%d len=%d bytes=%u",
+               static_cast<int>(style), static_cast<int>(time_ms), static_cast<int>(text_len), bytes);
+    return false;
+  }
+  if (time_ms < 0) {
+    time_ms = 0;
+  }
+
+  copy_len = static_cast<unsigned int>(text_len);
+  std::memset(g_rpc_probe.game_text, 0, sizeof(g_rpc_probe.game_text));
+  if (copy_len > 0U) {
+    std::memcpy(g_rpc_probe.game_text, data + 12U, copy_len);
+  }
+  g_rpc_probe.game_text[sizeof(g_rpc_probe.game_text) - 1U] = '\0';
+  sanitize_textdraw_text(g_rpc_probe.game_text);
+  trim_textdraw_text_tail(g_rpc_probe.game_text);
+  if (!textdraw_text_has_printable_content(g_rpc_probe.game_text)) {
+    return false;
+  }
+
+  g_rpc_probe.game_text_style = style;
+  g_rpc_probe.game_text_time_ms = time_ms;
+  ++g_rpc_probe.game_text_seq;
+  if (g_rpc_probe.game_text_seq == 0U) {
+    g_rpc_probe.game_text_seq = 1U;
+  }
+  trace_netf("rpc-state id=73 game_text_seq=%u style=%d time=%d text='%s' evidence=STATIC_037,OPENMP_REF,TODO_VERIFY",
+             g_rpc_probe.game_text_seq, static_cast<int>(style), static_cast<int>(time_ms),
+             g_rpc_probe.game_text);
+  return true;
+}
+
 bool read_dialog_plain_field(const unsigned char *data, unsigned int bytes, unsigned int *offset, char *out,
                              size_t out_size) {
   unsigned int len = 0U;
@@ -3942,6 +4004,10 @@ void rpc_observer(RakNet::RPCParameters *rpc_params, void *extra) {
   } else if (rpc_id == 136U) {
     if (rpc_params == nullptr || !decode_textdraw_edit_payload(rpc_params->input, bytes)) {
       trace_netf("rpc-state id=136 textdraw_edit decode_failed bytes=%u", bytes);
+    }
+  } else if (rpc_id == 73U) {
+    if (rpc_params == nullptr || !decode_game_text_payload(rpc_params->input, bytes)) {
+      trace_netf("rpc-state id=73 game_text decode_failed bytes=%u", bytes);
     }
   } else if (rpc_id == 137U) {
     if (rpc_params == nullptr || !decode_server_join_payload(rpc_params->input, bytes)) {
@@ -5002,11 +5068,15 @@ int samp_raknet_client_get_rpc_probe_snapshot(void *client, samp_raknet_rpc_prob
   out_snapshot->world_visual_event_seq = g_rpc_probe.world_visual_event_seq;
   out_snapshot->player_pool_event_seq = g_rpc_probe.player_pool_event_seq;
   out_snapshot->score_ping_seq = g_rpc_probe.score_ping_seq;
+  out_snapshot->game_text_seq = g_rpc_probe.game_text_seq;
+  out_snapshot->game_text_style = g_rpc_probe.game_text_style;
+  out_snapshot->game_text_time_ms = g_rpc_probe.game_text_time_ms;
   out_snapshot->player_controllable = g_rpc_probe.player_controllable;
   out_snapshot->player_armour = g_rpc_probe.player_armour;
   out_snapshot->player_armed_weapon = g_rpc_probe.player_armed_weapon;
   out_snapshot->player_given_weapon = g_rpc_probe.player_given_weapon;
   out_snapshot->player_given_weapon_ammo = g_rpc_probe.player_given_weapon_ammo;
+  std::memcpy(out_snapshot->game_text, g_rpc_probe.game_text, sizeof(out_snapshot->game_text));
   if (g_rpc_probe.player_given_weapon_seq > 0U) {
     const unsigned int available = g_rpc_probe.player_given_weapon_seq < SAMP_RAKNET_GIVE_WEAPON_EVENT_RING
                                        ? g_rpc_probe.player_given_weapon_seq

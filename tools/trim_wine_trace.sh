@@ -25,6 +25,7 @@ LOADDLL_FILE="${OUT_DIR}/loaddll_relevant.log"
 EVENT_COUNTS_FILE="${OUT_DIR}/focus_event_counts.tsv"
 SAMP_WINDOW_FILE="${OUT_DIR}/samp_lifecycle_window.log"
 TOP_EVENTS_FILE="${OUT_DIR}/top_events.log"
+TEXTDRAW_FILE="${OUT_DIR}/textdraw_focus.log"
 SUMMARY_FILE="${OUT_DIR}/SUMMARY.txt"
 
 # Broad high-signal focus view (lifecycle + module load + key SA-MP DLLs + net status text).
@@ -108,6 +109,17 @@ rg -n -i \
   -e 'Loaded L".*BASS\.dll"' \
   "$IN_FILE" >"$TOP_EVENTS_FILE" || true
 
+# TextDraw-specific focus for mixed Wine/probe/server logs.
+rg -n -i \
+  -e 'textdraw_font: seq=' \
+  -e 'textdraw-decode:' \
+  -e 'textdraw: (show|hide|edit|select|click)' \
+  -e 'rpc-state id=(83|105|134|135|136)\b' \
+  -e 'rpc-(user|auto)-out id=83\b' \
+  -e '\[tdprobe\]' \
+  -e 'OnPlayerClick(TextDraw|PlayerTextDraw)' \
+  "$IN_FILE" >"$TEXTDRAW_FILE" || true
+
 {
   echo "input: $IN_FILE"
   wc -l "$IN_FILE"
@@ -121,7 +133,8 @@ rg -n -i \
     loaddll_relevant.log \
     focus_event_counts.tsv \
     samp_lifecycle_window.log \
-    top_events.log; do
+    top_events.log \
+    textdraw_focus.log; do
     printf '%-30s %s\n' "$f" "$(wc -l < "${OUT_DIR}/${f}" 2>/dev/null || echo 0) lines"
   done
 } >"$SUMMARY_FILE"

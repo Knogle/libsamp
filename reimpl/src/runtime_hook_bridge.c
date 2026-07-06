@@ -68,6 +68,102 @@ static void hook_tracef(const char *fmt, ...) {
   }
 }
 
+static int config_value_is_enabled(const char *value) {
+  if (value == NULL || *value == '\0') {
+    return 0;
+  }
+  return (value[0] == '1' || value[0] == 'y' || value[0] == 'Y' || value[0] == 't' || value[0] == 'T') ? 1 : 0;
+}
+
+static int module_ini_path(char *out_path, size_t out_path_size) {
+  HMODULE module = NULL;
+  char module_path[MAX_PATH];
+  char *slash = NULL;
+  DWORD path_len = 0u;
+  int written = 0;
+
+  if (out_path == NULL || out_path_size == 0u) {
+    return 0;
+  }
+  out_path[0] = '\0';
+
+  if (!GetModuleHandleExA(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
+                          (LPCSTR)&hook_tracef, &module)) {
+    module = NULL;
+  }
+
+  path_len = GetModuleFileNameA(module, module_path, (DWORD)sizeof(module_path));
+  if (path_len == 0u || path_len >= sizeof(module_path)) {
+    return 0;
+  }
+
+  slash = strrchr(module_path, '\\');
+  if (slash == NULL) {
+    return 0;
+  }
+  slash[1] = '\0';
+
+  written = snprintf(out_path, out_path_size, "%ssampdll.ini", module_path);
+  return (written > 0 && (size_t)written < out_path_size) ? 1 : 0;
+}
+
+static int ini_read_environment_value(const char *name, char *out_value, size_t out_value_size) {
+  char ini_path[MAX_PATH];
+  DWORD chars = 0u;
+
+  if (name == NULL || *name == '\0' || out_value == NULL || out_value_size == 0u) {
+    return 0;
+  }
+  out_value[0] = '\0';
+
+  if (!module_ini_path(ini_path, sizeof(ini_path))) {
+    return 0;
+  }
+
+  chars = GetPrivateProfileStringA("sampdll", name, "", out_value, (DWORD)out_value_size, ini_path);
+  if (chars == 0u) {
+    chars = GetPrivateProfileStringA("env", name, "", out_value, (DWORD)out_value_size, ini_path);
+  }
+  out_value[out_value_size - 1u] = '\0';
+  return chars > 0u && out_value[0] != '\0' ? 1 : 0;
+}
+
+static int registry_read_environment_value(const char *name, char *out_value, size_t out_value_size) {
+  static const struct {
+    HKEY root;
+    const char *subkey;
+  } keys[] = {
+      {HKEY_CURRENT_USER, "Environment"},
+      {HKEY_LOCAL_MACHINE, "System\\CurrentControlSet\\Control\\Session Manager\\Environment"},
+      {HKEY_LOCAL_MACHINE, "System\\ControlSet001\\Control\\Session Manager\\Environment"},
+  };
+  size_t i = 0u;
+
+  if (name == NULL || *name == '\0' || out_value == NULL || out_value_size == 0u) {
+    return 0;
+  }
+  out_value[0] = '\0';
+
+  for (i = 0u; i < sizeof(keys) / sizeof(keys[0]); ++i) {
+    HKEY key = NULL;
+    DWORD type = 0u;
+    DWORD bytes = (DWORD)out_value_size;
+    LONG rc = RegOpenKeyExA(keys[i].root, keys[i].subkey, 0u, KEY_QUERY_VALUE, &key);
+    if (rc != ERROR_SUCCESS) {
+      continue;
+    }
+    rc = RegQueryValueExA(key, name, NULL, &type, (LPBYTE)out_value, &bytes);
+    RegCloseKey(key);
+    if (rc == ERROR_SUCCESS && (type == REG_SZ || type == REG_EXPAND_SZ) && bytes > 0u) {
+      out_value[out_value_size - 1u] = '\0';
+      return out_value[0] != '\0' ? 1 : 0;
+    }
+  }
+
+  out_value[0] = '\0';
+  return 0;
+}
+
 static int parse_u32_env_hex(const char *text, uint32_t *out_value) {
   unsigned long parsed = 0;
   char *endptr = NULL;
@@ -90,10 +186,22 @@ static int parse_u32_env_hex(const char *text, uint32_t *out_value) {
 
 static int env_flag_is_enabled(const char *name) {
   const char *value = getenv(name);
+  char config_value[64];
+
+  if (!ini_read_environment_value(name, config_value, sizeof(config_value))) {
+    if (value == NULL || *value == '\0') {
+      if (!registry_read_environment_value(name, config_value, sizeof(config_value))) {
+        return 0;
+      }
+      value = config_value;
+    }
+  } else {
+    value = config_value;
+  }
   if (value == NULL || *value == '\0') {
     return 0;
   }
-  return (value[0] == '1' || value[0] == 'y' || value[0] == 'Y' || value[0] == 't' || value[0] == 'T') ? 1 : 0;
+  return config_value_is_enabled(value);
 }
 
 static void free_generated_graphics_hook_thunk(void **slot, const char *slot_name) {
@@ -114,7 +222,8 @@ static void free_generated_graphics_hook_thunks(void) {
   free_generated_graphics_hook_thunk(&g_generated_graphics_thunk_primary, "primary");
 }
 
-static void *create_generated_graphics_hook_thunk(samp_graphics_target_fn *original_target_slot, const char *slot_name) {
+static void *create_generated_graphics_hook_thunk(samp_graphics_target_fn *original_target_slot, const char *slot_name,
+                                                  int callback_after_original) {
   uint8_t *thunk = NULL;
   uint8_t *cursor = NULL;
 
@@ -130,44 +239,80 @@ static void *create_generated_graphics_hook_thunk(samp_graphics_target_fn *origi
 
   cursor = thunk;
 
-  /* pushad */
-  *cursor++ = 0x60u;
-  /* mov eax, [g_graphics_callback] */
-  *cursor++ = 0xA1u;
-  {
-    uint32_t callback_slot_addr = (uint32_t)(uintptr_t)&g_graphics_callback;
-    memcpy(cursor, &callback_slot_addr, sizeof(callback_slot_addr));
+  if (callback_after_original) {
+    /* mov eax, [g_original_graphics_target_*] */
+    *cursor++ = 0xA1u;
+    {
+      uint32_t original_slot_addr = (uint32_t)(uintptr_t)original_target_slot;
+      memcpy(cursor, &original_slot_addr, sizeof(original_slot_addr));
+    }
+    cursor += 4;
+    /* test eax, eax ; jz skip_call ; call eax */
+    *cursor++ = 0x85u;
+    *cursor++ = 0xC0u;
+    *cursor++ = 0x74u;
+    *cursor++ = 0x02u;
+    *cursor++ = 0xFFu;
+    *cursor++ = 0xD0u;
+    /* pushad */
+    *cursor++ = 0x60u;
+    /* mov eax, [g_graphics_callback] */
+    *cursor++ = 0xA1u;
+    {
+      uint32_t callback_slot_addr = (uint32_t)(uintptr_t)&g_graphics_callback;
+      memcpy(cursor, &callback_slot_addr, sizeof(callback_slot_addr));
+    }
+    cursor += 4;
+    /* test eax, eax ; jz skip_call ; call eax */
+    *cursor++ = 0x85u;
+    *cursor++ = 0xC0u;
+    *cursor++ = 0x74u;
+    *cursor++ = 0x02u;
+    *cursor++ = 0xFFu;
+    *cursor++ = 0xD0u;
+    /* popad ; ret */
+    *cursor++ = 0x61u;
+    *cursor++ = 0xC3u;
+  } else {
+    /* pushad */
+    *cursor++ = 0x60u;
+    /* mov eax, [g_graphics_callback] */
+    *cursor++ = 0xA1u;
+    {
+      uint32_t callback_slot_addr = (uint32_t)(uintptr_t)&g_graphics_callback;
+      memcpy(cursor, &callback_slot_addr, sizeof(callback_slot_addr));
+    }
+    cursor += 4;
+    /* test eax, eax ; jz skip_call ; call eax */
+    *cursor++ = 0x85u;
+    *cursor++ = 0xC0u;
+    *cursor++ = 0x74u;
+    *cursor++ = 0x02u;
+    *cursor++ = 0xFFu;
+    *cursor++ = 0xD0u;
+    /* popad */
+    *cursor++ = 0x61u;
+    /* mov eax, [g_original_graphics_target_*] */
+    *cursor++ = 0xA1u;
+    {
+      uint32_t original_slot_addr = (uint32_t)(uintptr_t)original_target_slot;
+      memcpy(cursor, &original_slot_addr, sizeof(original_slot_addr));
+    }
+    cursor += 4;
+    /* test eax, eax ; jz ret ; jmp eax ; ret */
+    *cursor++ = 0x85u;
+    *cursor++ = 0xC0u;
+    *cursor++ = 0x74u;
+    *cursor++ = 0x02u;
+    *cursor++ = 0xFFu;
+    *cursor++ = 0xE0u;
+    *cursor++ = 0xC3u;
   }
-  cursor += 4;
-  /* test eax, eax ; jz skip_call ; call eax */
-  *cursor++ = 0x85u;
-  *cursor++ = 0xC0u;
-  *cursor++ = 0x74u;
-  *cursor++ = 0x02u;
-  *cursor++ = 0xFFu;
-  *cursor++ = 0xD0u;
-  /* popad */
-  *cursor++ = 0x61u;
-  /* mov eax, [g_original_graphics_target_*] */
-  *cursor++ = 0xA1u;
-  {
-    uint32_t original_slot_addr = (uint32_t)(uintptr_t)original_target_slot;
-    memcpy(cursor, &original_slot_addr, sizeof(original_slot_addr));
-  }
-  cursor += 4;
-  /* test eax, eax ; jz ret ; jmp eax ; ret */
-  *cursor++ = 0x85u;
-  *cursor++ = 0xC0u;
-  *cursor++ = 0x74u;
-  *cursor++ = 0x02u;
-  *cursor++ = 0xFFu;
-  *cursor++ = 0xE0u;
-  *cursor++ = 0xC3u;
 
   FlushInstructionCache(GetCurrentProcess(), thunk, (SIZE_T)(cursor - thunk));
-  hook_tracef("thunk: slot=%s generated addr=0x%08lx callback_slot=0x%08lx original_slot=0x%08lx", slot_name,
+  hook_tracef("thunk: slot=%s generated addr=0x%08lx callback_slot=0x%08lx original_slot=0x%08lx post=%d", slot_name,
               (unsigned long)(uintptr_t)thunk, (unsigned long)(uintptr_t)&g_graphics_callback,
-              (unsigned long)(uintptr_t)original_target_slot);
+              (unsigned long)(uintptr_t)original_target_slot, callback_after_original ? 1 : 0);
   return thunk;
 }
 
@@ -256,6 +401,7 @@ int samp_hook_bridge_configure_from_env(samp_runtime_hook_bridge *bridge) {
   re_graphics_mode = env_flag_is_enabled("SAMPDLL_ENABLE_RE_GRAPHICS_HOOKS");
   re_graphics_secondary_mode = env_flag_is_enabled("SAMPDLL_ENABLE_RE_GRAPHICS_HOOKS_SECONDARY");
   bridge->enabled = re_graphics_mode || env_flag_is_enabled("SAMPDLL_ENABLE_RUNTIME_HOOKS");
+  bridge->callback_after_original = env_flag_is_enabled("SAMPDLL_GRAPHICS_HOOK_POST_CALLBACK");
 
   custom_text_primary = getenv("SAMPDLL_HOOK_GRAPHICS_CALL_DISP");
   if (custom_text_primary != NULL && *custom_text_primary != '\0') {
@@ -286,17 +432,20 @@ int samp_hook_bridge_configure_from_env(samp_runtime_hook_bridge *bridge) {
       bridge->graphics_call_disp_addr_secondary = (uintptr_t)SAMP_RE_GRAPHICS_CALL_DISP_ADDR_SECONDARY;
       bridge->secondary_configured = 1;
     }
-    hook_tracef("configure: re_graphics disp=0x%08lx disp2=0x%08lx enabled=%d secondary=%d",
+    hook_tracef("configure: re_graphics disp=0x%08lx disp2=0x%08lx enabled=%d secondary=%d post=%d",
                 (unsigned long)bridge->graphics_call_disp_addr, (unsigned long)bridge->graphics_call_disp_addr_secondary,
-                bridge->enabled, bridge->secondary_configured ? 1 : 0);
+                bridge->enabled, bridge->secondary_configured ? 1 : 0, bridge->callback_after_original ? 1 : 0);
     return 0;
   }
 
   if (bridge->configured || bridge->secondary_configured) {
-    hook_tracef("configure: custom disp=0x%08lx disp2=0x%08lx enabled=%d", (unsigned long)bridge->graphics_call_disp_addr,
-                (unsigned long)bridge->graphics_call_disp_addr_secondary, bridge->enabled);
+    hook_tracef("configure: custom disp=0x%08lx disp2=0x%08lx enabled=%d post=%d",
+                (unsigned long)bridge->graphics_call_disp_addr,
+                (unsigned long)bridge->graphics_call_disp_addr_secondary, bridge->enabled,
+                bridge->callback_after_original ? 1 : 0);
   } else {
-    hook_tracef("configure: no disp configured enabled=%d", bridge->enabled);
+    hook_tracef("configure: no disp configured enabled=%d post=%d", bridge->enabled,
+                bridge->callback_after_original ? 1 : 0);
   }
   return 0;
 }
@@ -328,15 +477,16 @@ int samp_hook_bridge_install_graphics_callback(samp_runtime_hook_bridge *bridge,
   g_original_graphics_target_secondary = NULL;
 
   if (bridge->configured && bridge->graphics_call_disp_addr >= 1u) {
-    g_generated_graphics_thunk_primary = create_generated_graphics_hook_thunk(&g_original_graphics_target_primary, "primary");
+    g_generated_graphics_thunk_primary = create_generated_graphics_hook_thunk(
+        &g_original_graphics_target_primary, "primary", bridge->callback_after_original);
     if (g_generated_graphics_thunk_primary == NULL) {
       primary_rc = -1;
     }
   }
 
   if (bridge->secondary_configured && bridge->graphics_call_disp_addr_secondary >= 1u) {
-    g_generated_graphics_thunk_secondary =
-        create_generated_graphics_hook_thunk(&g_original_graphics_target_secondary, "secondary");
+    g_generated_graphics_thunk_secondary = create_generated_graphics_hook_thunk(
+        &g_original_graphics_target_secondary, "secondary", bridge->callback_after_original);
     if (g_generated_graphics_thunk_secondary == NULL) {
       secondary_rc = -1;
     }

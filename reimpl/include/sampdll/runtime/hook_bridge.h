@@ -13,6 +13,7 @@ typedef struct samp_runtime_hook_bridge {
   int installed;
   int install_attempted;
   int install_succeeded;
+  int callback_after_original;
 
   uintptr_t graphics_call_disp_addr;
   uint8_t graphics_call_opcode;

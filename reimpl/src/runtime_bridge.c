@@ -355,13 +355,14 @@
 #define SAMP_VEHICLE_OFFSET_LIGHT_DAMAGE 1456u
 #define SAMP_VEHICLE_OFFSET_PANEL_DAMAGE 1460u
 /*
- * STATIC_037 + PROBE_TRACE + TODO_VERIFY:
- * Empty-vehicle scanner markers use the normal GTA radar marker path. Runtime
- * tests currently keep the 500 color index because it matches the observed
- * in-game marker behavior; confirm the exact original-DLL constant in a focused trace.
+ * PROBE_TRACE + TODO_VERIFY:
+ * Keep the empty-vehicle scanner markers on the previously visible gray
+ * compatibility color. Alpha/distance fading needs a separate radar trace before
+ * changing this again.
  */
 #define SAMP_VEHICLE_SCANNER_MARKER_COLOR 500
-#define SAMP_VEHICLE_SCANNER_MARKER_TYPE 2
+#define SAMP_VEHICLE_SCANNER_MARKER_SCALE 2
+#define SAMP_VEHICLE_SCANNER_MARKER_RECREATE_DISTANCE 1.0f
 #define SAMP_ENTITY_OFFSET_RW_OBJECT 24u
 #define SAMP_ENTITY_OFFSET_MODEL_INDEX 34u
 #define SAMP_ENTITY_OFFSET_MOVE_SPEED 68u
@@ -454,10 +455,11 @@
 #define SAMP_TEXTDRAW_COMPAT_SCRIPT_WIDTH 640.0f
 #define SAMP_TEXTDRAW_COMPAT_SCRIPT_HEIGHT 448.0f
 #define SAMP_TEXTDRAW_COMPAT_MIN_WIDTH 48
-/* STATIC_037 + TODO_VERIFY:
+/* OBSERVED_037 + PROBE_TRACE + TODO_VERIFY:
  * Original-DLL RE indicates normal textdraw text/box output routes through GTA SA
  * CFont. Keep D3DX as fallback and for 0.3.7 preview-model textdraws until
- * OBSERVED_037 confirms the exact path.
+ * the replacement has a verified GTA render-phase hook. Calling CFont from the
+ * current EndScene overlay crashed the 2026-07-06 libsamp run at ip=0.
  */
 #define SAMP_ADDR_SCREEN_WIDTH 0xC17044u
 #define SAMP_ADDR_SCREEN_HEIGHT 0xC17048u
@@ -478,11 +480,21 @@
 #define SAMP_ADDR_FONT_SET_JUSTIFY 0x719610u
 #define SAMP_ADDR_FONT_PRINT_STRING 0x71A700u
 #define SAMP_TEXTDRAW_COMPAT_GTA_FONT_ENV "SAMP_TEXTDRAW_GTA_FONT"
-/* GTA_REVERSED_REF + STATIC_037 + TODO_VERIFY:
+#define SAMP_TEXTDRAW_COMPAT_GTA_FONT_GRAPHICS_ENV "SAMP_TEXTDRAW_GTA_FONT_GRAPHICS"
+#define SAMP_TEXTDRAW_COMPAT_GTA_FONT_GAME_PROCESS_ENV "SAMP_TEXTDRAW_GTA_FONT_GAMEPROCESS"
+#define SAMP_TEXTDRAW_COMPAT_GTA_FONT_CONVERT_ENV "SAMP_TEXTDRAW_GTA_FONT_CONVERT"
+#define SAMP_TEXTDRAW_COMPAT_MTA_DX_ENV "SAMP_TEXTDRAW_MTA_DX"
+#define SAMP_TEXTDRAW_GTA_FONT_PHASE_ENDSCENE 0
+#define SAMP_TEXTDRAW_GTA_FONT_PHASE_GRAPHICS 1
+#define SAMP_TEXTDRAW_GTA_FONT_PHASE_GAME_PROCESS 2
+#define SAMP_GAMETEXT_COMPAT_DEFAULT_TIME_MS 3000u
+#define SAMP_GAMETEXT_COMPAT_MIN_TIME_MS 250u
+#define SAMP_GAMETEXT_COMPAT_MAX_TIME_MS 30000u
+/* GTA_REVERSED_REF + PROBE_TRACE + TODO_VERIFY:
  * 0x69E160 is CMessages::InsertPlayerControlKeysInString in gta-reversed.
- * Static original-DLL analysis shows a text-conversion thunk near 0x69DE90, but
- * its calling contract is not verified as a regular C helper. Do not call either
- * conversion helper blindly until we validate the original 0.3.7 call site.
+ * Keep it opt-in until a 0.3.7 trace verifies the exact converter contract;
+ * the 2026-07-06 replacement runs still faulted at ip=0 immediately after the
+ * first CFont draw when this path was active.
  */
 #define SAMP_ADDR_MESSAGES_INSERT_PLAYER_CONTROL_KEYS 0x69E160u
 #define SAMP_TEXTDRAW_COMPAT_MAX_TEXT_BYTES SAMP_RAKNET_TEXTDRAW_TEXT_BYTES
@@ -551,7 +563,8 @@
 #define SAMP_REMOTE_PLAYER_COMPAT_FALLBACK_SKIN 0
 #define SAMP_REMOTE_PLAYER_COMPAT_MODEL_LOAD_FLAGS 0x06
 #define SAMP_REMOTE_PLAYER_COMPAT_CREATE_BUDGET 4u
-#define SAMP_REMOTE_PLAYER_MARKER_RADAR_SIZE 2
+#define SAMP_BLIP_DISPLAY_BLIPONLY 2
+#define SAMP_REMOTE_PLAYER_MARKER_DISPLAY SAMP_BLIP_DISPLAY_BLIPONLY
 #define SAMP_REMOTE_PLAYER_TARGET_EPSILON 0.025f
 #define SAMP_REMOTE_PLAYER_TARGET_SNAP_DELTA 8.0f
 #define SAMP_REMOTE_PLAYER_TARGET_CORRECT_GROUND 0.08f
@@ -575,7 +588,7 @@
 #define SAMP_SPECIAL_ACTION_USECELLPHONE 11u
 #define SAMP_SPECIAL_ACTION_NIGHTVISION 14u
 #define SAMP_SPECIAL_ACTION_THERMALVISION 15u
-#define SAMP_MAP_ICON_RADAR_SIZE 3
+#define SAMP_MAP_ICON_BLIP_SCALE 3
 #define SAMP_NAME_TAG_DEFAULT_DRAW_DISTANCE 70.0f
 #define SAMP_NAME_TAG_Z_BASE 1.0f
 #define SAMP_NAME_TAG_Z_DISTANCE_SCALE 0.05f
@@ -767,6 +780,177 @@ typedef void(__cdecl *samp_gta_font_set_int_fn)(int);
 typedef void(__cdecl *samp_gta_font_set_float_fn)(float);
 typedef void(__cdecl *samp_gta_font_use_box_fn)(int, int);
 typedef void(__cdecl *samp_gta_font_print_string_fn)(float, float, const char *);
+typedef void(__cdecl *samp_gta_font_convert_string_fn)(char *);
+
+#if defined(__GNUC__) && defined(__i386__)
+#define SAMP_HAVE_X86_STACK_NEUTRAL_GTA_CALLS 1
+static void __attribute__((naked)) gta_stackneutral_call1_u32_compat(uintptr_t fn, uint32_t arg0) {
+  (void)fn;
+  (void)arg0;
+  __asm__ __volatile__("pushl %ebp\n\t"
+                       "movl %esp, %ebp\n\t"
+                       "subl $4, %esp\n\t"
+                       "pushfl\n\t"
+                       "pushal\n\t"
+                       "movl %esp, -4(%ebp)\n\t"
+                       "pushl 12(%ebp)\n\t"
+                       "call *8(%ebp)\n\t"
+                       "movl -4(%ebp), %esp\n\t"
+                       "popal\n\t"
+                       "popfl\n\t"
+                       "leave\n\t"
+                       "ret\n\t");
+}
+
+static void __attribute__((naked)) gta_stackneutral_call1_float_compat(uintptr_t fn, float arg0) {
+  (void)fn;
+  (void)arg0;
+  __asm__ __volatile__("pushl %ebp\n\t"
+                       "movl %esp, %ebp\n\t"
+                       "subl $4, %esp\n\t"
+                       "pushfl\n\t"
+                       "pushal\n\t"
+                       "movl %esp, -4(%ebp)\n\t"
+                       "pushl 12(%ebp)\n\t"
+                       "call *8(%ebp)\n\t"
+                       "movl -4(%ebp), %esp\n\t"
+                       "popal\n\t"
+                       "popfl\n\t"
+                       "leave\n\t"
+                       "ret\n\t");
+}
+
+static void __attribute__((naked)) gta_stackneutral_call1_ptr_compat(uintptr_t fn, char *arg0) {
+  (void)fn;
+  (void)arg0;
+  __asm__ __volatile__("pushl %ebp\n\t"
+                       "movl %esp, %ebp\n\t"
+                       "subl $4, %esp\n\t"
+                       "pushfl\n\t"
+                       "pushal\n\t"
+                       "movl %esp, -4(%ebp)\n\t"
+                       "pushl 12(%ebp)\n\t"
+                       "call *8(%ebp)\n\t"
+                       "movl -4(%ebp), %esp\n\t"
+                       "popal\n\t"
+                       "popfl\n\t"
+                       "leave\n\t"
+                       "ret\n\t");
+}
+
+static void __attribute__((naked)) gta_stackneutral_call2_u32_compat(uintptr_t fn, uint32_t arg0, uint32_t arg1) {
+  (void)fn;
+  (void)arg0;
+  (void)arg1;
+  __asm__ __volatile__("pushl %ebp\n\t"
+                       "movl %esp, %ebp\n\t"
+                       "subl $4, %esp\n\t"
+                       "pushfl\n\t"
+                       "pushal\n\t"
+                       "movl %esp, -4(%ebp)\n\t"
+                       "pushl 16(%ebp)\n\t"
+                       "pushl 12(%ebp)\n\t"
+                       "call *8(%ebp)\n\t"
+                       "movl -4(%ebp), %esp\n\t"
+                       "popal\n\t"
+                       "popfl\n\t"
+                       "leave\n\t"
+                       "ret\n\t");
+}
+
+static void __attribute__((naked)) gta_stackneutral_call2_float_compat(uintptr_t fn, float arg0, float arg1) {
+  (void)fn;
+  (void)arg0;
+  (void)arg1;
+  __asm__ __volatile__("pushl %ebp\n\t"
+                       "movl %esp, %ebp\n\t"
+                       "subl $4, %esp\n\t"
+                       "pushfl\n\t"
+                       "pushal\n\t"
+                       "movl %esp, -4(%ebp)\n\t"
+                       "pushl 16(%ebp)\n\t"
+                       "pushl 12(%ebp)\n\t"
+                       "call *8(%ebp)\n\t"
+                       "movl -4(%ebp), %esp\n\t"
+                       "popal\n\t"
+                       "popfl\n\t"
+                       "leave\n\t"
+                       "ret\n\t");
+}
+
+static void __attribute__((naked)) gta_stackneutral_call3_float_float_ptr_compat(uintptr_t fn, float arg0, float arg1,
+                                                                                 const char *arg2) {
+  (void)fn;
+  (void)arg0;
+  (void)arg1;
+  (void)arg2;
+  __asm__ __volatile__("pushl %ebp\n\t"
+                       "movl %esp, %ebp\n\t"
+                       "subl $4, %esp\n\t"
+                       "pushfl\n\t"
+                       "pushal\n\t"
+                       "movl %esp, -4(%ebp)\n\t"
+                       "pushl 20(%ebp)\n\t"
+                       "pushl 16(%ebp)\n\t"
+                       "pushl 12(%ebp)\n\t"
+                       "call *8(%ebp)\n\t"
+                       "movl -4(%ebp), %esp\n\t"
+                       "popal\n\t"
+                       "popfl\n\t"
+                       "leave\n\t"
+                       "ret\n\t");
+}
+#else
+#define SAMP_HAVE_X86_STACK_NEUTRAL_GTA_CALLS 0
+#endif
+
+static void gta_font_call1_u32_compat(uintptr_t fn, uint32_t arg0) {
+#if SAMP_HAVE_X86_STACK_NEUTRAL_GTA_CALLS
+  gta_stackneutral_call1_u32_compat(fn, arg0);
+#else
+  ((samp_gta_font_set_color_fn)fn)(arg0);
+#endif
+}
+
+static void gta_font_call1_float_compat(uintptr_t fn, float arg0) {
+#if SAMP_HAVE_X86_STACK_NEUTRAL_GTA_CALLS
+  gta_stackneutral_call1_float_compat(fn, arg0);
+#else
+  ((samp_gta_font_set_float_fn)fn)(arg0);
+#endif
+}
+
+static void gta_font_call1_ptr_compat(uintptr_t fn, char *arg0) {
+#if SAMP_HAVE_X86_STACK_NEUTRAL_GTA_CALLS
+  gta_stackneutral_call1_ptr_compat(fn, arg0);
+#else
+  ((samp_gta_font_convert_string_fn)fn)(arg0);
+#endif
+}
+
+static void gta_font_call2_u32_compat(uintptr_t fn, uint32_t arg0, uint32_t arg1) {
+#if SAMP_HAVE_X86_STACK_NEUTRAL_GTA_CALLS
+  gta_stackneutral_call2_u32_compat(fn, arg0, arg1);
+#else
+  ((samp_gta_font_use_box_fn)fn)((int)arg0, (int)arg1);
+#endif
+}
+
+static void gta_font_call2_float_compat(uintptr_t fn, float arg0, float arg1) {
+#if SAMP_HAVE_X86_STACK_NEUTRAL_GTA_CALLS
+  gta_stackneutral_call2_float_compat(fn, arg0, arg1);
+#else
+  ((samp_gta_font_set_scale_fn)fn)(arg0, arg1);
+#endif
+}
+
+static void gta_font_call3_float_float_ptr_compat(uintptr_t fn, float arg0, float arg1, const char *arg2) {
+#if SAMP_HAVE_X86_STACK_NEUTRAL_GTA_CALLS
+  gta_stackneutral_call3_float_float_ptr_compat(fn, arg0, arg1, arg2);
+#else
+  ((samp_gta_font_print_string_fn)fn)(arg0, arg1, arg2);
+#endif
+}
 
 typedef struct samp_id3dx_font_compat samp_id3dx_font_compat;
 typedef struct samp_id3dx_font_compat_vtbl {
@@ -823,6 +1007,7 @@ typedef struct samp_textdraw_slot_compat {
   uint32_t seq;
   samp_raknet_textdraw_transmit transmit;
   char text[SAMP_TEXTDRAW_COMPAT_MAX_TEXT_BYTES];
+  char gta_text[SAMP_TEXTDRAW_COMPAT_MAX_TEXT_BYTES];
 } samp_textdraw_slot_compat;
 
 typedef struct samp_scoreboard_player_compat {
@@ -1003,6 +1188,7 @@ typedef struct samp_vehicle_slot_compat {
   int32_t model;
   uint32_t gta_id;
   uint32_t marker_id;
+  float marker_pos[3];
   int32_t invulnerable_state;
   uint8_t color1;
   uint8_t color2;
@@ -1332,8 +1518,13 @@ typedef struct samp_runtime_state {
   LONG textdraw_logged;
   LONG textdraw_d3d_font_fail_logged;
   LONG textdraw_gta_font_fail_logged;
+  LONG textdraw_gta_font_graphics_logged;
+  LONG textdraw_gta_font_game_process_logged;
   LONG textdraw_select_active;
   LONG textdraw_mouse_down;
+  LONG game_text_seq;
+  LONG game_text_active;
+  LONG game_text_logged;
   LONG remote_player_event_seq;
   LONG remote_player_sync_seq;
   LONG remote_player_name_tag_event_seq;
@@ -1390,6 +1581,9 @@ typedef struct samp_runtime_state {
   char dialog_overlay_button1[SAMP_RAKNET_DIALOG_BUTTON_BYTES];
   char dialog_overlay_button2[SAMP_RAKNET_DIALOG_BUTTON_BYTES];
   char dialog_overlay_input[SAMP_RAKNET_DIALOG_INPUT_BYTES];
+  char game_text[SAMP_RAKNET_GAMETEXT_TEXT_BYTES];
+  DWORD game_text_expire_tick;
+  LONG game_text_style;
   void *chat_d3d_device;
   void *scoreboard_d3d_device;
   void **chat_d3d_vtbl;
@@ -1440,6 +1634,8 @@ static int scoreboard_compat_handle_key(UINT msg, WPARAM wparam);
 static int scoreboard_compat_local_id(void);
 static void scoreboard_compat_release_font(void);
 static void scoreboard_compat_update_from_snapshot(const samp_raknet_rpc_probe_snapshot *snapshot);
+static int game_text_compat_active(void);
+static void game_text_compat_update_from_snapshot(const samp_raknet_rpc_probe_snapshot *snapshot);
 static void dialog_compat_normalize_selection(void);
 static void dialog_compat_submit(unsigned char button);
 static void textdraw_compat_update_from_snapshot(const samp_raknet_rpc_probe_snapshot *snapshot);
@@ -1488,6 +1684,8 @@ static void loading_screen_compat_release_texture(void);
 static int gta_script_command_compat(uint16_t opcode, const char *params, ...);
 static int gta_script_command_condition_compat(uint16_t opcode, const char *params, ...);
 static int memory_is_readable_compat(const void *ptr, size_t size);
+static LONG read_game_entry_gate_value(void);
+static uint8_t read_game_u8(uintptr_t addr);
 static uintptr_t gta_find_player_ped_compat(void);
 static int gta_ped_is_in_vehicle_compat(uintptr_t ped);
 static int local_weapon_is_firearm_compat(uint8_t weapon);
@@ -1612,6 +1810,142 @@ static void runtime_tracef(const char *fmt, ...) {
   }
 }
 
+static int runtime_registry_read_environment_value_compat(const char *name, char *out_value, size_t out_value_size,
+                                                         const char **source_out) {
+  static const struct {
+    HKEY root;
+    const char *subkey;
+    const char *source;
+  } keys[] = {
+      {HKEY_CURRENT_USER, "Environment", "HKCU\\Environment"},
+      {HKEY_LOCAL_MACHINE, "System\\CurrentControlSet\\Control\\Session Manager\\Environment",
+       "HKLM\\System\\CurrentControlSet\\Control\\Session Manager\\Environment"},
+      {HKEY_LOCAL_MACHINE, "System\\ControlSet001\\Control\\Session Manager\\Environment",
+       "HKLM\\System\\ControlSet001\\Control\\Session Manager\\Environment"},
+  };
+  size_t i = 0u;
+
+  if (name == NULL || *name == '\0' || out_value == NULL || out_value_size == 0u) {
+    return 0;
+  }
+  out_value[0] = '\0';
+
+  for (i = 0u; i < sizeof(keys) / sizeof(keys[0]); ++i) {
+    HKEY key = NULL;
+    DWORD type = 0u;
+    DWORD bytes = (DWORD)out_value_size;
+    LONG rc = RegOpenKeyExA(keys[i].root, keys[i].subkey, 0u, KEY_QUERY_VALUE, &key);
+    if (rc != ERROR_SUCCESS) {
+      continue;
+    }
+    rc = RegQueryValueExA(key, name, NULL, &type, (LPBYTE)out_value, &bytes);
+    RegCloseKey(key);
+    if (rc == ERROR_SUCCESS && (type == REG_SZ || type == REG_EXPAND_SZ) && bytes > 0u) {
+      out_value[out_value_size - 1u] = '\0';
+      if (out_value[0] != '\0') {
+        if (source_out != NULL) {
+          *source_out = keys[i].source;
+        }
+        return 1;
+      }
+    }
+  }
+
+  out_value[0] = '\0';
+  return 0;
+}
+
+static int runtime_config_value_is_disabled_compat(const char *value) {
+  return (value != NULL && *value != '\0' &&
+          (value[0] == '0' || value[0] == 'n' || value[0] == 'N' || value[0] == 'f' || value[0] == 'F'))
+             ? 1
+             : 0;
+}
+
+static int runtime_ini_path_compat(char *out_path, size_t out_path_size) {
+  char module_path[MAX_PATH];
+  char *slash = NULL;
+  DWORD path_len = 0u;
+  int written = 0;
+
+  if (out_path == NULL || out_path_size == 0u) {
+    return 0;
+  }
+  out_path[0] = '\0';
+
+  if (g_runtime.module_dir[0] != '\0') {
+    written = snprintf(out_path, out_path_size, "%ssampdll.ini", g_runtime.module_dir);
+    return (written > 0 && (size_t)written < out_path_size) ? 1 : 0;
+  }
+
+  path_len = GetModuleFileNameA(g_runtime.instance, module_path, (DWORD)sizeof(module_path));
+  if (path_len == 0u || path_len >= sizeof(module_path)) {
+    return 0;
+  }
+
+  slash = strrchr(module_path, '\\');
+  if (slash == NULL) {
+    return 0;
+  }
+  slash[1] = '\0';
+
+  written = snprintf(out_path, out_path_size, "%ssampdll.ini", module_path);
+  return (written > 0 && (size_t)written < out_path_size) ? 1 : 0;
+}
+
+static int runtime_ini_read_environment_value_compat(const char *name, char *out_value, size_t out_value_size,
+                                                     const char **source_out) {
+  char ini_path[MAX_PATH];
+  DWORD chars = 0u;
+
+  if (name == NULL || *name == '\0' || out_value == NULL || out_value_size == 0u) {
+    return 0;
+  }
+  out_value[0] = '\0';
+
+  if (!runtime_ini_path_compat(ini_path, sizeof(ini_path))) {
+    return 0;
+  }
+
+  chars = GetPrivateProfileStringA("sampdll", name, "", out_value, (DWORD)out_value_size, ini_path);
+  if (chars > 0u) {
+    if (source_out != NULL) {
+      *source_out = "sampdll.ini:[sampdll]";
+    }
+  } else {
+    chars = GetPrivateProfileStringA("env", name, "", out_value, (DWORD)out_value_size, ini_path);
+    if (chars > 0u && source_out != NULL) {
+      *source_out = "sampdll.ini:[env]";
+    }
+  }
+
+  out_value[out_value_size - 1u] = '\0';
+  return chars > 0u && out_value[0] != '\0' ? 1 : 0;
+}
+
+static int runtime_flag_enabled_default_source_compat(const char *name, int default_enabled, const char **source_out) {
+  const char *value = NULL;
+  char config_value[64];
+
+  if (source_out != NULL) {
+    *source_out = default_enabled ? "default:on" : "default:off";
+  }
+
+  if (runtime_ini_read_environment_value_compat(name, config_value, sizeof(config_value), source_out)) {
+    value = config_value;
+  } else if ((value = getenv(name)) != NULL && *value != '\0') {
+    if (source_out != NULL) {
+      *source_out = "process-env";
+    }
+  } else if (runtime_registry_read_environment_value_compat(name, config_value, sizeof(config_value), source_out)) {
+    value = config_value;
+  } else {
+    return default_enabled ? 1 : 0;
+  }
+
+  return runtime_config_value_is_disabled_compat(value) ? 0 : 1;
+}
+
 static int chat_overlay_enabled_compat(void) {
   static LONG initialized = 0;
   static int enabled = 1;
@@ -1688,6 +2022,25 @@ static LONG chat_overlay_y_compat(void) {
 
 static DWORD chat_compat_samp_color_to_argb(uint32_t color) {
   return (DWORD)((color >> 8u) | 0xFF000000u);
+}
+
+static int radar_compat_color_code_to_rgba(uint32_t color) {
+  /*
+   * GTA_REVERSED_REF + INFERRED + TODO_VERIFY:
+   * CRadar::GetRadarTraceColour returns builtin GTA palette entries for small
+   * eBlipColour ids and otherwise treats the value as packed RGBA. Normalize
+   * private SA-MP scanner ids locally instead of globally hooking CRadar.
+   */
+  switch (color) {
+  case 200u:
+    return (int)0x888888FFu;
+  case 201u:
+    return (int)0xAA0000FFu;
+  case 202u:
+    return (int)0xE2C063FFu;
+  default:
+    return (int)color;
+  }
 }
 
 static COLORREF chat_compat_colorref_from_argb(DWORD color) {
@@ -3896,6 +4249,9 @@ static void vehicle_compat_disable_marker(samp_vehicle_slot_compat *slot) {
 
   (void)gta_script_command_compat(0x0164u, "i", (int)slot->marker_id);
   slot->marker_id = 0u;
+  slot->marker_pos[0] = 0.0f;
+  slot->marker_pos[1] = 0.0f;
+  slot->marker_pos[2] = 0.0f;
 }
 
 static void vehicle_compat_destroy_slot(uint16_t vehicle_id, const char *reason) {
@@ -4700,13 +5056,43 @@ static void vehicle_compat_set_invulnerable(uint16_t vehicle_id, samp_vehicle_sl
                  (unsigned)vehicle_id, (unsigned long)slot->gta_id, invulnerable, tire_vulnerable);
 }
 
-static int vehicle_compat_near_local_ped(const samp_vehicle_slot_compat *slot, uintptr_t vehicle, uintptr_t ped) {
+static int vehicle_compat_read_marker_position(const samp_vehicle_slot_compat *slot, uintptr_t vehicle,
+                                               float out_pos[3]) {
+  if (slot == NULL || out_pos == NULL) {
+    return 0;
+  }
+  out_pos[0] = slot->pos[0];
+  out_pos[1] = slot->pos[1];
+  out_pos[2] = slot->pos[2];
+  if (vehicle != 0u) {
+    (void)gta_entity_read_position_compat(vehicle, &out_pos[0], &out_pos[1], &out_pos[2]);
+  }
+  return isfinite(out_pos[0]) && isfinite(out_pos[1]) && isfinite(out_pos[2]);
+}
+
+static int vehicle_compat_marker_position_changed(const samp_vehicle_slot_compat *slot, const float pos[3]) {
+  float dx = 0.0f;
+  float dy = 0.0f;
+  float dz = 0.0f;
+  float dist_sq = 0.0f;
+  const float limit = SAMP_VEHICLE_SCANNER_MARKER_RECREATE_DISTANCE;
+
+  if (slot == NULL || pos == NULL || slot->marker_id == 0u) {
+    return 0;
+  }
+  dx = slot->marker_pos[0] - pos[0];
+  dy = slot->marker_pos[1] - pos[1];
+  dz = slot->marker_pos[2] - pos[2];
+  dist_sq = (dx * dx) + (dy * dy) + (dz * dz);
+  return isfinite(dist_sq) && dist_sq > (limit * limit) ? 1 : 0;
+}
+
+static int vehicle_compat_near_local_ped(const samp_vehicle_slot_compat *slot, uintptr_t vehicle, uintptr_t ped,
+                                         float out_vehicle_pos[3]) {
   float ped_x = 0.0f;
   float ped_y = 0.0f;
   float ped_z = 0.0f;
-  float veh_x = 0.0f;
-  float veh_y = 0.0f;
-  float veh_z = 0.0f;
+  float veh_pos[3] = {0.0f, 0.0f, 0.0f};
   float dx = 0.0f;
   float dy = 0.0f;
   float dz = 0.0f;
@@ -4716,23 +5102,25 @@ static int vehicle_compat_near_local_ped(const samp_vehicle_slot_compat *slot, u
   if (slot == NULL || ped == 0u || !gta_entity_read_position_compat(ped, &ped_x, &ped_y, &ped_z)) {
     return 0;
   }
-
-  veh_x = slot->pos[0];
-  veh_y = slot->pos[1];
-  veh_z = slot->pos[2];
-  if (vehicle != 0u) {
-    (void)gta_entity_read_position_compat(vehicle, &veh_x, &veh_y, &veh_z);
+  if (!vehicle_compat_read_marker_position(slot, vehicle, veh_pos)) {
+    return 0;
+  }
+  if (out_vehicle_pos != NULL) {
+    out_vehicle_pos[0] = veh_pos[0];
+    out_vehicle_pos[1] = veh_pos[1];
+    out_vehicle_pos[2] = veh_pos[2];
   }
 
-  dx = veh_x - ped_x;
-  dy = veh_y - ped_y;
-  dz = veh_z - ped_z;
+  dx = veh_pos[0] - ped_x;
+  dy = veh_pos[1] - ped_y;
+  dz = veh_pos[2] - ped_z;
   dist_sq = (dx * dx) + (dy * dy) + (dz * dz);
   return isfinite(dist_sq) && dist_sq < limit_sq ? 1 : 0;
 }
 
 static void vehicle_compat_update_scanner_marker(uint16_t vehicle_id, samp_vehicle_slot_compat *slot, uintptr_t ped) {
   uintptr_t vehicle = 0u;
+  float marker_pos[3] = {0.0f, 0.0f, 0.0f};
   int should_show = 0;
   int local_driver = 0;
 
@@ -4746,24 +5134,30 @@ static void vehicle_compat_update_scanner_marker(uint16_t vehicle_id, samp_vehic
     vehicle_compat_set_invulnerable(vehicle_id, slot, local_driver ? 0 : 1);
   }
   /*
-   * STATIC_037 + TODO_VERIFY:
-   * Recovered vehicle-marker behavior shows normal scanner markers only when the
-   * vehicle is within scanner distance and not occupied. Objective/special markers
-   * are deliberately not emulated here yet because no 0.3.7 trace has identified
-   * their RPC path in this bridge.
+   * PROBE_TRACE + TODO_VERIFY:
+   * Keep empty-vehicle scanner markers on the previously visible free
+   * coordinate blip path. The entity-attached marker path rendered black on the
+   * current GTA/Wine target, so color/alpha work must be traced separately.
    */
-  should_show = (vehicle_compat_near_local_ped(slot, vehicle, ped) && !vehicle_compat_is_occupied(vehicle));
+  should_show = (vehicle_compat_near_local_ped(slot, vehicle, ped, marker_pos) && !vehicle_compat_is_occupied(vehicle));
   if (should_show) {
+    if (vehicle_compat_marker_position_changed(slot, marker_pos)) {
+      vehicle_compat_disable_marker(slot);
+    }
     if (slot->marker_id == 0u &&
-        !gta_script_command_compat(0x0161u, "iiiv", (int)slot->gta_id, 1, SAMP_VEHICLE_SCANNER_MARKER_TYPE,
-                                   &slot->marker_id)) {
+        !gta_script_command_compat(0x0167u, "fffiv", marker_pos[0], marker_pos[1], marker_pos[2],
+                                   SAMP_BLIP_DISPLAY_BLIPONLY, &slot->marker_id)) {
       runtime_tracef("vehicle: marker_create_failed id=%u gta=%lu", (unsigned)vehicle_id,
                      (unsigned long)slot->gta_id);
       slot->marker_id = 0u;
     }
     if (slot->marker_id != 0u) {
-      (void)gta_script_command_compat(0x0165u, "ii", (int)slot->marker_id,
-                                      SAMP_VEHICLE_SCANNER_MARKER_COLOR);
+      slot->marker_pos[0] = marker_pos[0];
+      slot->marker_pos[1] = marker_pos[1];
+      slot->marker_pos[2] = marker_pos[2];
+      (void)gta_script_command_compat(0x0165u, "ii", (int)slot->marker_id, SAMP_VEHICLE_SCANNER_MARKER_COLOR);
+      (void)gta_script_command_compat(0x0168u, "ii", (int)slot->marker_id, SAMP_VEHICLE_SCANNER_MARKER_SCALE);
+      (void)gta_script_command_compat(0x018Bu, "ii", (int)slot->marker_id, SAMP_BLIP_DISPLAY_BLIPONLY);
     }
   } else {
     vehicle_compat_disable_marker(slot);
@@ -5705,6 +6099,31 @@ static void chat_compat_d3dx_draw_text(samp_id3dx_font_compat *font, RECT rect, 
     return;
   }
   font->lpVtbl->DrawTextA(font, NULL, text, -1, &rect, flags, argb_color);
+}
+
+static void textdraw_compat_mta_dx_draw_text(samp_id3dx_font_compat *font, RECT rect, const char *text,
+                                             DWORD argb_color, DWORD flags) {
+  WCHAR wide_text[SAMP_TEXTDRAW_COMPAT_MAX_TEXT_BYTES];
+  int chars = 0;
+
+  if (font == NULL || font->lpVtbl == NULL || text == NULL || text[0] == '\0') {
+    return;
+  }
+  if (font->lpVtbl->DrawTextW == NULL) {
+    chat_compat_d3dx_draw_text(font, rect, text, argb_color, flags);
+    return;
+  }
+
+  chars = MultiByteToWideChar(CP_UTF8, 0, text, -1, wide_text, (int)(sizeof(wide_text) / sizeof(wide_text[0])));
+  if (chars <= 0) {
+    chars = MultiByteToWideChar(CP_ACP, 0, text, -1, wide_text, (int)(sizeof(wide_text) / sizeof(wide_text[0])));
+  }
+  if (chars <= 0) {
+    chat_compat_d3dx_draw_text(font, rect, text, argb_color, flags);
+    return;
+  }
+  wide_text[(sizeof(wide_text) / sizeof(wide_text[0])) - 1u] = L'\0';
+  font->lpVtbl->DrawTextW(font, NULL, wide_text, -1, &rect, flags, argb_color);
 }
 
 static int chat_compat_d3dx_measure_text_width(samp_id3dx_font_compat *font, const char *text, int fallback_width);
@@ -6765,9 +7184,9 @@ static void map_icon_compat_apply_event(const samp_raknet_map_icon_event *event)
 
   map_icon_compat_disable_slot(event->index, slot, "replace");
   /*
-   * INFERRED + TODO_VERIFY:
+   * GTA_REVERSED_REF + INFERRED + TODO_VERIFY:
    * Compatibility NetGame::SetMapIcon uses create_radar_marker_without_sphere (04CE),
-   * set_marker_color (0165), then show_on_radar (0168) with size 3.
+   * set_marker_color (0165), then change_blip_scale (0168) with size 3.
    */
   if (!gta_script_command_compat(0x04CEu, "fffiv", event->pos[0], event->pos[1], event->pos[2],
                                  (int)event->icon, &marker_id) ||
@@ -6778,8 +7197,9 @@ static void map_icon_compat_apply_event(const samp_raknet_map_icon_event *event)
     return;
   }
 
-  (void)gta_script_command_compat(0x0165u, "ii", (int)marker_id, (int)event->color);
-  (void)gta_script_command_compat(0x0168u, "ii", (int)marker_id, SAMP_MAP_ICON_RADAR_SIZE);
+  (void)gta_script_command_compat(0x0165u, "ii", (int)marker_id,
+                                  radar_compat_color_code_to_rgba(event->color));
+  (void)gta_script_command_compat(0x0168u, "ii", (int)marker_id, SAMP_MAP_ICON_BLIP_SCALE);
   slot->seq = event->seq;
   slot->marker_id = marker_id;
   slot->icon = event->icon;
@@ -7518,9 +7938,10 @@ static void remote_player_compat_update_marker(uint16_t player_id, samp_remote_p
     }
     if (slot->marker_id != 0u) {
       (void)gta_script_command_compat(0x0165u, "ii", (int)slot->marker_id,
-                                      remote_player_compat_marker_color(player_id, slot, scoreboard_slot));
+                                      radar_compat_color_code_to_rgba(
+                                          (uint32_t)remote_player_compat_marker_color(player_id, slot, scoreboard_slot)));
       (void)gta_script_command_compat(0x018Bu, "ii", (int)slot->marker_id,
-                                      SAMP_REMOTE_PLAYER_MARKER_RADAR_SIZE);
+                                      SAMP_REMOTE_PLAYER_MARKER_DISPLAY);
     }
   } else {
     remote_player_compat_disable_marker(slot);
@@ -8130,6 +8551,23 @@ static int textdraw_compat_read_gta_screen(float *screen_width, float *screen_he
   return 1;
 }
 
+static int textdraw_compat_gta_font_convert_enabled(void) {
+  static LONG initialized = 0;
+  static int enabled = 0;
+  static const char *source = "default:off";
+
+  if (InterlockedCompareExchange(&initialized, 0, 0) != 0) {
+    return enabled;
+  }
+
+  enabled = runtime_flag_enabled_default_source_compat(SAMP_TEXTDRAW_COMPAT_GTA_FONT_CONVERT_ENV, 0, &source);
+  InterlockedExchange(&initialized, 1);
+  runtime_tracef("textdraw_gta_font_convert: enabled=%d env=%s source=%s "
+                 "evidence=PROBE_TRACE,GTA_REVERSED_REF,TODO_VERIFY",
+                 enabled, SAMP_TEXTDRAW_COMPAT_GTA_FONT_CONVERT_ENV, source);
+  return enabled;
+}
+
 static int textdraw_compat_gta_font_ready(void) {
   const uintptr_t addrs[] = {SAMP_ADDR_FONT_SET_SCALE,
                              SAMP_ADDR_FONT_SET_COLOR,
@@ -8160,11 +8598,88 @@ static int textdraw_compat_gta_font_ready(void) {
       return 0;
     }
   }
+  if (textdraw_compat_gta_font_convert_enabled() &&
+      !memory_is_readable_compat((const void *)(uintptr_t)SAMP_ADDR_MESSAGES_INSERT_PLAYER_CONTROL_KEYS, 1u)) {
+    if (InterlockedCompareExchange(&g_runtime.textdraw_gta_font_fail_logged, 1, 0) == 0) {
+      runtime_tracef("textdraw_gta_font: unavailable gta_version=%ld converter=0x%08lx",
+                     (long)gta_version, (unsigned long)SAMP_ADDR_MESSAGES_INSERT_PLAYER_CONTROL_KEYS);
+    }
+    return 0;
+  }
   InterlockedExchange(&g_runtime.textdraw_gta_font_fail_logged, 0);
   return 1;
 }
 
+static int textdraw_compat_gta_font_phase_ready(void) {
+  uint8_t hud = 0u;
+
+  if (!memory_is_readable_compat((const void *)(uintptr_t)SAMP_ADDR_ENABLE_HUD, sizeof(hud))) {
+    return 0;
+  }
+  hud = read_game_u8(SAMP_ADDR_ENABLE_HUD);
+  if (hud == 0u) {
+    if (InterlockedCompareExchange(&g_runtime.textdraw_gta_font_fail_logged, 1, 0) == 0) {
+      runtime_tracef("textdraw_gta_font: deferred hud=0 entry=%ld game_started=%u evidence=PROBE_TRACE,TODO_VERIFY",
+                     (long)read_game_entry_gate_value(), (unsigned)read_game_u8(SAMP_ADDR_GAME_STARTED));
+    }
+    return 0;
+  }
+  return 1;
+}
+
 static int textdraw_compat_gta_font_enabled(void) {
+  static LONG initialized = 0;
+  static int enabled = 0;
+  static const char *source = "default:off";
+
+  if (InterlockedCompareExchange(&initialized, 0, 0) != 0) {
+    return enabled;
+  }
+
+  enabled = runtime_flag_enabled_default_source_compat(SAMP_TEXTDRAW_COMPAT_GTA_FONT_ENV, 0, &source);
+  InterlockedExchange(&initialized, 1);
+  runtime_tracef("textdraw_gta_font: enabled=%d env=%s source=%s default=end_scene_unsafe "
+                 "evidence=OBSERVED_037,PROBE_TRACE,GTA_REVERSED_REF,TODO_VERIFY",
+                 enabled, SAMP_TEXTDRAW_COMPAT_GTA_FONT_ENV, source);
+  return enabled;
+}
+
+static int textdraw_compat_gta_font_graphics_enabled(void) {
+  static LONG initialized = 0;
+  static int enabled = 0;
+  static const char *source = "default:off";
+
+  if (InterlockedCompareExchange(&initialized, 0, 0) != 0) {
+    return enabled;
+  }
+
+  enabled = runtime_flag_enabled_default_source_compat(SAMP_TEXTDRAW_COMPAT_GTA_FONT_GRAPHICS_ENV, 0, &source);
+  InterlockedExchange(&initialized, 1);
+  runtime_tracef("textdraw_gta_font_graphics: enabled=%d env=%s source=%s post_hook=%d "
+                 "evidence=OBSERVED_037,PROBE_TRACE,GTA_REVERSED_REF,TODO_VERIFY",
+                 enabled, SAMP_TEXTDRAW_COMPAT_GTA_FONT_GRAPHICS_ENV, source,
+                 g_runtime.hook_bridge.callback_after_original ? 1 : 0);
+  return enabled;
+}
+
+static int textdraw_compat_gta_font_game_process_enabled(void) {
+  static LONG initialized = 0;
+  static int enabled = 0;
+  static const char *source = "default:off";
+
+  if (InterlockedCompareExchange(&initialized, 0, 0) != 0) {
+    return enabled;
+  }
+
+  enabled = runtime_flag_enabled_default_source_compat(SAMP_TEXTDRAW_COMPAT_GTA_FONT_GAME_PROCESS_ENV, 0, &source);
+  InterlockedExchange(&initialized, 1);
+  runtime_tracef("textdraw_gta_font_gameprocess: enabled=%d env=%s source=%s "
+                 "evidence=STATIC_037,PROBE_TRACE,TODO_VERIFY",
+                 enabled, SAMP_TEXTDRAW_COMPAT_GTA_FONT_GAME_PROCESS_ENV, source);
+  return enabled;
+}
+
+static int textdraw_compat_mta_dx_enabled(void) {
   static LONG initialized = 0;
   static int enabled = 0;
   const char *value = NULL;
@@ -8173,13 +8688,13 @@ static int textdraw_compat_gta_font_enabled(void) {
     return enabled;
   }
 
-  value = getenv(SAMP_TEXTDRAW_COMPAT_GTA_FONT_ENV);
-  if (value != NULL && value[0] != '\0' && value[0] != '0') {
-    enabled = 1;
+  value = getenv(SAMP_TEXTDRAW_COMPAT_MTA_DX_ENV);
+  if (value != NULL && value[0] != '\0') {
+    enabled = value[0] != '0' ? 1 : 0;
   }
   InterlockedExchange(&initialized, 1);
-  runtime_tracef("textdraw_gta_font: enabled=%d env=%s evidence=STATIC_037,GTA_REVERSED_REF,TODO_VERIFY", enabled,
-                 SAMP_TEXTDRAW_COMPAT_GTA_FONT_ENV);
+  runtime_tracef("textdraw_mta_dx: enabled=%d env=%s evidence=MTA_REF,INFERRED,TODO_VERIFY", enabled,
+                 SAMP_TEXTDRAW_COMPAT_MTA_DX_ENV);
   return enabled;
 }
 
@@ -8200,6 +8715,8 @@ static void textdraw_compat_prepare_gta_text(const char *input, char *output, si
   const char *read_cursor = input;
   char *write_cursor = output;
   char *write_end = output != NULL && output_size > 0u ? output + output_size - 1u : NULL;
+  static const char vehicle_enter_exit_token[] = "~k~~VEHICLE_ENTER_EXIT~";
+  static const char vehicle_enter_exit_text[] = "RETURN";
 
   if (output == NULL || output_size == 0u) {
     return;
@@ -8211,6 +8728,20 @@ static void textdraw_compat_prepare_gta_text(const char *input, char *output, si
 
   while (*read_cursor != '\0' && write_cursor < write_end) {
     unsigned char ch = (unsigned char)*read_cursor;
+    /* OBSERVED_037 + PROBE_TRACE:
+     * The unsafe GTA converter stays opt-in, but the textdraw probe confirms
+     * this control-key token must become the visible key name before CFont.
+     */
+    if (strncmp(read_cursor, vehicle_enter_exit_token, sizeof(vehicle_enter_exit_token) - 1u) == 0) {
+      size_t replacement_len = sizeof(vehicle_enter_exit_text) - 1u;
+      if ((size_t)(write_end - write_cursor) < replacement_len) {
+        replacement_len = (size_t)(write_end - write_cursor);
+      }
+      memcpy(write_cursor, vehicle_enter_exit_text, replacement_len);
+      write_cursor += replacement_len;
+      read_cursor += sizeof(vehicle_enter_exit_token) - 1u;
+      continue;
+    }
     if (ch < ' ' && ch != '\n' && ch != '\r' && ch != '\t') {
       *write_cursor++ = ' ';
       ++read_cursor;
@@ -8224,24 +8755,9 @@ static void textdraw_compat_prepare_gta_text(const char *input, char *output, si
     *write_cursor++ = *read_cursor++;
   }
   *write_cursor = '\0';
-  chat_compat_strip_samp_color_tags(output);
 }
 
-static int textdraw_compat_draw_gta_font_slot(const samp_textdraw_slot_compat *slot) {
-  samp_gta_font_set_scale_fn set_scale = (samp_gta_font_set_scale_fn)(uintptr_t)SAMP_ADDR_FONT_SET_SCALE;
-  samp_gta_font_set_color_fn set_color = (samp_gta_font_set_color_fn)(uintptr_t)SAMP_ADDR_FONT_SET_COLOR;
-  samp_gta_font_set_int_fn set_style = (samp_gta_font_set_int_fn)(uintptr_t)SAMP_ADDR_FONT_SET_STYLE;
-  samp_gta_font_set_float_fn set_line_width = (samp_gta_font_set_float_fn)(uintptr_t)SAMP_ADDR_FONT_SET_LINE_WIDTH;
-  samp_gta_font_set_float_fn set_line_height = (samp_gta_font_set_float_fn)(uintptr_t)SAMP_ADDR_FONT_SET_LINE_HEIGHT;
-  samp_gta_font_set_color_fn set_drop_color = (samp_gta_font_set_color_fn)(uintptr_t)SAMP_ADDR_FONT_SET_DROPCOLOR;
-  samp_gta_font_set_int_fn set_shadow = (samp_gta_font_set_int_fn)(uintptr_t)SAMP_ADDR_FONT_SET_SHADOW;
-  samp_gta_font_set_int_fn set_outline = (samp_gta_font_set_int_fn)(uintptr_t)SAMP_ADDR_FONT_SET_OUTLINE;
-  samp_gta_font_set_int_fn set_proportional = (samp_gta_font_set_int_fn)(uintptr_t)SAMP_ADDR_FONT_SET_PROPORTIONAL;
-  samp_gta_font_use_box_fn use_box = (samp_gta_font_use_box_fn)(uintptr_t)SAMP_ADDR_FONT_USE_BOX;
-  samp_gta_font_set_color_fn use_box_color = (samp_gta_font_set_color_fn)(uintptr_t)SAMP_ADDR_FONT_USE_BOX_COLOR;
-  samp_gta_font_set_int_fn unk12 = (samp_gta_font_set_int_fn)(uintptr_t)SAMP_ADDR_FONT_UNK12;
-  samp_gta_font_set_int_fn set_justify = (samp_gta_font_set_int_fn)(uintptr_t)SAMP_ADDR_FONT_SET_JUSTIFY;
-  samp_gta_font_print_string_fn print_string = (samp_gta_font_print_string_fn)(uintptr_t)SAMP_ADDR_FONT_PRINT_STRING;
+static int textdraw_compat_draw_gta_font_slot(samp_textdraw_slot_compat *slot, int phase) {
   float screen_width = 0.0f;
   float screen_height = 0.0f;
   float hud_horiz = 0.0f;
@@ -8250,13 +8766,23 @@ static int textdraw_compat_draw_gta_font_slot(const samp_textdraw_slot_compat *s
   float scale_y = 0.0f;
   float use_x = 0.0f;
   float use_y = 0.0f;
-  char text[SAMP_TEXTDRAW_COMPAT_MAX_TEXT_BYTES];
+  char *text = NULL;
   int proportional = 0;
 
   if (slot == NULL || textdraw_compat_is_preview_like(slot)) {
     return 0;
   }
-  if (!textdraw_compat_gta_font_enabled()) {
+  if (phase == SAMP_TEXTDRAW_GTA_FONT_PHASE_GRAPHICS) {
+    if (textdraw_compat_gta_font_game_process_enabled() || !textdraw_compat_gta_font_graphics_enabled() ||
+        !g_runtime.hook_bridge.callback_after_original) {
+      return 0;
+    }
+  } else if (phase == SAMP_TEXTDRAW_GTA_FONT_PHASE_GAME_PROCESS) {
+    if (!textdraw_compat_gta_font_game_process_enabled()) {
+      return 0;
+    }
+  } else if (textdraw_compat_gta_font_game_process_enabled() || !textdraw_compat_gta_font_enabled() ||
+             textdraw_compat_gta_font_graphics_enabled()) {
     return 0;
   }
   if (!isfinite(slot->transmit.x) || !isfinite(slot->transmit.y) || !isfinite(slot->transmit.letter_width) ||
@@ -8264,21 +8790,21 @@ static int textdraw_compat_draw_gta_font_slot(const samp_textdraw_slot_compat *s
       !isfinite(slot->transmit.line_height)) {
     return 0;
   }
-  if (!textdraw_compat_gta_font_ready() ||
+  if (!textdraw_compat_gta_font_ready() || !textdraw_compat_gta_font_phase_ready() ||
       !textdraw_compat_read_gta_screen(&screen_width, &screen_height, &hud_horiz, &hud_vert)) {
     return 0;
   }
 
-  textdraw_compat_prepare_gta_text(slot->text, text, sizeof(text));
+  text = slot->gta_text;
+  textdraw_compat_prepare_gta_text(slot->text, text, sizeof(slot->gta_text));
   if (text[0] == '\0' && !textdraw_compat_has_box(slot)) {
     return 1;
   }
 
-  /* STATIC_037 + GTA_REVERSED_REF + TODO_VERIFY:
-   * Mirrors CTextDraw::Draw scaling/positioning. Some original text paths route
-   * through GTA message helpers, but gta-reversed identifies 0x69E160 as
-   * InsertPlayerControlKeysInString. We avoid that call here until OBSERVED_037
-   * validates the exact 0.3.7 buffer contract.
+  /* OBSERVED_037 + PROBE_TRACE + GTA_REVERSED_REF:
+   * Original 0.3.7 textdraws pass SAMP color/newline tokens through to
+   * CFont::PrintString. Only underscores/control-key tokens are normalized
+   * before PrintString, matching the traced CFont input strings.
    */
   scale_y = screen_height * hud_vert * slot->transmit.letter_height * 0.5f;
   scale_x = screen_width * hud_horiz * slot->transmit.letter_width;
@@ -8286,31 +8812,54 @@ static int textdraw_compat_draw_gta_font_slot(const samp_textdraw_slot_compat *s
   use_x = screen_width - ((SAMP_TEXTDRAW_COMPAT_SCRIPT_WIDTH - slot->transmit.x) * (screen_width * hud_horiz));
   proportional = (slot->transmit.flags & 0x10u) != 0u ? 1 : 0;
 
-  set_scale(scale_x, scale_y);
-  set_color(slot->transmit.letter_color);
-  unk12(0);
+  /* PROBE_TRACE + TODO_VERIFY:
+   * The first GameProcess CFont runs reached PrintString/SetOutline and then
+   * faulted at ip=0. Keep the CFont call boundary stack/register-neutral and
+   * pass a persistent slot buffer while the exact 0.3.7 converter and
+   * render-phase contracts are still verified.
+   */
+  gta_font_call2_float_compat(SAMP_ADDR_FONT_SET_SCALE, scale_x, scale_y);
+  gta_font_call1_u32_compat(SAMP_ADDR_FONT_SET_COLOR, slot->transmit.letter_color);
+  gta_font_call1_u32_compat(SAMP_ADDR_FONT_UNK12, 0u);
   if ((slot->transmit.flags & 0x04u) != 0u) {
-    set_justify(2);
+    gta_font_call1_u32_compat(SAMP_ADDR_FONT_SET_JUSTIFY, 2u);
   } else if ((slot->transmit.flags & 0x08u) != 0u) {
-    set_justify(0);
+    gta_font_call1_u32_compat(SAMP_ADDR_FONT_SET_JUSTIFY, 0u);
   } else {
-    set_justify(1);
+    gta_font_call1_u32_compat(SAMP_ADDR_FONT_SET_JUSTIFY, 1u);
   }
-  set_line_width(screen_width * hud_horiz * slot->transmit.line_width);
-  set_line_height(screen_width * hud_horiz * slot->transmit.line_height);
-  use_box(textdraw_compat_has_box(slot), 0);
-  use_box_color(slot->transmit.box_color);
-  set_proportional(proportional);
-  set_drop_color(slot->transmit.background_color);
+  gta_font_call1_float_compat(SAMP_ADDR_FONT_SET_LINE_WIDTH, screen_width * hud_horiz * slot->transmit.line_width);
+  gta_font_call1_float_compat(SAMP_ADDR_FONT_SET_LINE_HEIGHT, screen_width * hud_horiz * slot->transmit.line_height);
+  gta_font_call2_u32_compat(SAMP_ADDR_FONT_USE_BOX, (uint32_t)textdraw_compat_has_box(slot), 0u);
+  gta_font_call1_u32_compat(SAMP_ADDR_FONT_USE_BOX_COLOR, slot->transmit.box_color);
+  gta_font_call1_u32_compat(SAMP_ADDR_FONT_SET_PROPORTIONAL, (uint32_t)proportional);
+  gta_font_call1_u32_compat(SAMP_ADDR_FONT_SET_DROPCOLOR, slot->transmit.background_color);
   if (slot->transmit.outline != 0u) {
-    set_outline(slot->transmit.outline);
+    gta_font_call1_u32_compat(SAMP_ADDR_FONT_SET_OUTLINE, (uint32_t)slot->transmit.outline);
   } else {
-    set_shadow(slot->transmit.shadow);
+    gta_font_call1_u32_compat(SAMP_ADDR_FONT_SET_SHADOW, (uint32_t)slot->transmit.shadow);
   }
-  set_style(textdraw_compat_gta_font_style(slot->transmit.style));
-  print_string(use_x, use_y, text);
-  set_outline(0);
-  set_shadow(0);
+  gta_font_call1_u32_compat(SAMP_ADDR_FONT_SET_STYLE, (uint32_t)textdraw_compat_gta_font_style(slot->transmit.style));
+  if (textdraw_compat_gta_font_convert_enabled()) {
+    gta_font_call1_ptr_compat(SAMP_ADDR_MESSAGES_INSERT_PLAYER_CONTROL_KEYS, text);
+  }
+  gta_font_call3_float_float_ptr_compat(SAMP_ADDR_FONT_PRINT_STRING, use_x, use_y, text);
+  /* OBSERVED_037 + PROBE_TRACE:
+   * The original textdraw draw path resets outline after each PrintString. It
+   * does not issue a matching SetShadow(0) reset in the traced stack.
+   */
+  gta_font_call1_u32_compat(SAMP_ADDR_FONT_SET_OUTLINE, 0u);
+  if (InterlockedCompareExchange(&g_runtime.textdraw_logged, 1, 0) == 0) {
+    runtime_tracef("textdraw_gta_font: drawing enabled phase=%s pos=(%.2f,%.2f) scale=(%.3f,%.3f) style=%u "
+                   "flags=0x%02x box=%u outline=%u shadow=%u text='%s' evidence=OBSERVED_037,PROBE_TRACE",
+                   phase == SAMP_TEXTDRAW_GTA_FONT_PHASE_GAME_PROCESS
+                       ? "game_process"
+                       : (phase == SAMP_TEXTDRAW_GTA_FONT_PHASE_GRAPHICS ? "graphics" : "endscene"),
+                   use_x, use_y, scale_x, scale_y,
+                   (unsigned)slot->transmit.style,
+                   (unsigned)slot->transmit.flags, (unsigned)textdraw_compat_has_box(slot),
+                   (unsigned)slot->transmit.outline, (unsigned)slot->transmit.shadow, text);
+  }
   return 1;
 }
 
@@ -8361,6 +8910,8 @@ static void textdraw_compat_prepare_render_text(const char *input, char *output,
   const char *read_cursor = input;
   char *write_cursor = output;
   char *write_end = output != NULL && output_size > 0u ? output + output_size - 1u : NULL;
+  static const char vehicle_enter_exit_token[] = "~k~~VEHICLE_ENTER_EXIT~";
+  static const char vehicle_enter_exit_text[] = "RETURN";
 
   if (output == NULL || output_size == 0u) {
     return;
@@ -8371,6 +8922,20 @@ static void textdraw_compat_prepare_render_text(const char *input, char *output,
   }
 
   while (*read_cursor != '\0' && write_cursor < write_end) {
+    /* PROBE_TRACE + INFERRED:
+     * The original CFont path expands SA control-key tokens before PrintString.
+     * Keep the D3DX fallback visually comparable for the current textdraw probe.
+     */
+    if (strncmp(read_cursor, vehicle_enter_exit_token, sizeof(vehicle_enter_exit_token) - 1u) == 0) {
+      size_t replacement_len = sizeof(vehicle_enter_exit_text) - 1u;
+      if ((size_t)(write_end - write_cursor) < replacement_len) {
+        replacement_len = (size_t)(write_end - write_cursor);
+      }
+      memcpy(write_cursor, vehicle_enter_exit_text, replacement_len);
+      write_cursor += replacement_len;
+      read_cursor += sizeof(vehicle_enter_exit_token) - 1u;
+      continue;
+    }
     if (read_cursor[0] == '~') {
       const char *end = strchr(read_cursor + 1, '~');
       if (end != NULL) {
@@ -8431,10 +8996,11 @@ static int textdraw_compat_font_pixel_height(const samp_textdraw_slot_compat *sl
 
   /* STATIC_037 + GTA_REVERSED_REF + INFERRED:
    * Original CTextDraw feeds CFont scale_y = screenH * hudVert * letterHeight * 0.5.
-   * GTA's visible glyph height is roughly 18x that scale. In our D3DX fallback
-   * this collapses to viewportH / 448 * letterHeight * 9.
+   * The 2026-07-06 image diff shows our EndScene D3DX glyphs are visibly too
+   * small versus OBSERVED_037, so the fallback uses a larger conservative
+   * multiplier until the real CFont render-phase hook replaces it.
    */
-  height = (int)((((float)viewport_h / SAMP_TEXTDRAW_COMPAT_SCRIPT_HEIGHT) * letter_height * 9.0f) + 0.5f);
+  height = (int)((((float)viewport_h / SAMP_TEXTDRAW_COMPAT_SCRIPT_HEIGHT) * letter_height * 12.0f) + 0.5f);
   return textdraw_compat_clamp_int(height, SAMP_TEXTDRAW_COMPAT_FONT_MIN_HEIGHT,
                                    SAMP_TEXTDRAW_COMPAT_FONT_MIN_HEIGHT +
                                        ((SAMP_TEXTDRAW_COMPAT_FONT_BUCKETS - 1) * SAMP_TEXTDRAW_COMPAT_FONT_STEP));
@@ -8504,6 +9070,12 @@ static samp_id3dx_font_compat *textdraw_compat_ensure_font(void *device, int buc
   }
 
   height = textdraw_compat_font_height_for_bucket(bucket);
+  /*
+   * INFERRED + TODO_VERIFY:
+   * This is still the non-1:1 D3DX fallback. OBSERVED_037 renders through GTA
+   * CFont with heavier bitmap-like glyphs, so prefer a bold face here instead
+   * of the thin Tahoma fallback while the render-phase CFont path is pending.
+   */
   hr = g_runtime.d3dx_create_font_a(device, height, 0u, FW_BOLD, 1u, FALSE, DEFAULT_CHARSET, OUT_DEFAULT_PRECIS,
                                     DEFAULT_QUALITY, DEFAULT_PITCH | FF_DONTCARE, "Arial", &font);
   if (FAILED(hr) || font == NULL) {
@@ -9013,6 +9585,40 @@ static DWORD textdraw_compat_brighten_color(DWORD color) {
   return alpha | (red << 16u) | (green << 8u) | blue;
 }
 
+static int textdraw_compat_parse_mta_hex_color(const char *text, DWORD current_color, DWORD *out_color) {
+  DWORD rgb = 0u;
+  char digits[7];
+  char *end = NULL;
+  DWORD alpha = current_color & 0xFF000000u;
+  int i = 0;
+
+  if (out_color != NULL) {
+    *out_color = current_color;
+  }
+  if (text == NULL || text[0] != '#') {
+    return 0;
+  }
+  for (i = 0; i < 6; ++i) {
+    unsigned char ch = (unsigned char)text[i + 1];
+    if (!isxdigit(ch)) {
+      return 0;
+    }
+    digits[i] = (char)ch;
+  }
+  digits[6] = '\0';
+  rgb = (DWORD)strtoul(digits, &end, 16);
+  if (end == NULL || *end != '\0') {
+    return 0;
+  }
+  if (alpha == 0u) {
+    alpha = 0xFF000000u;
+  }
+  if (out_color != NULL) {
+    *out_color = alpha | (rgb & 0x00FFFFFFu);
+  }
+  return 1;
+}
+
 static int textdraw_compat_parse_gta_token(const char *text, DWORD *inout_color, size_t *out_len) {
   const char *end = NULL;
   char token = '\0';
@@ -9103,11 +9709,16 @@ static int textdraw_compat_measure_render_line_width(samp_id3dx_font_compat *fon
   while (offset < text_len) {
     char segment[SAMP_TEXTDRAW_COMPAT_MAX_TEXT_BYTES];
     DWORD tag_color = 0u;
+    DWORD mta_color = 0u;
     size_t token_len = 0u;
     size_t len = 0u;
 
     if (chat_compat_parse_color_tag(text + offset, &tag_color)) {
       offset += 8u;
+      continue;
+    }
+    if (textdraw_compat_parse_mta_hex_color(text + offset, 0xFFFFFFFFu, &mta_color)) {
+      offset += 7u;
       continue;
     }
     if (textdraw_compat_parse_gta_token(text + offset, NULL, &token_len) && token_len > 0u) {
@@ -9116,6 +9727,7 @@ static int textdraw_compat_measure_render_line_width(samp_id3dx_font_compat *fon
     }
     while (offset + len < text_len && text[offset + len] != '\n' &&
            !chat_compat_parse_color_tag(text + offset + len, &tag_color) &&
+           !textdraw_compat_parse_mta_hex_color(text + offset + len, 0xFFFFFFFFu, &mta_color) &&
            !textdraw_compat_parse_gta_token(text + offset + len, NULL, &token_len) &&
            len + 1u < sizeof(segment)) {
       ++len;
@@ -9140,25 +9752,25 @@ static void textdraw_compat_draw_text_segment(samp_id3dx_font_compat *font, RECT
     return;
   }
   if (outline_pixels > 0) {
-    if (outline_pixels > 2) {
-      outline_pixels = 2;
+    if (outline_pixels > 4) {
+      outline_pixels = 4;
     }
     for (offset = 1; offset <= outline_pixels; ++offset) {
       RECT shadow_rect = rect;
       OffsetRect(&shadow_rect, -offset, 0);
-      chat_compat_d3dx_draw_text(font, shadow_rect, text, outline_color, DT_NOCLIP | DT_SINGLELINE | DT_LEFT);
+      textdraw_compat_mta_dx_draw_text(font, shadow_rect, text, outline_color, DT_NOCLIP | DT_SINGLELINE | DT_LEFT);
       shadow_rect = rect;
       OffsetRect(&shadow_rect, offset, 0);
-      chat_compat_d3dx_draw_text(font, shadow_rect, text, outline_color, DT_NOCLIP | DT_SINGLELINE | DT_LEFT);
+      textdraw_compat_mta_dx_draw_text(font, shadow_rect, text, outline_color, DT_NOCLIP | DT_SINGLELINE | DT_LEFT);
       shadow_rect = rect;
       OffsetRect(&shadow_rect, 0, -offset);
-      chat_compat_d3dx_draw_text(font, shadow_rect, text, outline_color, DT_NOCLIP | DT_SINGLELINE | DT_LEFT);
+      textdraw_compat_mta_dx_draw_text(font, shadow_rect, text, outline_color, DT_NOCLIP | DT_SINGLELINE | DT_LEFT);
       shadow_rect = rect;
       OffsetRect(&shadow_rect, 0, offset);
-      chat_compat_d3dx_draw_text(font, shadow_rect, text, outline_color, DT_NOCLIP | DT_SINGLELINE | DT_LEFT);
+      textdraw_compat_mta_dx_draw_text(font, shadow_rect, text, outline_color, DT_NOCLIP | DT_SINGLELINE | DT_LEFT);
     }
   }
-  chat_compat_d3dx_draw_text(font, rect, text, color, DT_NOCLIP | DT_SINGLELINE | DT_LEFT);
+  textdraw_compat_mta_dx_draw_text(font, rect, text, color, DT_NOCLIP | DT_SINGLELINE | DT_LEFT);
 }
 
 static void textdraw_compat_draw_render_line(samp_id3dx_font_compat *font, RECT rect, const char *text,
@@ -9182,6 +9794,7 @@ static void textdraw_compat_draw_render_line(samp_id3dx_font_compat *font, RECT 
   while (offset < text_len) {
     char segment[SAMP_TEXTDRAW_COMPAT_MAX_TEXT_BYTES];
     DWORD tag_color = 0u;
+    DWORD mta_color = 0u;
     size_t token_len = 0u;
     size_t len = 0u;
     int width = 0;
@@ -9191,12 +9804,18 @@ static void textdraw_compat_draw_render_line(samp_id3dx_font_compat *font, RECT 
       offset += 8u;
       continue;
     }
+    if (textdraw_compat_parse_mta_hex_color(text + offset, color, &mta_color)) {
+      color = mta_color;
+      offset += 7u;
+      continue;
+    }
     if (textdraw_compat_parse_gta_token(text + offset, &color, &token_len) && token_len > 0u) {
       offset += token_len;
       continue;
     }
     while (offset + len < text_len && text[offset + len] != '\n' &&
            !chat_compat_parse_color_tag(text + offset + len, &tag_color) &&
+           !textdraw_compat_parse_mta_hex_color(text + offset + len, color, &mta_color) &&
            !textdraw_compat_parse_gta_token(text + offset + len, NULL, &token_len) &&
            len + 1u < sizeof(segment)) {
       ++len;
@@ -9264,7 +9883,14 @@ static void textdraw_compat_draw_slot(void *device, samp_textdraw_slot_compat *s
   if (device == NULL || slot == NULL || InterlockedCompareExchange(&slot->active, 0, 0) == 0) {
     return;
   }
-  if (textdraw_compat_draw_gta_font_slot(slot)) {
+  if (!textdraw_compat_mta_dx_enabled() &&
+      textdraw_compat_draw_gta_font_slot(slot, SAMP_TEXTDRAW_GTA_FONT_PHASE_ENDSCENE)) {
+    return;
+  }
+  if (textdraw_compat_gta_font_game_process_enabled() && !textdraw_compat_is_preview_like(slot)) {
+    return;
+  }
+  if (textdraw_compat_gta_font_graphics_enabled() && !textdraw_compat_is_preview_like(slot)) {
     return;
   }
   textdraw_compat_prepare_text(slot->text, plain_text, sizeof(plain_text));
@@ -9322,13 +9948,239 @@ static void textdraw_compat_draw_slot(void *device, samp_textdraw_slot_compat *s
       outline_color = 0xFF000000u;
     }
     if (slot->transmit.outline != 0u) {
-      outline_pixels = (int)slot->transmit.outline;
+      outline_pixels = textdraw_compat_clamp_int((int)slot->transmit.outline + 1, 1, 4);
     } else if (slot->transmit.shadow != 0u) {
-      outline_pixels = 1;
+      outline_pixels = textdraw_compat_clamp_int((int)slot->transmit.shadow + 1, 1, 4);
     }
     textdraw_compat_draw_text_segments(font, rect, render_text, color, flags, outline_color, outline_pixels,
                                        font_height + 2);
   }
+}
+
+static int textdraw_compat_draw_gta_font_graphics_overlay(void) {
+  LONG active_count = InterlockedCompareExchange(&g_runtime.textdraw_active_count, 0, 0);
+  int drawn = 0;
+  size_t i = 0u;
+
+  if (active_count <= 0 || textdraw_compat_gta_font_game_process_enabled() ||
+      !textdraw_compat_gta_font_graphics_enabled() ||
+      !g_runtime.hook_bridge.callback_after_original) {
+    return 0;
+  }
+
+  for (i = 0u; i < SAMP_RAKNET_MAX_TEXTDRAWS; ++i) {
+    if (InterlockedCompareExchange(&g_runtime.textdraw_slots[i].active, 0, 0) != 0 &&
+        textdraw_compat_draw_gta_font_slot(&g_runtime.textdraw_slots[i], SAMP_TEXTDRAW_GTA_FONT_PHASE_GRAPHICS)) {
+      ++drawn;
+    }
+  }
+  if (drawn > 0 && InterlockedCompareExchange(&g_runtime.textdraw_gta_font_graphics_logged, 1, 0) == 0) {
+    runtime_tracef("textdraw_gta_font_graphics: drawing enabled active=%ld drawn=%d post_hook=%d "
+                   "evidence=OBSERVED_037,PROBE_TRACE,TODO_VERIFY",
+                   (long)active_count, drawn, g_runtime.hook_bridge.callback_after_original ? 1 : 0);
+  }
+  return drawn > 0 ? 1 : 0;
+}
+
+static int textdraw_compat_draw_gta_font_game_process_overlay(void) {
+  LONG active_count = InterlockedCompareExchange(&g_runtime.textdraw_active_count, 0, 0);
+  int drawn = 0;
+  size_t i = 0u;
+
+  if (active_count <= 0 || !textdraw_compat_gta_font_game_process_enabled()) {
+    return 0;
+  }
+
+  for (i = 0u; i < SAMP_RAKNET_MAX_TEXTDRAWS; ++i) {
+    if (InterlockedCompareExchange(&g_runtime.textdraw_slots[i].active, 0, 0) != 0 &&
+        textdraw_compat_draw_gta_font_slot(&g_runtime.textdraw_slots[i],
+                                           SAMP_TEXTDRAW_GTA_FONT_PHASE_GAME_PROCESS)) {
+      ++drawn;
+    }
+  }
+  if (drawn > 0 && InterlockedCompareExchange(&g_runtime.textdraw_gta_font_game_process_logged, 1, 0) == 0) {
+    runtime_tracef("textdraw_gta_font_gameprocess: drawing enabled active=%ld drawn=%d "
+                   "evidence=STATIC_037,PROBE_TRACE,TODO_VERIFY",
+                   (long)active_count, drawn);
+  }
+  return drawn > 0 ? 1 : 0;
+}
+
+static int game_text_compat_style_bucket(int style) {
+  switch (style) {
+  case 0:
+  case 1:
+  case 3:
+    return 10;
+  case 2:
+    return 8;
+  case 4:
+  case 5:
+    return 7;
+  case 6:
+    return 9;
+  default:
+    return 8;
+  }
+}
+
+static DWORD game_text_compat_style_color(int style) {
+  switch (style) {
+  case 2:
+    return 0xFFFFD040u;
+  case 4:
+  case 5:
+    return 0xFFE8E8E8u;
+  default:
+    return 0xFFFFFFFFu;
+  }
+}
+
+static void game_text_compat_style_rect(int style, int viewport_x, int viewport_y, int viewport_w, int viewport_h,
+                                        int font_height, RECT *rect, UINT *flags, int *line_step) {
+  int center_x = viewport_x + (viewport_w / 2);
+  int center_y = viewport_y + (viewport_h / 2);
+  int height = font_height * 4;
+
+  if (rect == NULL || flags == NULL || line_step == NULL) {
+    return;
+  }
+  if (height < 64) {
+    height = 64;
+  }
+
+  rect->left = viewport_x + 20;
+  rect->right = viewport_x + viewport_w - 20;
+  rect->top = center_y - (height / 2);
+  rect->bottom = rect->top + height;
+  *flags = DT_CENTER;
+  *line_step = font_height + 4;
+
+  switch (style) {
+  case 0:
+  case 1:
+    rect->top = viewport_y + 58;
+    rect->bottom = rect->top + height;
+    break;
+  case 2:
+    rect->top = viewport_y + viewport_h - height - 82;
+    rect->bottom = rect->top + height;
+    break;
+  case 4:
+  case 5:
+    rect->top = viewport_y + viewport_h - height - 118;
+    rect->bottom = rect->top + height;
+    break;
+  case 6:
+    rect->left = center_x - (viewport_w / 3);
+    rect->right = center_x + (viewport_w / 3);
+    rect->top = viewport_y + viewport_h - height - 156;
+    rect->bottom = rect->top + height;
+    break;
+  case 3:
+  default:
+    break;
+  }
+}
+
+static int game_text_compat_active(void) {
+  DWORD now = GetTickCount();
+  DWORD expire = g_runtime.game_text_expire_tick;
+
+  if (InterlockedCompareExchange(&g_runtime.game_text_active, 0, 0) == 0) {
+    return 0;
+  }
+  if ((LONG)(now - expire) >= 0) {
+    InterlockedExchange(&g_runtime.game_text_active, 0);
+    return 0;
+  }
+  return 1;
+}
+
+static void game_text_compat_update_from_snapshot(const samp_raknet_rpc_probe_snapshot *snapshot) {
+  DWORD display_ms = 0u;
+  DWORD now = 0u;
+
+  if (snapshot == NULL || snapshot->game_text_seq == 0u ||
+      snapshot->game_text_seq == (uint32_t)InterlockedCompareExchange(&g_runtime.game_text_seq, 0, 0)) {
+    return;
+  }
+
+  InterlockedExchange(&g_runtime.game_text_seq, (LONG)snapshot->game_text_seq);
+  if (snapshot->game_text[0] == '\0' || snapshot->game_text_time_ms <= 0) {
+    InterlockedExchange(&g_runtime.game_text_active, 0);
+    return;
+  }
+
+  strncpy(g_runtime.game_text, snapshot->game_text, sizeof(g_runtime.game_text) - 1u);
+  g_runtime.game_text[sizeof(g_runtime.game_text) - 1u] = '\0';
+  display_ms = (DWORD)snapshot->game_text_time_ms;
+  if (display_ms < SAMP_GAMETEXT_COMPAT_MIN_TIME_MS) {
+    display_ms = SAMP_GAMETEXT_COMPAT_DEFAULT_TIME_MS;
+  }
+  if (display_ms > SAMP_GAMETEXT_COMPAT_MAX_TIME_MS) {
+    display_ms = SAMP_GAMETEXT_COMPAT_MAX_TIME_MS;
+  }
+  now = GetTickCount();
+  g_runtime.game_text_expire_tick = now + display_ms;
+  InterlockedExchange(&g_runtime.game_text_style, (LONG)snapshot->game_text_style);
+  InterlockedExchange(&g_runtime.game_text_active, 1);
+  runtime_tracef("game_text: show seq=%lu style=%ld time=%lu text='%s' evidence=STATIC_037,MTA_REF,INFERRED,TODO_VERIFY",
+                 (unsigned long)snapshot->game_text_seq, (long)snapshot->game_text_style,
+                 (unsigned long)display_ms, g_runtime.game_text);
+}
+
+static int game_text_compat_draw_d3dx_overlay(void *device) {
+  int viewport_x = 0;
+  int viewport_y = 0;
+  int viewport_w = 0;
+  int viewport_h = 0;
+  int style = 0;
+  int bucket = 0;
+  int font_height = 0;
+  int line_step = 0;
+  RECT rect;
+  UINT flags = DT_CENTER;
+  DWORD color = 0xFFFFFFFFu;
+  DWORD outline_color = 0xFF000000u;
+  char render_text[SAMP_RAKNET_GAMETEXT_TEXT_BYTES];
+  samp_id3dx_font_compat *font = NULL;
+
+  if (device == NULL || !game_text_compat_active()) {
+    return 0;
+  }
+
+  chat_compat_viewport_rect(&viewport_x, &viewport_y, &viewport_w, &viewport_h);
+  if (viewport_w <= 0 || viewport_h <= 0) {
+    return 0;
+  }
+  style = (int)InterlockedCompareExchange(&g_runtime.game_text_style, 0, 0);
+  bucket = game_text_compat_style_bucket(style);
+  font = textdraw_compat_ensure_font(device, bucket);
+  if (font == NULL) {
+    return 0;
+  }
+  textdraw_compat_prepare_render_text(g_runtime.game_text, render_text, sizeof(render_text));
+  if (render_text[0] == '\0') {
+    return 0;
+  }
+
+  font_height = textdraw_compat_font_height_for_bucket(bucket);
+  game_text_compat_style_rect(style, viewport_x, viewport_y, viewport_w, viewport_h, font_height, &rect, &flags,
+                              &line_step);
+  color = game_text_compat_style_color(style);
+  if (strchr(render_text, '\n') != NULL) {
+    flags |= DT_WORDBREAK;
+  } else {
+    flags |= DT_SINGLELINE;
+  }
+  textdraw_compat_draw_text_segments(font, rect, render_text, color, flags, outline_color, 2, line_step);
+
+  if (InterlockedCompareExchange(&g_runtime.game_text_logged, 1, 0) == 0) {
+    runtime_tracef("game_text: drawing enabled style=%d bucket=%d viewport=%dx%d evidence=MTA_REF,INFERRED",
+                   style, bucket, viewport_w, viewport_h);
+  }
+  return 1;
 }
 
 static int textdraw_compat_draw_d3dx_overlay(void *device) {
@@ -9535,6 +10387,7 @@ static int chat_compat_draw_d3dx_overlay(void *device) {
   LONG input_active = 0;
   LONG dialog_active = 0;
   LONG textdraw_active = 0;
+  int game_text_active = 0;
   LONG vehicle_debug_active = 0;
   int name_tags_active = 0;
   int class_selection_active = 0;
@@ -9562,12 +10415,14 @@ static int chat_compat_draw_d3dx_overlay(void *device) {
   input_active = InterlockedCompareExchange(&g_runtime.chat_input_active, 0, 0);
   dialog_active = InterlockedCompareExchange(&g_runtime.dialog_overlay_active, 0, 0);
   textdraw_active = InterlockedCompareExchange(&g_runtime.textdraw_active_count, 0, 0);
+  game_text_active = game_text_compat_active();
   vehicle_debug_active = InterlockedCompareExchange(&g_runtime.vehicle_debug_labels_active, 0, 0);
   name_tags_active = remote_player_compat_name_tags_active();
   class_selection_active = class_selection_compat_active();
   loading_active = loading_screen_compat_active();
   scoreboard_active = scoreboard_compat_active();
-  if (count <= 0 && input_active == 0 && dialog_active == 0 && textdraw_active <= 0 && !loading_active &&
+  if (count <= 0 && input_active == 0 && dialog_active == 0 && textdraw_active <= 0 && !game_text_active &&
+      !loading_active &&
       !scoreboard_active && vehicle_debug_active == 0 && !name_tags_active && !class_selection_active) {
     if (InterlockedCompareExchange(&g_runtime.class_selection_mouse_mode, 0, 0) != 0) {
       class_selection_compat_update_mouse_mode();
@@ -9589,6 +10444,9 @@ static int chat_compat_draw_d3dx_overlay(void *device) {
   }
   if (textdraw_active > 0 && !scoreboard_active) {
     (void)textdraw_compat_draw_d3dx_overlay(device);
+  }
+  if (game_text_active && dialog_active == 0 && !scoreboard_active) {
+    (void)game_text_compat_draw_d3dx_overlay(device);
   }
   if (class_selection_active && dialog_active == 0 && !scoreboard_active) {
     (void)class_selection_compat_draw_d3dx_overlay(device, g_runtime.chat_d3dx_font);
@@ -9649,9 +10507,9 @@ static int chat_compat_draw_d3dx_overlay(void *device) {
   }
 
   if (InterlockedCompareExchange(&g_runtime.chat_d3d_draw_logged, 1, 0) == 0) {
-    runtime_tracef("chat_d3dx: drawing enabled device=0x%08lx lines=%ld dialog=%ld textdraws=%ld class_selection=%d scoreboard=%d nametags=%d x=%d y=%d",
+    runtime_tracef("chat_d3dx: drawing enabled device=0x%08lx lines=%ld dialog=%ld textdraws=%ld gametext=%d class_selection=%d scoreboard=%d nametags=%d x=%d y=%d",
                    (unsigned long)(uintptr_t)device, (long)count, (long)dialog_active, (long)textdraw_active,
-                   class_selection_active, scoreboard_active, name_tags_active, x, y);
+                   game_text_active, class_selection_active, scoreboard_active, name_tags_active, x, y);
   }
   return 1;
 }
@@ -9679,6 +10537,7 @@ static void chat_compat_try_install_d3d_hook(void) {
   LONG net_state = 0;
   LONG preconnect_ready = 0;
   LONG textdraw_active = 0;
+  int game_text_active = 0;
   int loading_active = 0;
   int dialog_active = 0;
 
@@ -9691,9 +10550,11 @@ static void chat_compat_try_install_d3d_hook(void) {
   loading_active = loading_screen_compat_active();
   preconnect_ready = InterlockedCompareExchange(&g_runtime.preconnect_ready, 0, 0);
   textdraw_active = InterlockedCompareExchange(&g_runtime.textdraw_active_count, 0, 0);
+  game_text_active = game_text_compat_active();
   net_state = InterlockedCompareExchange(&g_runtime.netgame_state, 0, 0);
   if (g_runtime.settings.play_online && net_state < SAMP_NETGAME_CONNECTED && preconnect_ready == 0 &&
-      !chat_d3d_early_enabled_compat() && !dialog_active && textdraw_active <= 0 && !loading_active) {
+      !chat_d3d_early_enabled_compat() && !dialog_active && textdraw_active <= 0 && !game_text_active &&
+      !loading_active) {
     return;
   }
 
@@ -12458,16 +13319,7 @@ static void apply_default_resolution_patch_compat(const samp_display_mode_reques
 }
 
 static int env_flag_enabled_default_compat(const char *name, int default_enabled) {
-  const char *value = NULL;
-
-  value = getenv(name);
-  if (value == NULL || *value == '\0') {
-    return default_enabled ? 1 : 0;
-  }
-  if (value[0] == '0' || value[0] == 'n' || value[0] == 'N' || value[0] == 'f' || value[0] == 'F') {
-    return 0;
-  }
-  return 1;
+  return runtime_flag_enabled_default_source_compat(name, default_enabled, NULL);
 }
 
 static void display_mode_desktop_request_compat(samp_display_mode_request *request) {
@@ -13146,21 +13998,34 @@ static int restore_call_disp_hook_compat(uintptr_t call_disp_addr, const uint8_t
   return 1;
 }
 
+static void __cdecl game_process_hook_callback_compat(void) {
+  (void)textdraw_compat_draw_gta_font_game_process_overlay();
+}
+
 static void *create_game_process_hook_stub(void) {
   uint8_t *stub = NULL;
   uint8_t *cursor = NULL;
+  uint32_t call_disp = 0u;
 
   if (g_runtime.game_process_hook_stub != 0u) {
     return (void *)(uintptr_t)g_runtime.game_process_hook_stub;
   }
 
-  stub = (uint8_t *)VirtualAlloc(NULL, 7u, MEM_COMMIT | MEM_RESERVE, PAGE_EXECUTE_READWRITE);
+  stub = (uint8_t *)VirtualAlloc(NULL, 16u, MEM_COMMIT | MEM_RESERVE, PAGE_EXECUTE_READWRITE);
   if (stub == NULL) {
     runtime_tracef("game_process_hook: stub alloc failed");
     return NULL;
   }
 
   cursor = stub;
+  *cursor++ = 0x9Cu; /* pushfd */
+  *cursor++ = 0x60u; /* pushad */
+  *cursor++ = 0xE8u; /* call game_process_hook_callback_compat */
+  call_disp = (uint32_t)((uintptr_t)&game_process_hook_callback_compat - ((uintptr_t)cursor + 4u));
+  memcpy(cursor, &call_disp, sizeof(call_disp));
+  cursor += sizeof(call_disp);
+  *cursor++ = 0x61u; /* popad */
+  *cursor++ = 0x9Du; /* popfd */
   *cursor++ = 0x81u; /* add esp, 0x190 */
   *cursor++ = 0xC4u;
   *cursor++ = 0x90u;
@@ -13171,7 +14036,10 @@ static void *create_game_process_hook_stub(void) {
 
   FlushInstructionCache(GetCurrentProcess(), stub, (SIZE_T)(cursor - stub));
   g_runtime.game_process_hook_stub = (uintptr_t)stub;
-  runtime_tracef("game_process_hook: stub generated addr=0x%08lx", (unsigned long)(uintptr_t)stub);
+  runtime_tracef("game_process_hook: stub generated addr=0x%08lx callback=0x%08lx bytes=%lu "
+                 "evidence=STATIC_037,PROBE_TRACE,TODO_VERIFY",
+                 (unsigned long)(uintptr_t)stub, (unsigned long)(uintptr_t)&game_process_hook_callback_compat,
+                 (unsigned long)(cursor - stub));
   return stub;
 }
 
@@ -13931,6 +14799,7 @@ static uint32_t refresh_raknet_rpc_snapshot_compat(void) {
   previous_game_rpc_flags = InterlockedExchange(&g_runtime.raknet_game_rpc_flags, (LONG)game_rpc_flags);
   apply_raknet_init_game_settings_compat(&snapshot);
   dialog_compat_update_from_snapshot(&snapshot);
+  game_text_compat_update_from_snapshot(&snapshot);
   textdraw_compat_update_from_snapshot(&snapshot);
   scoreboard_compat_update_from_snapshot(&snapshot);
   map_icon_compat_update_from_snapshot(&snapshot);
@@ -18181,10 +19050,18 @@ static void launch_prepare_network_compat(void) {
     InterlockedExchange(&g_runtime.textdraw_event_seq, 0);
     InterlockedExchange(&g_runtime.textdraw_active_count, 0);
     InterlockedExchange(&g_runtime.textdraw_logged, 0);
+    InterlockedExchange(&g_runtime.textdraw_gta_font_graphics_logged, 0);
+    InterlockedExchange(&g_runtime.textdraw_gta_font_game_process_logged, 0);
     InterlockedExchange(&g_runtime.textdraw_select_active, 0);
     InterlockedExchange(&g_runtime.textdraw_mouse_down, 0);
     g_runtime.textdraw_select_color = 0u;
     memset(g_runtime.textdraw_slots, 0, sizeof(g_runtime.textdraw_slots));
+    InterlockedExchange(&g_runtime.game_text_seq, 0);
+    InterlockedExchange(&g_runtime.game_text_active, 0);
+    InterlockedExchange(&g_runtime.game_text_logged, 0);
+    InterlockedExchange(&g_runtime.game_text_style, 0);
+    g_runtime.game_text_expire_tick = 0u;
+    g_runtime.game_text[0] = '\0';
     InterlockedExchange(&g_runtime.scoreboard_offset, 0);
     InterlockedExchange(&g_runtime.scoreboard_logged, 0);
     InterlockedExchange(&g_runtime.scoreboard_player_pool_event_seq, 0);
@@ -18566,6 +19443,7 @@ static void launch_graphics_loop_hook_callback(void) {
   apply_preconnect_frontend_compat();
   launch_do_init_stuff_compat();
   apply_multiplayer_session_bridge_compat();
+  (void)textdraw_compat_draw_gta_font_graphics_overlay();
   chat_compat_draw_overlay();
 }
 
@@ -18587,8 +19465,9 @@ static int phase_hook_bridge_configure(void) {
                      (unsigned long)g_runtime.hook_bridge.graphics_call_disp_addr);
     }
   }
-  runtime_tracef("hook_configure: enabled=%d configured=%d configured2=%d disp=0x%08lx disp2=0x%08lx",
+  runtime_tracef("hook_configure: enabled=%d configured=%d configured2=%d post=%d disp=0x%08lx disp2=0x%08lx",
                  g_runtime.hook_bridge.enabled, g_runtime.hook_bridge.configured, g_runtime.hook_bridge.secondary_configured,
+                 g_runtime.hook_bridge.callback_after_original ? 1 : 0,
                  (unsigned long)g_runtime.hook_bridge.graphics_call_disp_addr,
                  (unsigned long)g_runtime.hook_bridge.graphics_call_disp_addr_secondary);
   return 1;
