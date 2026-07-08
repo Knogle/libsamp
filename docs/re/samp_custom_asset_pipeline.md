@@ -130,6 +130,11 @@
   `tube50mglass90bend1` unbound, retries now call `CFileLoader::LoadCollisionFileFirstTime` directly instead of
   re-entering `CColStore::LoadCol` on an already-loaded slot; gta-reversed shows the later slot-loaded path searches
   only inside the slot's recorded model range, while the first-time path performs the global model-name lookup.
+- `GTA_REVERSED_REF + PROBE_TRACE + TODO_VERIFY`: targeted custom model registration now records `objs`
+  draw-distance/flags from `SAMP.ide` and can reload the SA-MP IMG directories after later targeted `CModelInfo`
+  batches. This keeps late-registered models from depending on a single directory parse that may have happened
+  before their `CModelInfo` slot existed. Reloads are capped by `SAMPDLL_CUSTOM_ASSET_DIR_RELOADS` and default to
+  four attempts; this is still a compatibility experiment, not a proven original-R5 timing match.
 - `OPENMP_REF + GTA_REVERSED_REF + TODO_VERIFY`: `ScrCreateObject` RPC 44 attachment metadata is now decoded from
   the open.mp object payload shape and kept on the object slot. Vehicle/object parents are applied after GTA object
   creation through GTA script attachment opcodes and retried after object/vehicle flushes. RPC 75

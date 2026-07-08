@@ -517,6 +517,8 @@
 #define SAMP_OBJECT_COMPAT_RECREATE_DELAY_MS 100u
 #define SAMP_OBJECT_COMPAT_POST_SPAWN_HOLD_MS 1500u
 #define SAMP_OBJECT_COMPAT_BACKPRESSURE_LOG_INTERVAL_MS 2000u
+#define SAMP_OBJECT_COMPAT_MOVE_EPSILON 0.001f
+#define SAMP_OBJECT_COMPAT_MOVE_MAX_MS 86400000u
 #define SAMP_OBJECT_COMPAT_CHAT_SKIP_LIMIT 3
 #define SAMP_OBJECT_COMPAT_SAMP_MODEL_MIN 18631
 /* INFERRED + TODO_VERIFY:
@@ -530,6 +532,9 @@
 #define SAMP_OBJECT_COMPAT_CUSTOM_ASSET_BULK_ENV "SAMPDLL_CUSTOM_ASSET_BULK"
 #define SAMP_OBJECT_COMPAT_CUSTOM_ASSET_METADATA_ENV "SAMPDLL_CUSTOM_ASSET_METADATA"
 #define SAMP_OBJECT_COMPAT_CUSTOM_ASSET_OVER_VANILLA_ENV "SAMPDLL_CUSTOM_ASSET_OVER_VANILLA"
+#define SAMP_OBJECT_COMPAT_CUSTOM_ASSET_DIR_RELOAD_ENV "SAMPDLL_CUSTOM_ASSET_DIR_RELOADS"
+#define SAMP_OBJECT_COMPAT_CUSTOM_ASSET_DIR_RELOAD_DEFAULT 4u
+#define SAMP_OBJECT_COMPAT_CUSTOM_ASSET_DIR_RELOAD_MAX 32u
 /* GTA_REVERSED_REF + PROBE_TRACE + TODO_VERIFY:
  * CBaseModelInfo is a C++ object. Runtime offset 0 is the vtable pointer; the data
  * members below start after it. Writing the key at offset 0 corrupts the clump
@@ -1081,6 +1086,15 @@ typedef struct samp_object_slot_compat {
   float attachment_offset[3];
   float attachment_rot[3];
   float move_speed;
+  uint8_t moving;
+  uint8_t move_rot_requested;
+  uint16_t move_reserved;
+  DWORD move_start_tick;
+  DWORD move_duration_ms;
+  float move_from[3];
+  float move_to[3];
+  float move_start_rot[3];
+  float move_target_rot[3];
 } samp_object_slot_compat;
 
 typedef struct samp_asset_model_entry_compat {
@@ -1089,6 +1103,8 @@ typedef struct samp_asset_model_entry_compat {
   uint8_t section;
   uint8_t reserved;
   int32_t model_id;
+  float draw_distance;
+  uint32_t flags;
   char model_name[SAMP_ASSET_NAME_BYTES];
   char txd_name[SAMP_ASSET_NAME_BYTES];
 } samp_asset_model_entry_compat;
@@ -3604,6 +3620,233 @@ static void object_compat_process_pending_attachments(void) {
   }
 }
 
+static float object_compat_distance_3d(const float from[3], const float to[3]) {
+  float dx = 0.0f;
+  float dy = 0.0f;
+  float dz = 0.0f;
+
+  if (from == NULL || to == NULL) {
+    return 0.0f;
+  }
+  dx = to[0] - from[0];
+  dy = to[1] - from[1];
+  dz = to[2] - from[2];
+  return sqrtf(dx * dx + dy * dy + dz * dz);
+}
+
+static DWORD object_compat_move_duration_ms(float distance, float speed) {
+  double duration_ms = 0.0;
+
+  if (!isfinite(distance) || !isfinite(speed) || distance <= SAMP_OBJECT_COMPAT_MOVE_EPSILON ||
+      speed <= SAMP_OBJECT_COMPAT_MOVE_EPSILON) {
+    return 0u;
+  }
+
+  duration_ms = ((double)distance / (double)speed) * 1000.0;
+  if (!isfinite(duration_ms) || duration_ms >= (double)SAMP_OBJECT_COMPAT_MOVE_MAX_MS) {
+    return SAMP_OBJECT_COMPAT_MOVE_MAX_MS;
+  }
+  if (duration_ms <= 1.0) {
+    return 1u;
+  }
+  return (DWORD)(duration_ms + 0.999);
+}
+
+static void object_compat_lerp_vec3(const float from[3], const float to[3], float t, float out[3]) {
+  if (from == NULL || to == NULL || out == NULL) {
+    return;
+  }
+  if (t < 0.0f) {
+    t = 0.0f;
+  } else if (t > 1.0f) {
+    t = 1.0f;
+  }
+  out[0] = from[0] + (to[0] - from[0]) * t;
+  out[1] = from[1] + (to[1] - from[1]) * t;
+  out[2] = from[2] + (to[2] - from[2]) * t;
+}
+
+static void object_compat_apply_transform(uint32_t gta_id, const float pos[3], const float rot[3], int apply_rot) {
+  if (gta_id == 0u || !object_compat_vec_plausible(pos)) {
+    return;
+  }
+  (void)gta_script_command_compat(0x01BCu, "ifff", (int)gta_id, pos[0], pos[1], pos[2]);
+  if (apply_rot && object_compat_rot_plausible(rot)) {
+    (void)gta_script_command_compat(0x0453u, "ifff", (int)gta_id, rot[0], rot[1], rot[2]);
+  }
+}
+
+static void object_compat_clear_move_state(samp_object_slot_compat *slot) {
+  if (slot == NULL) {
+    return;
+  }
+  slot->moving = 0u;
+  slot->move_rot_requested = 0u;
+  slot->move_speed = 0.0f;
+  slot->move_start_tick = 0u;
+  slot->move_duration_ms = 0u;
+}
+
+static void object_compat_tick_move_slot(uint16_t object_id, samp_object_slot_compat *slot, DWORD now,
+                                         int log_complete) {
+  DWORD elapsed = 0u;
+  float t = 1.0f;
+  float pos[3] = {0.0f, 0.0f, 0.0f};
+  float rot[3] = {0.0f, 0.0f, 0.0f};
+
+  if (slot == NULL || slot->moving == 0u || slot->gta_id == 0u ||
+      InterlockedCompareExchange(&slot->active, 0, 0) == 0) {
+    return;
+  }
+
+  if (slot->move_start_tick == 0u) {
+    slot->move_start_tick = now;
+  }
+  elapsed = now - slot->move_start_tick;
+  if (slot->move_duration_ms != 0u && elapsed < slot->move_duration_ms) {
+    t = (float)((double)elapsed / (double)slot->move_duration_ms);
+  }
+
+  object_compat_lerp_vec3(slot->move_from, slot->move_to, t, pos);
+  if (slot->move_rot_requested != 0u) {
+    object_compat_lerp_vec3(slot->move_start_rot, slot->move_target_rot, t, rot);
+  }
+  object_compat_apply_transform(slot->gta_id, pos, rot, slot->move_rot_requested != 0u);
+  memcpy(slot->pos, pos, sizeof(slot->pos));
+  if (slot->move_rot_requested != 0u) {
+    memcpy(slot->rot, rot, sizeof(slot->rot));
+  }
+
+  if (t >= 1.0f) {
+    object_compat_apply_transform(slot->gta_id, slot->move_to, slot->move_target_rot,
+                                  slot->move_rot_requested != 0u);
+    memcpy(slot->pos, slot->move_to, sizeof(slot->pos));
+    if (slot->move_rot_requested != 0u) {
+      memcpy(slot->rot, slot->move_target_rot, sizeof(slot->rot));
+    }
+    object_compat_clear_move_state(slot);
+    if (log_complete) {
+      runtime_tracef("object: move_complete id=%u gta=%lu elapsed_ms=%lu pos=(%.3f,%.3f,%.3f)",
+                     (unsigned)object_id, (unsigned long)slot->gta_id, (unsigned long)elapsed,
+                     (double)slot->pos[0], (double)slot->pos[1], (double)slot->pos[2]);
+    }
+  }
+}
+
+static void object_compat_tick_moves(void) {
+  uint32_t i = 0u;
+  DWORD now = GetTickCount();
+
+  for (i = 0u; i < SAMP_RAKNET_MAX_OBJECTS; ++i) {
+    samp_object_slot_compat *slot = &g_runtime.object_slots[i];
+    if (slot->moving != 0u && InterlockedCompareExchange(&slot->active, 0, 0) != 0 && slot->gta_id != 0u) {
+      object_compat_tick_move_slot((uint16_t)i, slot, now, 1);
+    }
+  }
+}
+
+static int object_compat_begin_move(uint16_t object_id, samp_object_slot_compat *slot,
+                                    const samp_raknet_object_event *event, const char *phase) {
+  float distance = 0.0f;
+  DWORD duration_ms = 0u;
+  int rot_requested = 0;
+  int active = 0;
+
+  if (slot == NULL || event == NULL || !object_compat_vec_plausible(event->move_from) ||
+      !object_compat_vec_plausible(event->move_to) || !isfinite(event->move_speed) ||
+      event->move_speed < 0.0f) {
+    return 0;
+  }
+
+  active = InterlockedCompareExchange(&slot->active, 0, 0) != 0 && slot->gta_id != 0u;
+  rot_requested = object_compat_move_rot_requested(event->rot);
+  distance = object_compat_distance_3d(event->move_from, event->move_to);
+  duration_ms = object_compat_move_duration_ms(distance, event->move_speed);
+
+  slot->moving = 0u;
+  slot->move_rot_requested = rot_requested ? 1u : 0u;
+  slot->move_speed = event->move_speed;
+  slot->move_start_tick = active ? GetTickCount() : 0u;
+  slot->move_duration_ms = duration_ms;
+  memcpy(slot->move_from, event->move_from, sizeof(slot->move_from));
+  memcpy(slot->move_to, event->move_to, sizeof(slot->move_to));
+  memcpy(slot->move_start_rot, slot->rot, sizeof(slot->move_start_rot));
+  if (rot_requested) {
+    memcpy(slot->move_target_rot, event->rot, sizeof(slot->move_target_rot));
+  } else {
+    memcpy(slot->move_target_rot, slot->rot, sizeof(slot->move_target_rot));
+  }
+
+  if (duration_ms == 0u) {
+    if (active) {
+      object_compat_apply_transform(slot->gta_id, event->move_to, event->rot, rot_requested);
+    }
+    memcpy(slot->pos, event->move_to, sizeof(slot->pos));
+    if (rot_requested) {
+      memcpy(slot->rot, event->rot, sizeof(slot->rot));
+    }
+    object_compat_clear_move_state(slot);
+    runtime_tracef("object: move_complete_immediate seq=%lu id=%u gta=%lu phase=%s distance=%.3f speed=%.3f "
+                   "to=(%.3f,%.3f,%.3f) rot_requested=%d evidence=OPENMP_REF,PROBE_TRACE,INFERRED,TODO_VERIFY",
+                   (unsigned long)event->seq, (unsigned)object_id, (unsigned long)slot->gta_id,
+                   phase != NULL ? phase : "rpc", (double)distance, (double)event->move_speed,
+                   (double)event->move_to[0], (double)event->move_to[1], (double)event->move_to[2], rot_requested);
+    return 1;
+  }
+
+  slot->moving = 1u;
+  memcpy(slot->pos, event->move_from, sizeof(slot->pos));
+  if (active) {
+    object_compat_apply_transform(slot->gta_id, event->move_from, slot->rot, 0);
+  }
+  runtime_tracef("object: move_begin seq=%lu id=%u gta=%lu phase=%s from=(%.3f,%.3f,%.3f) "
+                 "to=(%.3f,%.3f,%.3f) speed=%.3f distance=%.3f duration_ms=%lu rot_requested=%d "
+                 "evidence=OPENMP_REF,PROBE_TRACE,INFERRED,TODO_VERIFY",
+                 (unsigned long)event->seq, (unsigned)object_id, (unsigned long)slot->gta_id,
+                 phase != NULL ? phase : "rpc", (double)event->move_from[0], (double)event->move_from[1],
+                 (double)event->move_from[2], (double)event->move_to[0], (double)event->move_to[1],
+                 (double)event->move_to[2], (double)event->move_speed, (double)distance,
+                 (unsigned long)duration_ms, rot_requested);
+  return 1;
+}
+
+static void object_compat_activate_pending_move(uint16_t object_id, samp_object_slot_compat *slot) {
+  if (slot == NULL || slot->moving == 0u || slot->move_start_tick != 0u || slot->gta_id == 0u ||
+      InterlockedCompareExchange(&slot->active, 0, 0) == 0) {
+    return;
+  }
+
+  slot->move_start_tick = GetTickCount();
+  object_compat_apply_transform(slot->gta_id, slot->move_from, slot->rot, 0);
+  runtime_tracef("object: move_activate_pending id=%u gta=%lu duration_ms=%lu from=(%.3f,%.3f,%.3f) "
+                 "to=(%.3f,%.3f,%.3f) speed=%.3f rot_requested=%u evidence=OPENMP_REF,PROBE_TRACE,INFERRED,"
+                 "TODO_VERIFY",
+                 (unsigned)object_id, (unsigned long)slot->gta_id, (unsigned long)slot->move_duration_ms,
+                 (double)slot->move_from[0], (double)slot->move_from[1], (double)slot->move_from[2],
+                 (double)slot->move_to[0], (double)slot->move_to[1], (double)slot->move_to[2],
+                 (double)slot->move_speed, (unsigned)slot->move_rot_requested);
+}
+
+static void object_compat_stop_move(uint16_t object_id, samp_object_slot_compat *slot, uint32_t seq,
+                                    const char *phase) {
+  DWORD now = GetTickCount();
+  uint8_t was_moving = 0u;
+
+  if (slot == NULL) {
+    return;
+  }
+
+  was_moving = slot->moving;
+  if (was_moving != 0u && InterlockedCompareExchange(&slot->active, 0, 0) != 0 && slot->gta_id != 0u) {
+    object_compat_tick_move_slot(object_id, slot, now, 0);
+  }
+  object_compat_clear_move_state(slot);
+  runtime_tracef("object: stop seq=%lu id=%u gta=%lu phase=%s moving=%u pos=(%.3f,%.3f,%.3f)",
+                 (unsigned long)seq, (unsigned)object_id, (unsigned long)slot->gta_id,
+                 phase != NULL ? phase : "rpc", (unsigned)was_moving, (double)slot->pos[0], (double)slot->pos[1],
+                 (double)slot->pos[2]);
+}
+
 static void object_compat_destroy_slot(uint16_t object_id, const char *reason) {
   samp_object_slot_compat *slot = NULL;
   uint32_t gta_id = 0u;
@@ -3896,6 +4139,7 @@ model_ready:
   if (slot->attachment_type != SAMP_RAKNET_OBJECT_ATTACH_NONE) {
     (void)object_compat_apply_attachment(object_id, slot, "create");
   }
+  object_compat_activate_pending_move(object_id, slot);
   runtime_tracef("object: create seq=%lu id=%u gta=%lu model=%ld render_model=%ld proxy=%u "
                  "attach_type=%s attach_parent=%u attach_applied=%u "
                  "pos=(%.3f,%.3f,%.3f) rot=(%.3f,%.3f,%.3f)",
@@ -3945,6 +4189,7 @@ static void object_compat_apply_event(const samp_raknet_object_event *event) {
       return;
     }
     if (event->action == SAMP_RAKNET_OBJECT_ACTION_SET_POS && object_compat_vec_plausible(event->pos)) {
+      object_compat_clear_move_state(slot);
       memcpy(slot->pos, event->pos, sizeof(slot->pos));
       runtime_tracef("object: pending_set_pos seq=%lu id=%u pos=(%.3f,%.3f,%.3f)", (unsigned long)event->seq,
                      (unsigned)event->object_id, (double)event->pos[0], (double)event->pos[1],
@@ -3952,26 +4197,22 @@ static void object_compat_apply_event(const samp_raknet_object_event *event) {
       return;
     }
     if (event->action == SAMP_RAKNET_OBJECT_ACTION_SET_ROT && object_compat_rot_plausible(event->rot)) {
+      slot->move_rot_requested = 0u;
+      memcpy(slot->move_start_rot, event->rot, sizeof(slot->move_start_rot));
+      memcpy(slot->move_target_rot, event->rot, sizeof(slot->move_target_rot));
       memcpy(slot->rot, event->rot, sizeof(slot->rot));
       runtime_tracef("object: pending_set_rot seq=%lu id=%u rot=(%.3f,%.3f,%.3f)", (unsigned long)event->seq,
                      (unsigned)event->object_id, (double)event->rot[0], (double)event->rot[1],
                      (double)event->rot[2]);
       return;
     }
-    if (event->action == SAMP_RAKNET_OBJECT_ACTION_MOVE && object_compat_vec_plausible(event->move_to)) {
-      memcpy(slot->pos, event->move_to, sizeof(slot->pos));
-      if (object_compat_move_rot_requested(event->rot)) {
-        memcpy(slot->rot, event->rot, sizeof(slot->rot));
-      }
-      slot->move_speed = event->move_speed;
-      runtime_tracef("object: pending_move seq=%lu id=%u to=(%.3f,%.3f,%.3f) speed=%.3f", (unsigned long)event->seq,
-                     (unsigned)event->object_id, (double)event->move_to[0], (double)event->move_to[1],
-                     (double)event->move_to[2], (double)event->move_speed);
+    if (event->action == SAMP_RAKNET_OBJECT_ACTION_MOVE && object_compat_vec_plausible(event->move_from) &&
+        object_compat_vec_plausible(event->move_to)) {
+      (void)object_compat_begin_move(event->object_id, slot, event, "pending");
       return;
     }
     if (event->action == SAMP_RAKNET_OBJECT_ACTION_STOP) {
-      slot->move_speed = 0.0f;
-      runtime_tracef("object: pending_stop seq=%lu id=%u", (unsigned long)event->seq, (unsigned)event->object_id);
+      object_compat_stop_move(event->object_id, slot, event->seq, "pending");
       return;
     }
   }
@@ -3990,6 +4231,7 @@ static void object_compat_apply_event(const samp_raknet_object_event *event) {
   }
 
   if (event->action == SAMP_RAKNET_OBJECT_ACTION_SET_POS && object_compat_vec_plausible(event->pos)) {
+    object_compat_clear_move_state(slot);
     (void)gta_script_command_compat(0x01BCu, "ifff", (int)slot->gta_id, event->pos[0], event->pos[1], event->pos[2]);
     memcpy(slot->pos, event->pos, sizeof(slot->pos));
     runtime_tracef("object: set_pos seq=%lu id=%u gta=%lu pos=(%.3f,%.3f,%.3f)", (unsigned long)event->seq,
@@ -3999,6 +4241,9 @@ static void object_compat_apply_event(const samp_raknet_object_event *event) {
   }
 
   if (event->action == SAMP_RAKNET_OBJECT_ACTION_SET_ROT && object_compat_rot_plausible(event->rot)) {
+    slot->move_rot_requested = 0u;
+    memcpy(slot->move_start_rot, event->rot, sizeof(slot->move_start_rot));
+    memcpy(slot->move_target_rot, event->rot, sizeof(slot->move_target_rot));
     (void)gta_script_command_compat(0x0453u, "ifff", (int)slot->gta_id, event->rot[0], event->rot[1], event->rot[2]);
     memcpy(slot->rot, event->rot, sizeof(slot->rot));
     runtime_tracef("object: set_rot seq=%lu id=%u gta=%lu rot=(%.3f,%.3f,%.3f)", (unsigned long)event->seq,
@@ -4009,33 +4254,12 @@ static void object_compat_apply_event(const samp_raknet_object_event *event) {
 
   if (event->action == SAMP_RAKNET_OBJECT_ACTION_MOVE && object_compat_vec_plausible(event->move_from) &&
       object_compat_vec_plausible(event->move_to)) {
-    /* TODO_VERIFY:
-     * Full SA-MP object movement needs a per-frame object pool/interpolator. Until that exists,
-     * apply start and final positions immediately, but keep the open.mp target rotation when present.
-     */
-    (void)gta_script_command_compat(0x01BCu, "ifff", (int)slot->gta_id, event->move_from[0], event->move_from[1],
-                                    event->move_from[2]);
-    (void)gta_script_command_compat(0x01BCu, "ifff", (int)slot->gta_id, event->move_to[0], event->move_to[1],
-                                    event->move_to[2]);
-    if (object_compat_move_rot_requested(event->rot)) {
-      (void)gta_script_command_compat(0x0453u, "ifff", (int)slot->gta_id, event->rot[0], event->rot[1],
-                                      event->rot[2]);
-      memcpy(slot->rot, event->rot, sizeof(slot->rot));
-    }
-    memcpy(slot->pos, event->move_to, sizeof(slot->pos));
-    slot->move_speed = event->move_speed;
-    runtime_tracef("object: move_immediate seq=%lu id=%u gta=%lu from=(%.3f,%.3f,%.3f) to=(%.3f,%.3f,%.3f) speed=%.3f rot_requested=%d",
-                   (unsigned long)event->seq, (unsigned)event->object_id, (unsigned long)slot->gta_id,
-                   (double)event->move_from[0], (double)event->move_from[1], (double)event->move_from[2],
-                   (double)event->move_to[0], (double)event->move_to[1], (double)event->move_to[2],
-                   (double)event->move_speed, object_compat_move_rot_requested(event->rot));
+    (void)object_compat_begin_move(event->object_id, slot, event, "rpc");
     return;
   }
 
   if (event->action == SAMP_RAKNET_OBJECT_ACTION_STOP) {
-    slot->move_speed = 0.0f;
-    runtime_tracef("object: stop seq=%lu id=%u gta=%lu", (unsigned long)event->seq, (unsigned)event->object_id,
-                   (unsigned long)slot->gta_id);
+    object_compat_stop_move(event->object_id, slot, event->seq, "rpc");
   }
 }
 
@@ -4111,6 +4335,7 @@ static void object_compat_update_from_snapshot(const samp_raknet_rpc_probe_snaps
     samp_asset_process_pending_registrations_compat("object_bridge_idle");
     object_compat_flush_pending(object_compat_create_budget());
     object_compat_process_pending_attachments();
+    object_compat_tick_moves();
     return;
   }
 
@@ -4141,6 +4366,7 @@ static void object_compat_update_from_snapshot(const samp_raknet_rpc_probe_snaps
   samp_asset_process_pending_registrations_compat("object_bridge");
   object_compat_flush_pending(object_compat_create_budget());
   object_compat_process_pending_attachments();
+  object_compat_tick_moves();
 }
 
 static void object_compat_reset_pool(const char *reason) {
@@ -11116,8 +11342,12 @@ static void samp_asset_register_ide_line_compat(const char *label, uint8_t sourc
   char id_token[32];
   char model_token[128];
   char txd_token[128];
+  char draw_token[32];
+  char flags_token[32];
   char *endptr = NULL;
   long model_id = 0;
+  double draw_distance = 0.0;
+  unsigned long flags = 0ul;
   samp_asset_model_entry_compat *entry = NULL;
   int was_present = 0;
 
@@ -11136,6 +11366,23 @@ static void samp_asset_register_ide_line_compat(const char *label, uint8_t sourc
     return;
   }
 
+  if (section == SAMP_ASSET_IDE_SECTION_OBJS) {
+    if (samp_asset_next_csv_token_compat(&cursor, draw_token, sizeof(draw_token))) {
+      endptr = NULL;
+      draw_distance = strtod(draw_token, &endptr);
+      if (endptr == draw_token || !isfinite(draw_distance) || draw_distance < 0.0) {
+        draw_distance = 0.0;
+      }
+    }
+    if (samp_asset_next_csv_token_compat(&cursor, flags_token, sizeof(flags_token))) {
+      endptr = NULL;
+      flags = strtoul(flags_token, &endptr, 0);
+      if (endptr == flags_token) {
+        flags = 0ul;
+      }
+    }
+  }
+
   entry = &g_runtime.samp_asset_models[model_id];
   was_present = entry->present != 0u;
   memset(entry, 0, sizeof(*entry));
@@ -11143,6 +11390,8 @@ static void samp_asset_register_ide_line_compat(const char *label, uint8_t sourc
   entry->source = source;
   entry->section = section;
   entry->model_id = (int32_t)model_id;
+  entry->draw_distance = (float)draw_distance;
+  entry->flags = (uint32_t)flags;
   samp_asset_copy_name_compat(entry->model_name, sizeof(entry->model_name), model_token);
   samp_asset_copy_name_compat(entry->txd_name, sizeof(entry->txd_name), txd_token);
 
@@ -11533,7 +11782,8 @@ static void samp_asset_log_object_readiness_compat(uint16_t object_id, uint32_t 
    * CModelInfo/streaming/TXD registration before it may enter GTA's object path.
    */
   runtime_tracef("object_asset_readiness: id=%u seq=%lu model=%ld reason=%s ide=%d source=%s section=%s "
-                 "name='%s' txd='%s' dff=%d txd_file=%d sampcol=%d assets_ready=%d asset_reason=%s "
+                 "name='%s' txd='%s' draw=%.3f flags=0x%08lx dff=%d txd_file=%d sampcol=%d "
+                 "assets_ready=%d asset_reason=%s "
                  "model_info=0x%08lx txd_slot=%d index_built=%ld evidence=OBSERVED_037,PROBE_TRACE,"
                  "GTA_REVERSED_REF,TODO_VERIFY",
                  (unsigned)object_id, (unsigned long)seq, (long)model, reason != NULL ? reason : "unknown",
@@ -11541,6 +11791,8 @@ static void samp_asset_log_object_readiness_compat(uint16_t object_id, uint32_t 
                  model_entry != NULL ? samp_asset_ide_source_label_compat(model_entry->source) : "none",
                  model_entry != NULL ? samp_asset_section_label_compat(model_entry->section) : "none",
                  model_entry != NULL ? model_entry->model_name : "", model_entry != NULL ? model_entry->txd_name : "",
+                 model_entry != NULL ? (double)model_entry->draw_distance : 0.0,
+                 model_entry != NULL ? (unsigned long)model_entry->flags : 0ul,
                  dff_entry != NULL ? 1 : 0, txd_entry != NULL ? 1 : 0, sampcol_entry != NULL ? 1 : 0, assets_ready,
                  asset_reason[0] != '\0' ? asset_reason : "unknown", (unsigned long)model_info, txd_slot,
                  (long)g_runtime.samp_asset_index_built);
@@ -11612,6 +11864,12 @@ static int samp_asset_custom_asset_over_vanilla_enabled_compat(void) {
   }
   InterlockedExchange(&initialized, 1);
   return enabled;
+}
+
+static uint32_t samp_asset_custom_asset_dir_reload_limit_compat(void) {
+  return object_compat_env_u32(SAMP_OBJECT_COMPAT_CUSTOM_ASSET_DIR_RELOAD_ENV,
+                               SAMP_OBJECT_COMPAT_CUSTOM_ASSET_DIR_RELOAD_DEFAULT, 0u,
+                               SAMP_OBJECT_COMPAT_CUSTOM_ASSET_DIR_RELOAD_MAX);
 }
 
 static void samp_asset_request_custom_model_registration_compat(int32_t model, const char *source) {
@@ -11920,16 +12178,20 @@ static int samp_asset_load_sampcol_collision_compat(const char *source) {
   return ok != 0;
 }
 
-static int samp_asset_register_streaming_archives_compat(const char *source) {
+static int samp_asset_register_streaming_archives_compat(const char *source, int force_directory_reload) {
   static LONG samp_img_id = -1;
   static LONG custom_img_id = -1;
   static LONG sampcol_img_id = -1;
   static LONG directories_loaded = 0;
+  static LONG directory_reload_count = 0;
+  static LONG directory_reload_limit_logged = 0;
   LONG current_samp_img_id = 0;
   LONG current_custom_img_id = 0;
   LONG current_sampcol_img_id = 0;
+  int load_directories = 0;
+  const char *load_reason = "none";
+  uint32_t reload_limit = 0u;
 
-  (void)source;
   (void)samp_asset_register_streaming_image_compat("custom_img", "SAMP\\CUSTOM.IMG", &custom_img_id);
   (void)samp_asset_register_streaming_image_compat("samp_img", "SAMP\\SAMP.IMG", &samp_img_id);
   (void)samp_asset_register_streaming_image_compat("sampcol_img", "SAMP\\SAMPCOL.IMG", &sampcol_img_id);
@@ -11938,8 +12200,35 @@ static int samp_asset_register_streaming_archives_compat(const char *source) {
   current_custom_img_id = InterlockedCompareExchange(&custom_img_id, 0, 0) - 1;
   current_sampcol_img_id = InterlockedCompareExchange(&sampcol_img_id, 0, 0) - 1;
 
-  if ((current_custom_img_id >= 0 || current_samp_img_id >= 0 || current_sampcol_img_id >= 0) &&
-      InterlockedCompareExchange(&directories_loaded, 1, 0) == 0) {
+  if (current_custom_img_id >= 0 || current_samp_img_id >= 0 || current_sampcol_img_id >= 0) {
+    if (InterlockedCompareExchange(&directories_loaded, 1, 0) == 0) {
+      load_directories = 1;
+      load_reason = "initial";
+    } else if (force_directory_reload) {
+      LONG reload_before = InterlockedCompareExchange(&directory_reload_count, 0, 0);
+      reload_limit = samp_asset_custom_asset_dir_reload_limit_compat();
+      if (reload_before < (LONG)reload_limit) {
+        LONG reload_after = InterlockedIncrement(&directory_reload_count);
+        if (reload_after <= (LONG)reload_limit) {
+          load_directories = 1;
+          load_reason = "targeted_reload";
+        }
+      } else if (reload_limit != 0u && InterlockedCompareExchange(&directory_reload_limit_logged, 1, 0) == 0) {
+        runtime_tracef("samp_asset_registration: archive_dir_reload_skip source=%s reason=limit reloads=%ld max=%lu "
+                       "env=%s evidence=GTA_REVERSED_REF,PROBE_TRACE,TODO_VERIFY",
+                       source != NULL ? source : "unknown", (long)reload_before, (unsigned long)reload_limit,
+                       SAMP_OBJECT_COMPAT_CUSTOM_ASSET_DIR_RELOAD_ENV);
+      }
+    }
+  }
+
+  if (load_directories) {
+    runtime_tracef("samp_asset_registration: archive_dir_batch source=%s reason=%s reloads=%ld max=%lu "
+                   "ids=(custom:%ld,samp:%ld,sampcol:%ld) evidence=GTA_REVERSED_REF,PROBE_TRACE,TODO_VERIFY",
+                   source != NULL ? source : "unknown", load_reason,
+                   (long)InterlockedCompareExchange(&directory_reload_count, 0, 0),
+                   (unsigned long)samp_asset_custom_asset_dir_reload_limit_compat(), (long)current_custom_img_id,
+                   (long)current_samp_img_id, (long)current_sampcol_img_id);
     samp_asset_load_streaming_directory_compat("custom_img", "SAMP\\CUSTOM.IMG", current_custom_img_id);
     samp_asset_load_streaming_directory_compat("samp_img", "SAMP\\SAMP.IMG", current_samp_img_id);
     samp_asset_load_streaming_directory_compat("sampcol_img", "SAMP\\SAMPCOL.IMG", current_sampcol_img_id);
@@ -11949,12 +12238,18 @@ static int samp_asset_register_streaming_archives_compat(const char *source) {
   return current_custom_img_id >= 0 || current_samp_img_id >= 0 || current_sampcol_img_id >= 0;
 }
 
-static int samp_asset_write_model_info_metadata_compat(uintptr_t model_info, uint32_t key, int32_t txd_slot) {
-  float draw_distance = 2000.0f;
+static int samp_asset_write_model_info_metadata_compat(uintptr_t model_info, uint32_t key, int32_t txd_slot,
+                                                       float ide_draw_distance) {
+  float draw_distance = ide_draw_distance;
   int16_t txd_index = (int16_t)txd_slot;
 
   if (model_info < 0x10000u || !memory_is_writable_compat((void *)model_info, 0x20u)) {
     return 0;
+  }
+  if (!isfinite(draw_distance) || draw_distance <= 0.0f) {
+    draw_distance = 2000.0f;
+  } else if (draw_distance > 2000.0f) {
+    draw_distance = 2000.0f;
   }
   memcpy((void *)(model_info + SAMP_MODEL_INFO_OFFSET_KEY), &key, sizeof(key));
   memcpy((void *)(model_info + SAMP_MODEL_INFO_OFFSET_TXD_INDEX), &txd_index, sizeof(txd_index));
@@ -12153,20 +12448,22 @@ static int samp_asset_register_model_info_entry_compat(const samp_asset_model_en
 
   if (metadata_enabled && gta_code_ptr_compat((uintptr_t)get_key)) {
     key = get_key(model_entry->model_name);
-    metadata_written = samp_asset_write_model_info_metadata_compat(model_info, key, txd_slot);
+    metadata_written = samp_asset_write_model_info_metadata_compat(model_info, key, txd_slot,
+                                                                   model_entry->draw_distance);
   }
 
   if (log_detail) {
     runtime_tracef("samp_asset_registration: model=%ld source=%s model_info=0x%08lx returned=0x%08lx "
                    "slot=0x%08lx class=%s add_model=0x%08lx key=0x%08lx metadata_enabled=%d metadata_written=%d "
-                   "store_count_before=%ld store_capacity=%lu name='%s' txd='%s' txd_slot=%ld dff='%s' "
-                   "dff_archive=%s txd_file=%d "
+                   "store_count_before=%ld store_capacity=%lu name='%s' txd='%s' txd_slot=%ld "
+                   "draw=%.3f flags=0x%08lx dff='%s' dff_archive=%s txd_file=%d "
                    "evidence=GTA_REVERSED_REF,PROBE_TRACE,TODO_VERIFY",
                    (long)model, source != NULL ? source : "unknown", (unsigned long)model_info,
                    (unsigned long)returned_model_info, (unsigned long)slot_model_info,
                    model_info_kind, (unsigned long)add_model_addr, (unsigned long)key, metadata_enabled,
                    metadata_written, (long)model_info_store_count, model_info_store_capacity,
-                   model_entry->model_name, txd_base != NULL ? txd_base : "", (long)txd_slot, dff_name,
+                   model_entry->model_name, txd_base != NULL ? txd_base : "", (long)txd_slot,
+                   (double)model_entry->draw_distance, (unsigned long)model_entry->flags, dff_name,
                    dff_entry != NULL ? samp_asset_archive_label_compat(dff_entry->archive) : "missing",
                    txd_entry != NULL ? 1 : 0);
   }
@@ -12281,7 +12578,7 @@ static int samp_asset_register_custom_model_compat(int32_t model, const char *so
         (gta_txd_find_slot_fn)(uintptr_t)SAMP_ADDR_CTXDSTORE_FIND_SLOT,
         (gta_txd_add_slot_fn)(uintptr_t)SAMP_ADDR_CTXDSTORE_ADD_SLOT, source, 1);
   }
-  (void)samp_asset_register_streaming_archives_compat(source);
+  (void)samp_asset_register_streaming_archives_compat(source, 1);
   return object_compat_model_available(model);
 }
 
@@ -12372,7 +12669,7 @@ static void samp_asset_process_pending_registrations_compat(const char *source) 
   }
 
   if (registered > 0 || already_registered > 0 || samp_asset_custom_asset_bulk_enabled_compat()) {
-    archive_loaded = samp_asset_register_streaming_archives_compat(source);
+    archive_loaded = samp_asset_register_streaming_archives_compat(source, registered > 0);
   }
   InterlockedExchange(&g_runtime.samp_asset_register_pending_count, 0);
   InterlockedExchange(&g_runtime.samp_asset_register_applied_seq, request_seq);
@@ -12536,10 +12833,12 @@ static void samp_asset_model_describe_compat(int32_t model, char *out, size_t ou
   samp_asset_describe_file_compat(sampcol_state, sizeof(sampcol_state), SAMP_ASSET_ALL_SAMPCOLS_NAME);
 
   snprintf(out, out_size,
-           " asset=present source=%s section=%s name='%s' txd='%s' dff=%s txd_file=%s sampcol=%s",
+           " asset=present source=%s section=%s name='%s' txd='%s' draw=%.3f flags=0x%08lx "
+           "dff=%s txd_file=%s sampcol=%s",
            samp_asset_ide_source_label_compat(model_entry->source),
            samp_asset_section_label_compat(model_entry->section), model_entry->model_name, model_entry->txd_name,
-           dff_state, txd_state, sampcol_state);
+           (double)model_entry->draw_distance, (unsigned long)model_entry->flags, dff_state, txd_state,
+           sampcol_state);
 }
 
 static void samp_asset_log_interesting_models_compat(void) {

@@ -314,7 +314,42 @@ void trace_netf(const char *fmt, ...) {
 }
 
 bool env_bool_enabled(const char *name, bool default_value) {
+#ifdef _WIN32
+  char ini_path[MAX_PATH];
+  char module_path[MAX_PATH];
+  char config_value[64];
+  char *slash = nullptr;
+  DWORD path_len = 0U;
+  DWORD chars = 0U;
+  int written = 0;
+#endif
   const char *value = std::getenv(name);
+
+#ifdef _WIN32
+  if (name != nullptr && name[0] != '\0') {
+    path_len = GetModuleFileNameA(nullptr, module_path, static_cast<DWORD>(sizeof(module_path)));
+    if (path_len != 0U && path_len < sizeof(module_path)) {
+      slash = std::strrchr(module_path, '\\');
+      if (slash != nullptr) {
+        slash[1] = '\0';
+        written = std::snprintf(ini_path, sizeof(ini_path), "%ssampdll.ini", module_path);
+        if (written > 0 && static_cast<size_t>(written) < sizeof(ini_path)) {
+          chars = GetPrivateProfileStringA("sampdll", name, "", config_value, static_cast<DWORD>(sizeof(config_value)),
+                                           ini_path);
+          if (chars == 0U) {
+            chars = GetPrivateProfileStringA("env", name, "", config_value, static_cast<DWORD>(sizeof(config_value)),
+                                             ini_path);
+          }
+          config_value[sizeof(config_value) - 1U] = '\0';
+          if (chars > 0U && config_value[0] != '\0') {
+            value = config_value;
+          }
+        }
+      }
+    }
+  }
+#endif
+
   if (value == nullptr || value[0] == '\0') {
     return default_value;
   }
