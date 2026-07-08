@@ -455,11 +455,16 @@
 #define SAMP_TEXTDRAW_COMPAT_SCRIPT_WIDTH 640.0f
 #define SAMP_TEXTDRAW_COMPAT_SCRIPT_HEIGHT 448.0f
 #define SAMP_TEXTDRAW_COMPAT_MIN_WIDTH 48
+#define SAMP_TEXTDRAW_COMPAT_FONT_SPRITE 4u
+#define SAMP_TEXTDRAW_COMPAT_FONT_MODEL_PREVIEW 5u
+#define SAMP_TEXTDRAW_COMPAT_VEHICLE_MODEL_MIN 400u
+#define SAMP_TEXTDRAW_COMPAT_VEHICLE_MODEL_MAX 611u
+#define SAMP_TEXTDRAW_COMPAT_SKIN_MODEL_MAX 311u
 /* OBSERVED_037 + PROBE_TRACE + TODO_VERIFY:
  * Original-DLL RE indicates normal textdraw text/box output routes through GTA SA
- * CFont. Keep D3DX as fallback and for 0.3.7 preview-model textdraws until
- * the replacement has a verified GTA render-phase hook. Calling CFont from the
- * current EndScene overlay crashed the 2026-07-06 libsamp run at ip=0.
+ * CFont. Keep D3DX as fallback and for 0.3.7 sprite/model-preview textdraws
+ * until the replacement has a verified GTA render-phase hook. Calling CFont
+ * from the current EndScene overlay crashed the 2026-07-06 libsamp run at ip=0.
  */
 #define SAMP_ADDR_SCREEN_WIDTH 0xC17044u
 #define SAMP_ADDR_SCREEN_HEIGHT 0xC17048u
@@ -1666,6 +1671,7 @@ static void samp_asset_log_object_readiness_compat(uint16_t object_id, uint32_t 
 static int samp_asset_register_custom_model_compat(int32_t model, const char *source);
 static void samp_asset_request_custom_model_registration_compat(int32_t model, const char *source);
 static void samp_asset_process_pending_registrations_compat(const char *source);
+static void samp_asset_warm_custom_assets_compat(const char *source);
 static int samp_asset_custom_asset_register_enabled_compat(void);
 static int samp_asset_custom_model_files_ready_compat(int32_t model, char *reason, size_t reason_size);
 static const char *samp_asset_custom_model_skip_reason_compat(int32_t model);
@@ -9245,8 +9251,16 @@ static int textdraw_compat_font_height_for_bucket(int bucket) {
   return SAMP_TEXTDRAW_COMPAT_FONT_MIN_HEIGHT + (bucket * SAMP_TEXTDRAW_COMPAT_FONT_STEP);
 }
 
+static int textdraw_compat_is_sprite_preview(const samp_textdraw_slot_compat *slot) {
+  return slot != NULL && slot->transmit.style == SAMP_TEXTDRAW_COMPAT_FONT_SPRITE;
+}
+
+static int textdraw_compat_is_model_preview(const samp_textdraw_slot_compat *slot) {
+  return slot != NULL && slot->transmit.style == SAMP_TEXTDRAW_COMPAT_FONT_MODEL_PREVIEW;
+}
+
 static int textdraw_compat_is_preview_like(const samp_textdraw_slot_compat *slot) {
-  return slot != NULL && (slot->transmit.style == 4u || slot->transmit.style == 5u);
+  return textdraw_compat_is_sprite_preview(slot) || textdraw_compat_is_model_preview(slot);
 }
 
 static int textdraw_compat_has_box(const samp_textdraw_slot_compat *slot) {
@@ -9779,6 +9793,252 @@ static void textdraw_compat_draw_preview_placeholder(void *device, const samp_te
   textdraw_compat_draw_rect_outline(device, x, y, w, h, border);
 }
 
+static DWORD textdraw_compat_preview_scale_color(DWORD color, int numerator, int denominator) {
+  DWORD alpha = color & 0xFF000000u;
+  int red = (int)((color >> 16u) & 0xFFu);
+  int green = (int)((color >> 8u) & 0xFFu);
+  int blue = (int)(color & 0xFFu);
+
+  if (denominator <= 0) {
+    denominator = 100;
+  }
+  if (alpha == 0u) {
+    alpha = 0xFF000000u;
+  }
+  red = textdraw_compat_clamp_int((red * numerator) / denominator, 0, 255);
+  green = textdraw_compat_clamp_int((green * numerator) / denominator, 0, 255);
+  blue = textdraw_compat_clamp_int((blue * numerator) / denominator, 0, 255);
+  return alpha | ((DWORD)red << 16u) | ((DWORD)green << 8u) | (DWORD)blue;
+}
+
+static DWORD textdraw_compat_preview_palette_color(int16_t color, uint16_t model, DWORD fallback) {
+  static const DWORD palette[] = {
+      0xFFBFC7D5u, 0xFF7C1E27u, 0xFF2F5A8Du, 0xFF2B6F45u, 0xFFD4A33Eu, 0xFF4B3B75u,
+      0xFFAFB53Eu, 0xFF1D7C83u, 0xFF8D8D8Du, 0xFF202020u, 0xFFDFDFDFu, 0xFF8F5B3Au,
+  };
+  unsigned int index = 0u;
+  unsigned int count = (unsigned int)(sizeof(palette) / sizeof(palette[0]));
+
+  if (count == 0u) {
+    return fallback;
+  }
+  if (color >= 0) {
+    index = (unsigned int)((uint16_t)color % count);
+  } else if (model != 0u) {
+    index = (unsigned int)(model % count);
+  } else {
+    return fallback;
+  }
+  return palette[index];
+}
+
+static int textdraw_compat_preview_model_is_vehicle(uint16_t model) {
+  return model >= SAMP_TEXTDRAW_COMPAT_VEHICLE_MODEL_MIN && model <= SAMP_TEXTDRAW_COMPAT_VEHICLE_MODEL_MAX;
+}
+
+static int textdraw_compat_preview_model_is_skin(uint16_t model) {
+  return model <= SAMP_TEXTDRAW_COMPAT_SKIN_MODEL_MAX;
+}
+
+static void textdraw_compat_draw_vehicle_preview_proxy(void *device, const samp_textdraw_slot_compat *slot, int x,
+                                                       int y, int w, int h) {
+  DWORD main_color = 0xFFBFC7D5u;
+  DWORD accent_color = 0xFF303744u;
+  DWORD dark_color = 0xFF111111u;
+  DWORD glass_color = 0xCC1D2838u;
+  int pad_x = 0;
+  int pad_y = 0;
+  int body_x = 0;
+  int body_y = 0;
+  int body_w = 0;
+  int body_h = 0;
+  int roof_x = 0;
+  int roof_y = 0;
+  int roof_w = 0;
+  int roof_h = 0;
+  int wheel_w = 0;
+  int wheel_h = 0;
+  int wheel_y = 0;
+  int light_w = 0;
+
+  if (device == NULL || slot == NULL || w <= 0 || h <= 0) {
+    return;
+  }
+  main_color = textdraw_compat_preview_palette_color(slot->transmit.preview_color1, slot->transmit.preview_model,
+                                                     main_color);
+  accent_color = textdraw_compat_preview_palette_color(slot->transmit.preview_color2,
+                                                       (uint16_t)(slot->transmit.preview_model + 7u), accent_color);
+  dark_color = textdraw_compat_preview_scale_color(main_color, 45, 100);
+  pad_x = textdraw_compat_clamp_int(w / 10, 3, 24);
+  pad_y = textdraw_compat_clamp_int(h / 8, 3, 18);
+  wheel_w = textdraw_compat_clamp_int(w / 9, 4, 16);
+  wheel_h = textdraw_compat_clamp_int(h / 8, 4, 14);
+  body_x = x + pad_x;
+  body_w = w - (pad_x * 2);
+  body_h = textdraw_compat_clamp_int(h / 5, 5, h / 2);
+  body_y = y + h - pad_y - body_h - (wheel_h / 2);
+  if (body_w < 8) {
+    body_w = 8;
+  }
+  if (body_y < y + pad_y) {
+    body_y = y + pad_y;
+  }
+  roof_w = (body_w * 9) / 20;
+  roof_h = textdraw_compat_clamp_int(h / 5, 5, h / 2);
+  roof_x = body_x + ((body_w - roof_w) / 2);
+  roof_y = body_y - roof_h + 1;
+  if (roof_y < y + pad_y) {
+    roof_y = y + pad_y;
+  }
+  wheel_y = body_y + body_h - (wheel_h / 3);
+  light_w = textdraw_compat_clamp_int(body_w / 10, 3, 10);
+
+  textdraw_compat_d3d_fill_rect(device, body_x + 2, body_y + body_h, body_w - 4, wheel_h / 2, 0x88000000u);
+  textdraw_compat_d3d_fill_rect(device, roof_x, roof_y, roof_w, roof_h, main_color);
+  textdraw_compat_d3d_fill_rect(device, roof_x + 2, roof_y + 2, roof_w - 4, roof_h / 2, glass_color);
+  textdraw_compat_d3d_fill_rect(device, body_x, body_y, body_w, body_h, main_color);
+  textdraw_compat_d3d_fill_rect(device, body_x + (body_w / 8), body_y + (body_h / 3), (body_w * 3) / 4,
+                                textdraw_compat_clamp_int(body_h / 5, 1, 4), accent_color);
+  textdraw_compat_d3d_fill_rect(device, body_x, body_y + body_h - 2, body_w, 2, dark_color);
+  textdraw_compat_d3d_fill_rect(device, body_x + 2, body_y + 2, light_w, textdraw_compat_clamp_int(body_h / 3, 2, 5),
+                                0xFFFFE899u);
+  textdraw_compat_d3d_fill_rect(device, body_x + body_w - light_w - 2, body_y + 2, light_w,
+                                textdraw_compat_clamp_int(body_h / 3, 2, 5), 0xFFD83A36u);
+  textdraw_compat_d3d_fill_rect(device, body_x + (body_w / 6), wheel_y, wheel_w, wheel_h, 0xFF050505u);
+  textdraw_compat_d3d_fill_rect(device, body_x + body_w - (body_w / 6) - wheel_w, wheel_y, wheel_w, wheel_h,
+                                0xFF050505u);
+  textdraw_compat_d3d_fill_rect(device, body_x + (body_w / 6) + 2, wheel_y + 2, wheel_w - 4, wheel_h - 4,
+                                0xFF6A6A6Au);
+  textdraw_compat_d3d_fill_rect(device, body_x + body_w - (body_w / 6) - wheel_w + 2, wheel_y + 2, wheel_w - 4,
+                                wheel_h - 4, 0xFF6A6A6Au);
+}
+
+static void textdraw_compat_draw_skin_preview_proxy(void *device, const samp_textdraw_slot_compat *slot, int x, int y,
+                                                    int w, int h) {
+  DWORD color = 0xFFBFC7D5u;
+  DWORD shadow = 0xFF141414u;
+  int base = 0;
+  int head = 0;
+  int cx = 0;
+  int body_w = 0;
+  int body_h = 0;
+  int body_x = 0;
+  int body_y = 0;
+
+  if (device == NULL || slot == NULL || w <= 0 || h <= 0) {
+    return;
+  }
+  color = textdraw_compat_preview_palette_color(-1, slot->transmit.preview_model, color);
+  shadow = textdraw_compat_preview_scale_color(color, 55, 100);
+  base = w < h ? w : h;
+  head = textdraw_compat_clamp_int(base / 6, 5, 18);
+  cx = x + (w / 2);
+  body_w = textdraw_compat_clamp_int(base / 5, 6, 18);
+  body_h = textdraw_compat_clamp_int(h / 3, 12, h / 2);
+  body_x = cx - (body_w / 2);
+  body_y = y + (h / 2) - (body_h / 3);
+
+  textdraw_compat_d3d_fill_rect(device, cx - (head / 2), y + (h / 5), head, head, 0xFFD4B18Cu);
+  textdraw_compat_d3d_fill_rect(device, body_x, body_y, body_w, body_h, color);
+  textdraw_compat_d3d_fill_rect(device, body_x - (body_w / 2), body_y + (body_h / 5), body_w / 2, body_h / 3,
+                                shadow);
+  textdraw_compat_d3d_fill_rect(device, body_x + body_w, body_y + (body_h / 5), body_w / 2, body_h / 3, shadow);
+  textdraw_compat_d3d_fill_rect(device, body_x, body_y + body_h, body_w / 2, body_h / 2, shadow);
+  textdraw_compat_d3d_fill_rect(device, body_x + (body_w / 2), body_y + body_h, body_w / 2, body_h / 2, shadow);
+}
+
+static void textdraw_compat_draw_object_preview_proxy(void *device, const samp_textdraw_slot_compat *slot, int x,
+                                                      int y, int w, int h) {
+  DWORD color = 0xFF8FA8B8u;
+  DWORD top = 0xFFB0C6D4u;
+  DWORD side = 0xFF5E737Fu;
+  int base = 0;
+  int offset = 0;
+  int front_x = 0;
+  int front_y = 0;
+  int front_w = 0;
+  int front_h = 0;
+
+  if (device == NULL || slot == NULL || w <= 0 || h <= 0) {
+    return;
+  }
+  color = textdraw_compat_preview_palette_color(-1, slot->transmit.preview_model, color);
+  top = textdraw_compat_preview_scale_color(color, 125, 100);
+  side = textdraw_compat_preview_scale_color(color, 70, 100);
+  base = w < h ? w : h;
+  offset = textdraw_compat_clamp_int(base / 9, 3, 14);
+  front_w = textdraw_compat_clamp_int(w / 2, 12, w - (offset * 2));
+  front_h = textdraw_compat_clamp_int(h / 3, 10, h - (offset * 2));
+  front_x = x + ((w - front_w) / 2) - (offset / 2);
+  front_y = y + ((h - front_h) / 2) + (offset / 2);
+
+  textdraw_compat_d3d_fill_rect(device, front_x + offset, front_y - offset, front_w, offset, top);
+  textdraw_compat_d3d_fill_rect(device, front_x + front_w, front_y, offset, front_h, side);
+  textdraw_compat_d3d_fill_rect(device, front_x, front_y, front_w, front_h, color);
+  textdraw_compat_d3d_fill_rect(device, front_x + 2, front_y + 2, front_w - 4,
+                                textdraw_compat_clamp_int(front_h / 5, 2, 8), top);
+  textdraw_compat_draw_rect_outline(device, front_x, front_y, front_w, front_h, 0xDD000000u);
+}
+
+static void textdraw_compat_draw_model_preview_proxy(void *device, const samp_textdraw_slot_compat *slot, int x, int y,
+                                                     int w, int h) {
+  static LONG logged = 0;
+  uint16_t model = 0u;
+  int inner_x = 0;
+  int inner_y = 0;
+  int inner_w = 0;
+  int inner_h = 0;
+  int pad = 0;
+
+  if (device == NULL || slot == NULL || w <= 0 || h <= 0) {
+    return;
+  }
+  model = slot->transmit.preview_model;
+  textdraw_compat_draw_preview_placeholder(device, slot, x, y, w, h);
+  pad = textdraw_compat_clamp_int((w < h ? w : h) / 14, 2, 10);
+  inner_x = x + pad;
+  inner_y = y + pad;
+  inner_w = w - (pad * 2);
+  inner_h = h - (pad * 2);
+  if (inner_w <= 0 || inner_h <= 0) {
+    return;
+  }
+  if (textdraw_compat_preview_model_is_vehicle(model)) {
+    textdraw_compat_draw_vehicle_preview_proxy(device, slot, inner_x, inner_y, inner_w, inner_h);
+  } else if (textdraw_compat_preview_model_is_skin(model)) {
+    textdraw_compat_draw_skin_preview_proxy(device, slot, inner_x, inner_y, inner_w, inner_h);
+  } else {
+    textdraw_compat_draw_object_preview_proxy(device, slot, inner_x, inner_y, inner_w, inner_h);
+  }
+  if (InterlockedCompareExchange(&logged, 1, 0) == 0) {
+    runtime_tracef("textdraw_preview: model proxy enabled model=%u zoom=%.3f colors=%d/%d "
+                   "evidence=OPENMP_REF,INFERRED,TODO_VERIFY",
+                   (unsigned)model, (double)slot->transmit.preview_zoom, (int)slot->transmit.preview_color1,
+                   (int)slot->transmit.preview_color2);
+  }
+}
+
+static void textdraw_compat_draw_sprite_preview_placeholder(void *device, const samp_textdraw_slot_compat *slot, int x,
+                                                            int y, int w, int h) {
+  DWORD fill = 0xFFFFFFFFu;
+
+  if (device == NULL || slot == NULL || w <= 0 || h <= 0) {
+    return;
+  }
+  if (lstrcmpiA(slot->text, "LD_SPAC:white") == 0) {
+    if (textdraw_compat_abgr_has_alpha(slot->transmit.letter_color)) {
+      fill = textdraw_compat_abgr_to_argb(slot->transmit.letter_color);
+    }
+    textdraw_compat_d3d_fill_rect(device, x, y, w, h, fill);
+    return;
+  }
+  if (lstrcmpiA(slot->text, "LD_SPAC:black") == 0) {
+    textdraw_compat_d3d_fill_rect(device, x, y, w, h, 0xFF000000u);
+    return;
+  }
+  textdraw_compat_draw_preview_placeholder(device, slot, x, y, w, h);
+}
+
 static DWORD textdraw_compat_color_with_rgb(DWORD current_color, DWORD rgb) {
   DWORD alpha = current_color & 0xFF000000u;
   if (alpha == 0u) {
@@ -10130,12 +10390,12 @@ static void textdraw_compat_draw_slot(void *device, samp_textdraw_slot_compat *s
   if (use_box && textdraw_compat_is_box_marker_text(plain_text)) {
     draw_text = 0;
   }
-  if (slot->transmit.style == 4u) {
-    textdraw_compat_draw_preview_placeholder(device, slot, x, y, w, h);
+  if (textdraw_compat_is_sprite_preview(slot)) {
+    textdraw_compat_draw_sprite_preview_placeholder(device, slot, x, y, w, h);
     return;
   }
-  if (slot->transmit.style == 5u) {
-    textdraw_compat_draw_preview_placeholder(device, slot, x, y, w, h);
+  if (textdraw_compat_is_model_preview(slot)) {
+    textdraw_compat_draw_model_preview_proxy(device, slot, x, y, w, h);
     return;
   }
   if (use_box && textdraw_compat_abgr_has_alpha(slot->transmit.box_color)) {
@@ -11817,7 +12077,13 @@ static int samp_asset_custom_asset_register_enabled_compat(void) {
 
 static int samp_asset_custom_asset_bulk_enabled_compat(void) {
   static LONG initialized = 0;
-  static int enabled = 0;
+  /* OBSERVED_037 + PROBE_TRACE:
+   * The 2026-07-08 original-R5 probe shows broad SA-MP/custom AtomicModelInfo
+   * registration before CUSTOM.IMG/SAMP.IMG/SAMPCOL.IMG directory and COL
+   * loads. Keep the original-like bulk path enabled by default; env=0 preserves
+   * targeted registration for crash triage.
+   */
+  static int enabled = 1;
   const char *value = NULL;
 
   if (InterlockedCompareExchange(&initialized, 0, 0)) {
@@ -11851,6 +12117,13 @@ static int samp_asset_custom_asset_metadata_enabled_compat(void) {
 
 static int samp_asset_custom_asset_over_vanilla_enabled_compat(void) {
   static LONG initialized = 0;
+  /* OBSERVED_037 + PROBE_TRACE + TODO_VERIFY:
+   * Original 0.3.7-R5 registers SA-MP atomic ModelInfos past GTA SA's vanilla
+   * 14000-entry store count and reaches 15417. The replacement 2026-07-08
+   * libsamp run faulted at CModelInfo::AddAtomicModel when the unexpanded GTA
+   * atomic store reached 14000, so keep over-vanilla registration opt-in until
+   * the original SA-MP store expansion/pointer patch is reproduced.
+   */
   static int enabled = 0;
   const char *value = NULL;
 
@@ -12679,6 +12952,30 @@ static void samp_asset_process_pending_registrations_compat(const char *source) 
                  (long)already_registered, (long)skipped, archive_loaded,
                  (long)InterlockedCompareExchange(&g_runtime.samp_asset_register_pending_count, 0, 0));
   object_compat_flush_pending(object_compat_create_budget());
+}
+
+static void samp_asset_warm_custom_assets_compat(const char *source) {
+  int bulk_ok = 0;
+  int archives = 0;
+
+  if (!samp_asset_custom_asset_register_enabled_compat() ||
+      InterlockedCompareExchange(&g_runtime.mp_session_scene_loaded, 0, 0) == 0) {
+    return;
+  }
+  if (!samp_asset_custom_asset_bulk_enabled_compat()) {
+    return;
+  }
+  if (InterlockedCompareExchange(&g_runtime.samp_asset_index_built, 0, 0) == 0) {
+    samp_asset_index_build_compat();
+  }
+
+  bulk_ok = samp_asset_register_custom_model_infos_compat(source);
+  archives = samp_asset_register_streaming_archives_compat(source, bulk_ok);
+  runtime_tracef("samp_asset_registration: warm source=%s bulk_ok=%d archives=%d custom_models=%ld "
+                 "pending=%ld evidence=OBSERVED_037,PROBE_TRACE,GTA_REVERSED_REF,TODO_VERIFY",
+                 source != NULL ? source : "unknown", bulk_ok, archives,
+                 (long)InterlockedCompareExchange(&g_runtime.samp_asset_custom_model_count, 0, 0),
+                 (long)InterlockedCompareExchange(&g_runtime.samp_asset_register_pending_count, 0, 0));
 }
 
 static int samp_asset_custom_proxy_enabled_compat(void) {
@@ -18801,6 +19098,8 @@ static void apply_multiplayer_session_bridge_compat(void) {
         write_game_u8(SAMP_ADDR_ENABLE_HUD, 1u);
         write_game_u8(SAMP_ADDR_RADAR_BLANK, 0u);
       }
+      samp_asset_warm_custom_assets_compat("spawn_finalize");
+      samp_asset_process_pending_registrations_compat("spawn_finalize");
     }
 
     if (has_spawn_info) {

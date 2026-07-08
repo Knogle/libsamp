@@ -139,6 +139,10 @@ SAMP_PROBE_LOG_ALL_API=1
 SAMP_PROBE_ASSET_PATHS=1
 SAMP_PROBE_FILE_HOOKS=1
 SAMP_PROBE_GTA_ASSET_HOOKS=1
+SAMP_PROBE_OBJECT_INFO=1
+SAMP_PROBE_TEXTDRAW_HOOKS=1
+SAMP_PROBE_TEXTDRAW_VERBOSE=1
+SAMP_PROBE_TEXTDRAW_RENDER=1
 ```
 
 The asset trace can also be toggled through files next to the ASI:
@@ -148,6 +152,10 @@ samp_probe_asset_paths.flag
 samp_probe_file_hooks.flag
 samp_probe_samp_code_hooks.flag
 samp_probe_gta_asset_hooks.flag
+samp_probe_object_info.flag
+samp_probe_textdraw_hooks.flag
+samp_probe_textdraw_verbose.flag
+samp_probe_textdraw_render.flag
 ```
 
 Use `samp_probe_asset_paths.flag` for normal original-DLL golden traces. It logs interesting SA-MP asset opens, size queries, seeks, and closes. `samp_probe_file_hooks.flag` additionally hooks `ReadFile`; keep that for short, targeted runs only because original 0.3.7 performs large overlapped reads against the SAMP archives.
@@ -163,6 +171,31 @@ info pointer, RW object pointer, and current model store counts. Log lines
 include `caller_samp_rva` when the caller is inside `samp.dll`, so a run with
 the original 0.3.7 DLL can be used as `PROBE_TRACE` evidence for the original
 custom-object loading path.
+
+Add `samp_probe_object_info.flag` for focused custom-object runs. This emits
+`gta_object_info` snapshots for tracked SA-MP object IDs and for custom model
+IDs `18631..19999` after `AddModel`, `LoadCdDirectory`, `CColStore::LoadCol`,
+and first `CPhysical::Add` observation. Each snapshot includes the GTA
+`CModelInfo` pointer, selected inferred fields, and bounded raw hex dumps of
+the model-info and collision-model memory. Treat those field names as
+`GTA_REVERSED_REF`/`TODO_VERIFY`; the raw bytes are the durable `PROBE_TRACE`
+evidence.
+
+Use `samp_probe_textdraw_hooks.flag` for focused TextDraw runs. It hooks the
+known GTA `CFont` calls and logs font style, alignment, box, color, and printed
+strings with SA-MP caller RVAs where available. Add
+`samp_probe_textdraw_verbose.flag` only when the short run needs dense CFont
+state transitions.
+
+Add `samp_probe_textdraw_render.flag` for Font 4 sprite and Font 5 model-preview
+runs. This enables the CFont hooks and then traces SA-MP's D3DX/D3D render path
+by hooking `D3DXCreateSprite`, selected D3DX texture creation imports,
+`ID3DXSprite::Begin/Draw/End`, and selected `IDirect3DDevice9` vtable entries
+such as `SetTexture`, `SetRenderState`, `SetFVF`, and `DrawPrimitive*`. The
+render probe tracks texture sources and marks short render windows after
+Font 4/5 CFont hints, so lines with the prefix `textdraw_render:` are the main
+diff target. Treat these as `PROBE_TRACE`/`TODO_VERIFY` evidence and keep runs
+short because this flag patches COM vtables.
 
 ## Example Log Output
 
@@ -206,6 +239,7 @@ GTA asset tracing:
 [probe] gta_asset: AddImageToList count=1 caller=0x1004a210 caller_samp_rva=0x0004a210 path='SAMP\samp.img' not_player_img=1 result=5 evidence=PROBE_TRACE,GTA_REVERSED_REF,TODO_VERIFY
 [probe] gta_asset: LoadCdDirectory.begin count=1 caller=0x1004a2c0 caller_samp_rva=0x0004a2c0 path='SAMP\samp.img' image_id=5 atomic=0 time=0 clump=0 evidence=PROBE_TRACE,GTA_REVERSED_REF,TODO_VERIFY
 [probe] gta_asset: AddAtomicModel count=1 caller=0x005b6abc caller_samp_rva=0x00000000 model=19300 store_before=0 store_after=1 result=0x12345678 model_info_ptr=0x12345678 evidence=PROBE_TRACE,GTA_REVERSED_REF,TODO_VERIFY
+[probe] gta_object_info: phase=AddAtomicModel caller=0x1004a2c0 caller_samp_rva=0x0004a2c0 model=19316 model_info=0x12345678 vtable=0x0086abcd key=0x12345678 txd_index=42 draw_distance=299.000000 col_model=0x23456789 raw=... col_raw=... evidence=OBSERVED_037,PROBE_TRACE,GTA_REVERSED_REF,TODO_VERIFY
 [probe] gta_asset: CPhysical.Add.begin count=42 caller=0x0054abcd caller_samp_rva=0x00000000 entity=0x12345678 readable=1 vtable=0x0086abcd rw_object=0x23456789 model=1383 status=0x04 sector_link=0x00000000 model_info_ptr=0x00ab1874 atomic=15417 time=160 clump=71 evidence=PROBE_TRACE,GTA_REVERSED_REF,TODO_VERIFY
 ```
 

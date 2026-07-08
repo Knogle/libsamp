@@ -62,6 +62,7 @@ constexpr RakNet::RakNetTime kScorePingUpdateMs = 3000U;
 constexpr float kRadiansToDegrees = 57.29577951308232f;
 constexpr unsigned int kMaxSpawnRetries = 4U;
 constexpr unsigned short kDefaultFreeroamTextDrawId = 24U;
+constexpr unsigned int kGtaModelInfoCount = 20000U;
 constexpr unsigned int kObservedPlayerSpawnInfoBytes = 45U;
 constexpr unsigned int kPlayerSpawnInfoBytes = 46U;
 constexpr unsigned int kDialogTitleBytes = 256U;
@@ -70,6 +71,8 @@ constexpr unsigned int kDialogButtonBytes = 64U;
 constexpr unsigned int kDialogInputBytes = 256U;
 constexpr unsigned int kChatInputBytes = 128U;
 constexpr unsigned int kCompactTextDrawTransmitBytes = 40U;
+constexpr unsigned int kClassicTextDrawPreviewNoSelectableBytes = 22U;
+constexpr unsigned int kClassicTextDrawPreviewWithSelectableBytes = 23U;
 constexpr unsigned int kTextDrawShowMinBytes = 2U + kCompactTextDrawTransmitBytes;
 constexpr unsigned int kTextDrawEditMinBytes = 2U;
 constexpr unsigned int kOpenMpTextDrawHeaderBytes = 67U;
@@ -2958,6 +2961,97 @@ bool decode_textdraw_openmp_show_payload(const unsigned char *data, unsigned int
   return true;
 }
 
+bool textdraw_classic_preview_values_plausible(unsigned short model, const float *rotation, float zoom,
+                                               short color1, short color2) {
+  if (model >= kGtaModelInfoCount) {
+    return false;
+  }
+  if (rotation == nullptr || !std::isfinite(rotation[0]) || !std::isfinite(rotation[1]) ||
+      !std::isfinite(rotation[2]) || !std::isfinite(zoom)) {
+    return false;
+  }
+  if (rotation[0] < -100000.0f || rotation[0] > 100000.0f || rotation[1] < -100000.0f ||
+      rotation[1] > 100000.0f || rotation[2] < -100000.0f || rotation[2] > 100000.0f) {
+    return false;
+  }
+  if (zoom < 0.0f || zoom > 10000.0f) {
+    return false;
+  }
+  return (color1 >= -1 && color1 <= 255) && (color2 >= -1 && color2 <= 255);
+}
+
+bool decode_textdraw_classic_preview_tail(const unsigned char *data, unsigned int bytes,
+                                          samp_raknet_textdraw_transmit *transmit,
+                                          unsigned int *inout_tail_offset) {
+  const unsigned int preview_offset = 2U + kCompactTextDrawTransmitBytes;
+  unsigned int field_offset = preview_offset;
+  unsigned int tail_offset = preview_offset;
+  unsigned short model = 0U;
+  float rotation[3] = {0.0f, 0.0f, 0.0f};
+  float zoom = 1.0f;
+  short color1 = -1;
+  short color2 = -1;
+  bool has_selectable = false;
+
+  if (data == nullptr || transmit == nullptr || inout_tail_offset == nullptr) {
+    return false;
+  }
+  *inout_tail_offset = preview_offset;
+  if (transmit->style != 5U || bytes < preview_offset + kClassicTextDrawPreviewNoSelectableBytes) {
+    return false;
+  }
+
+  /* PROBE_TRACE + TODO_VERIFY:
+   * Classic 0.3.7 ScrShowTextDraw carries preview-model fields after the
+   * 40-byte text/box prefix. Some server stacks include a selectable byte
+   * before the model id; accept both shapes and keep basic textdraw tails at
+   * the legacy 40-byte boundary.
+   */
+  if (bytes >= preview_offset + kClassicTextDrawPreviewWithSelectableBytes &&
+      (data[preview_offset] == 0U || data[preview_offset] == 1U)) {
+    const unsigned int selectable_field_offset = preview_offset + 1U;
+    const unsigned short selectable_model = read_le16(data + selectable_field_offset);
+    const float selectable_rotation[3] = {read_le_float(data + selectable_field_offset + 2U),
+                                          read_le_float(data + selectable_field_offset + 6U),
+                                          read_le_float(data + selectable_field_offset + 10U)};
+    const float selectable_zoom = read_le_float(data + selectable_field_offset + 14U);
+    const short selectable_color1 = static_cast<short>(read_le16(data + selectable_field_offset + 18U));
+    const short selectable_color2 = static_cast<short>(read_le16(data + selectable_field_offset + 20U));
+    if (textdraw_classic_preview_values_plausible(selectable_model, selectable_rotation, selectable_zoom,
+                                                  selectable_color1, selectable_color2)) {
+      has_selectable = true;
+      field_offset = selectable_field_offset;
+      tail_offset = preview_offset + kClassicTextDrawPreviewWithSelectableBytes;
+    }
+  }
+
+  if (!has_selectable) {
+    tail_offset = preview_offset + kClassicTextDrawPreviewNoSelectableBytes;
+  }
+
+  model = read_le16(data + field_offset);
+  rotation[0] = read_le_float(data + field_offset + 2U);
+  rotation[1] = read_le_float(data + field_offset + 6U);
+  rotation[2] = read_le_float(data + field_offset + 10U);
+  zoom = read_le_float(data + field_offset + 14U);
+  color1 = static_cast<short>(read_le16(data + field_offset + 18U));
+  color2 = static_cast<short>(read_le16(data + field_offset + 20U));
+  if (!textdraw_classic_preview_values_plausible(model, rotation, zoom, color1, color2)) {
+    return false;
+  }
+
+  transmit->selectable = has_selectable ? data[preview_offset] : transmit->selectable;
+  transmit->preview_model = model;
+  transmit->preview_rotation[0] = rotation[0];
+  transmit->preview_rotation[1] = rotation[1];
+  transmit->preview_rotation[2] = rotation[2];
+  transmit->preview_zoom = zoom;
+  transmit->preview_color1 = color1;
+  transmit->preview_color2 = color2;
+  *inout_tail_offset = tail_offset;
+  return true;
+}
+
 void queue_textdraw_event(unsigned char action, unsigned short textdraw_id,
                           const samp_raknet_textdraw_transmit *transmit, const char *text) {
   ++g_rpc_probe.textdraw_event_seq;
@@ -2982,6 +3076,8 @@ bool decode_textdraw_show_payload(const unsigned char *data, unsigned int bytes)
   unsigned short textdraw_id = 0U;
   samp_raknet_textdraw_transmit transmit;
   char text[SAMP_RAKNET_TEXTDRAW_TEXT_BYTES];
+  unsigned int tail_offset = 2U + kCompactTextDrawTransmitBytes;
+  bool classic_preview = false;
 
   if (data == nullptr || bytes < kTextDrawShowMinBytes) {
     return false;
@@ -2998,14 +3094,17 @@ bool decode_textdraw_show_payload(const unsigned char *data, unsigned int bytes)
 
   std::memset(&transmit, 0, sizeof(transmit));
   std::memcpy(&transmit, data + 2U, kCompactTextDrawTransmitBytes);
+  classic_preview = decode_textdraw_classic_preview_tail(data, bytes, &transmit, &tail_offset);
   std::memset(text, 0, sizeof(text));
-  decode_textdraw_tail(data, bytes, 2U + kCompactTextDrawTransmitBytes, text, sizeof(text));
+  decode_textdraw_tail(data, bytes, tail_offset, text, sizeof(text));
   queue_textdraw_event(SAMP_RAKNET_TEXTDRAW_ACTION_SHOW, textdraw_id, &transmit, text);
-  trace_netf("textdraw-decode: show seq=%u id=%u variant=compact pos=(%.3f,%.3f) style=%u flags=0x%02x tail=%u text='%s'",
+  trace_netf("textdraw-decode: show seq=%u id=%u variant=compact pos=(%.3f,%.3f) style=%u flags=0x%02x selectable=%u model=%u zoom=%.3f preview=%u tail=%u text='%s'",
              g_rpc_probe.textdraw_event_seq, static_cast<unsigned int>(textdraw_id),
              static_cast<double>(transmit.x), static_cast<double>(transmit.y),
              static_cast<unsigned int>(transmit.style), static_cast<unsigned int>(transmit.flags),
-             bytes - (2U + kCompactTextDrawTransmitBytes), text);
+             static_cast<unsigned int>(transmit.selectable), static_cast<unsigned int>(transmit.preview_model),
+             static_cast<double>(transmit.preview_zoom), classic_preview ? 1U : 0U,
+             bytes >= tail_offset ? bytes - tail_offset : 0U, text);
   return true;
 }
 

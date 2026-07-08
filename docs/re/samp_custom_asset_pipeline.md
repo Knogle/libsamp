@@ -110,15 +110,21 @@
 - `OBSERVED_037 + PROBE_TRACE + GTA_REVERSED_REF + TODO_VERIFY`: after the clump-store crash was traced to using
   `AddClumpModel` for regular `objs` rows, broad indexed-model registration exposed our too-strict vanilla
   atomic-store guard. The original 2026-06-11 run shows SA-MP 0.3.7 lets GTA's early IDE loader drive the atomic
-  store counter to `15417`. A replacement 2026-06-11 run then crashed at `0x004C663B` when the late object-bridge
-  fallback tried the first over-vanilla `AddAtomicModel` at `count=14000`, so the late fallback stays capped at
-  the vanilla `14000` by default and only permits the observed over-vanilla envelope with
-  `SAMPDLL_CUSTOM_ASSET_OVER_VANILLA=1` for explicit experiments. The real compatibility path is still the
-  original-like early asset registration phase.
+  store counter to `15417`. A replacement 2026-07-08 run successfully registered and collision-bound several
+  targeted SA-MP custom batches, then skipped ready models such as `18997`, `19425`, `18842`, and `18818` solely
+  because the diagnostic guard still capped the atomic store at vanilla `14000`. A later 2026-07-08 libsamp
+  replacement run proved that simply lifting this cap is not safe yet: `CModelInfo::AddAtomicModel` faulted at
+  `0x004c663b` as soon as the unexpanded GTA atomic store reached `14000`. The replacement therefore keeps
+  `SAMPDLL_CUSTOM_ASSET_OVER_VANILLA` off by default until the original SA-MP store expansion/pointer patch is
+  reproduced. The real compatibility path is still the original-like early asset registration phase.
 - `PROBE_TRACE + GTA_REVERSED_REF + TODO_VERIFY`: targeted registration now checks `ms_clumpModelInfoStore` capacity
   only before true `AddClumpModel` calls. Regular SA-MP `objs` registration uses `AddAtomicModel`, which matches
   GTA's IDE loader and avoids the 92-entry clump-store ceiling seen in the 2026-06-11 11:04 run. The bulk path also
   guards the atomic/time/clump store counters before calling GTA's `Add*Model` functions.
+- `OBSERVED_037 + PROBE_TRACE + TODO_VERIFY`: the 2026-07-08 original-R5 run shows broad custom AtomicModelInfo
+  creation first, then `CUSTOM.IMG`/`SAMP.IMG`/`SAMPCOL.IMG` directory loads, then COL binding. The replacement keeps
+  `SAMPDLL_CUSTOM_ASSET_BULK` enabled by default now and drains pending registration immediately after spawn scene-load;
+  set `SAMPDLL_CUSTOM_ASSET_BULK=0` to return to targeted-only triage.
 - `PROBE_TRACE + GTA_REVERSED_REF + TODO_VERIFY`: targeted registration now attempts a one-shot direct
   `AllSAMPCOLs.col` load from `SAMP\SAMPCOL.IMG` after requested custom `CModelInfo` entries exist, and the object
   bridge defers any `CreateObject` call whose render model still has no readable `m_pColModel`.

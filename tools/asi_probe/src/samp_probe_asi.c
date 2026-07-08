@@ -12,8 +12,10 @@
 #define PROBE_FILE_HOOKS_FLAG "samp_probe_file_hooks.flag"
 #define PROBE_SAMP_CODE_HOOKS_FLAG "samp_probe_samp_code_hooks.flag"
 #define PROBE_GTA_ASSET_HOOKS_FLAG "samp_probe_gta_asset_hooks.flag"
+#define PROBE_OBJECT_INFO_FLAG "samp_probe_object_info.flag"
 #define PROBE_TEXTDRAW_HOOKS_FLAG "samp_probe_textdraw_hooks.flag"
 #define PROBE_TEXTDRAW_VERBOSE_FLAG "samp_probe_textdraw_verbose.flag"
+#define PROBE_TEXTDRAW_RENDER_FLAG "samp_probe_textdraw_render.flag"
 #define PROBE_MAX_IMPORT_LOGS 4096
 #define PROBE_WATCH_INTERVAL_MS 250
 #define PROBE_WAIT_FOR_SAMP_MS 30000
@@ -21,16 +23,38 @@
 #define PROBE_PAYLOAD_PREVIEW_BYTES 256
 #define PROBE_STATE_HEARTBEAT_MS 5000
 #define PROBE_ASSET_HANDLE_SLOTS 64
+#define PROBE_TEXTURE_TRACK_SLOTS 256
+#define PROBE_TEXTDRAW_RENDER_HINT_MS 750u
 
 #define PROBE_GTA_ADDR_MODEL_INFO_PTRS 0x00A9B0C8u
 #define PROBE_GTA_ADDR_MODEL_INFO_ATOMIC_STORE_COUNT 0x00AAE950u
 #define PROBE_GTA_ADDR_MODEL_INFO_TIME_STORE_COUNT 0x00B1C960u
 #define PROBE_GTA_ADDR_MODEL_INFO_CLUMP_STORE_COUNT 0x00B1E958u
+#define PROBE_GTA_ADDR_D3D_DEVICE_PTR 0x00C97C28u
 #define PROBE_GTA_MODEL_INFO_MAX 20000u
+#define PROBE_GTA_CUSTOM_MODEL_MIN 18631u
+#define PROBE_GTA_CUSTOM_MODEL_MAX 19999u
+#define PROBE_GTA_MODEL_INFO_OFFSET_VTABLE 0u
+#define PROBE_GTA_MODEL_INFO_OFFSET_KEY 4u
+#define PROBE_GTA_MODEL_INFO_OFFSET_TXD_INDEX 10u
+#define PROBE_GTA_MODEL_INFO_OFFSET_DRAW_DISTANCE 24u
+#define PROBE_GTA_MODEL_INFO_OFFSET_COL_MODEL 20u
+#define PROBE_GTA_MODEL_INFO_DUMP_BYTES 64u
+#define PROBE_GTA_COL_MODEL_DUMP_BYTES 64u
 #define PROBE_GTA_ENTITY_OFFSET_RW_OBJECT 24u
 #define PROBE_GTA_ENTITY_OFFSET_MODEL_INDEX 34u
 #define PROBE_GTA_ENTITY_OFFSET_STATUS 0x36u
 #define PROBE_GTA_PHYSICAL_OFFSET_SECTOR_LIST 0xb0u
+#define PROBE_D3DDEV_VTBL_SET_RENDER_STATE 57u
+#define PROBE_D3DDEV_VTBL_SET_TEXTURE 65u
+#define PROBE_D3DDEV_VTBL_SET_FVF 89u
+#define PROBE_D3DDEV_VTBL_DRAW_PRIMITIVE 81u
+#define PROBE_D3DDEV_VTBL_DRAW_INDEXED_PRIMITIVE 82u
+#define PROBE_D3DDEV_VTBL_DRAW_PRIMITIVE_UP 83u
+#define PROBE_D3DDEV_VTBL_DRAW_INDEXED_PRIMITIVE_UP 84u
+#define PROBE_D3DXSPRITE_VTBL_BEGIN 8u
+#define PROBE_D3DXSPRITE_VTBL_DRAW 9u
+#define PROBE_D3DXSPRITE_VTBL_END 11u
 
 #if defined(__GNUC__)
 #define PROBE_ALWAYS_INLINE static __inline__ __attribute__((always_inline))
@@ -83,6 +107,31 @@ typedef void(__cdecl *probe_gta_font_set_int_fn)(int);
 typedef void(__cdecl *probe_gta_font_set_float_fn)(float);
 typedef void(__cdecl *probe_gta_font_use_box_fn)(int, int);
 typedef void(__cdecl *probe_gta_font_print_string_fn)(float, float, char *);
+typedef HRESULT(WINAPI *probe_D3DXCreateSprite_fn)(void *, void **);
+typedef HRESULT(WINAPI *probe_D3DXCreateTextureFromFileA_fn)(void *, LPCSTR, void **);
+typedef HRESULT(WINAPI *probe_D3DXCreateTextureFromFileExA_fn)(void *, LPCSTR, UINT, UINT, UINT, DWORD, int, int,
+                                                              DWORD, DWORD, DWORD, void *, void *, void **);
+typedef HRESULT(WINAPI *probe_D3DXCreateTextureFromFileInMemory_fn)(void *, LPCVOID, UINT, void **);
+typedef HRESULT(WINAPI *probe_D3DXCreateTextureFromResourceExA_fn)(void *, HMODULE, LPCSTR, UINT, UINT, UINT, DWORD,
+                                                                  int, int, DWORD, DWORD, DWORD, void *, void *,
+                                                                  void **);
+typedef HRESULT(WINAPI *probe_d3dx_sprite_begin_fn)(void *, DWORD);
+typedef HRESULT(WINAPI *probe_d3dx_sprite_end_fn)(void *);
+typedef struct probe_d3dx_vec3 {
+  float x;
+  float y;
+  float z;
+} probe_d3dx_vec3;
+typedef HRESULT(WINAPI *probe_d3dx_sprite_draw_fn)(void *, void *, const RECT *, const probe_d3dx_vec3 *,
+                                                  const probe_d3dx_vec3 *, DWORD);
+typedef HRESULT(WINAPI *probe_d3d_set_render_state_fn)(void *, DWORD, DWORD);
+typedef HRESULT(WINAPI *probe_d3d_set_texture_fn)(void *, DWORD, void *);
+typedef HRESULT(WINAPI *probe_d3d_set_fvf_fn)(void *, DWORD);
+typedef HRESULT(WINAPI *probe_d3d_draw_primitive_fn)(void *, DWORD, UINT, UINT);
+typedef HRESULT(WINAPI *probe_d3d_draw_indexed_primitive_fn)(void *, DWORD, INT, UINT, UINT, UINT, UINT);
+typedef HRESULT(WINAPI *probe_d3d_draw_primitive_up_fn)(void *, DWORD, UINT, const void *, UINT);
+typedef HRESULT(WINAPI *probe_d3d_draw_indexed_primitive_up_fn)(void *, DWORD, UINT, UINT, UINT, const void *, DWORD,
+                                                               const void *, UINT);
 
 typedef struct probe_iat_hook {
   const char *dll_name;
@@ -163,6 +212,12 @@ typedef struct probe_asset_handle {
   LONG read_count;
 } probe_asset_handle;
 
+typedef struct probe_texture_record {
+  void *texture;
+  char source[192];
+  LONG draw_count;
+} probe_texture_record;
+
 static HMODULE g_self_module;
 static HANDLE g_worker_thread;
 static HANDLE g_stop_event;
@@ -229,18 +284,44 @@ static void *g_orig_gta_font_use_box_color;
 static void *g_orig_gta_font_unk12;
 static void *g_orig_gta_font_set_justify;
 static void *g_orig_gta_font_print_string;
+static void *g_orig_D3DXCreateSprite;
+static void *g_orig_D3DXCreateTextureFromFileA;
+static void *g_orig_D3DXCreateTextureFromFileExA;
+static void *g_orig_D3DXCreateTextureFromFileInMemory;
+static void *g_orig_D3DXCreateTextureFromResourceExA;
+static void *g_orig_d3dx_sprite_begin;
+static void *g_orig_d3dx_sprite_draw;
+static void *g_orig_d3dx_sprite_end;
+static void *g_orig_d3d_set_render_state;
+static void *g_orig_d3d_set_texture;
+static void *g_orig_d3d_set_fvf;
+static void *g_orig_d3d_draw_primitive;
+static void *g_orig_d3d_draw_indexed_primitive;
+static void *g_orig_d3d_draw_primitive_up;
+static void *g_orig_d3d_draw_indexed_primitive_up;
 static probe_WSAGetLastError_fn g_WSAGetLastError_ptr;
 static probe_asset_handle g_asset_handles[PROBE_ASSET_HANDLE_SLOTS];
+static probe_texture_record g_texture_records[PROBE_TEXTURE_TRACK_SLOTS];
+static BYTE g_model_info_physical_dumped[PROBE_GTA_MODEL_INFO_MAX];
 static PROBE_THREAD_LOCAL int g_file_hook_depth;
+static PROBE_THREAD_LOCAL int g_textdraw_render_hook_depth;
 static LONG g_textdraw_font_call_count;
+static LONG g_textdraw_render_call_count;
+static LONG g_textdraw_current_font_style = -1;
+static LONG g_d3d_device_hooks_installed;
+static DWORD g_textdraw_render_hint_until_ms;
+static void *g_d3d_device_vtable;
+static void *g_d3d_stage0_texture;
 
 static int env_or_flag_enabled(const char *env_name, const char *flag_name);
 static int asset_path_hooks_enabled(void);
 static int asset_read_hooks_enabled(void);
 static int samp_code_hooks_enabled(void);
 static int gta_asset_hooks_enabled(void);
+static int object_info_enabled(void);
 static int textdraw_hooks_enabled(void);
 static int textdraw_verbose_enabled(void);
+static int textdraw_render_enabled(void);
 static LONG CALLBACK probe_exception_handler(PEXCEPTION_POINTERS info);
 static int WINAPI hook_WSAStartup(WORD version, LPWSADATA data);
 static int WINAPI hook_WSACleanup(void);
@@ -299,6 +380,40 @@ static void __cdecl hook_gta_font_use_box_color(DWORD color);
 static void __cdecl hook_gta_font_unk12(int value);
 static void __cdecl hook_gta_font_set_justify(int justify);
 static void __cdecl hook_gta_font_print_string(float x, float y, char *text);
+static HRESULT WINAPI hook_D3DXCreateSprite(void *device, void **sprite);
+static HRESULT WINAPI hook_D3DXCreateTextureFromFileA(void *device, LPCSTR src_file, void **texture);
+static HRESULT WINAPI hook_D3DXCreateTextureFromFileExA(void *device, LPCSTR src_file, UINT width, UINT height,
+                                                       UINT mip_levels, DWORD usage, int format, int pool,
+                                                       DWORD filter, DWORD mip_filter, DWORD color_key,
+                                                       void *src_info, void *palette, void **texture);
+static HRESULT WINAPI hook_D3DXCreateTextureFromFileInMemory(void *device, LPCVOID src_data, UINT src_data_size,
+                                                            void **texture);
+static HRESULT WINAPI hook_D3DXCreateTextureFromResourceExA(void *device, HMODULE src_module, LPCSTR src_resource,
+                                                           UINT width, UINT height, UINT mip_levels, DWORD usage,
+                                                           int format, int pool, DWORD filter, DWORD mip_filter,
+                                                           DWORD color_key, void *src_info, void *palette,
+                                                           void **texture);
+static HRESULT WINAPI hook_d3dx_sprite_begin(void *sprite, DWORD flags);
+static HRESULT WINAPI hook_d3dx_sprite_draw(void *sprite, void *texture, const RECT *src_rect,
+                                           const probe_d3dx_vec3 *center, const probe_d3dx_vec3 *position,
+                                           DWORD color);
+static HRESULT WINAPI hook_d3dx_sprite_end(void *sprite);
+static HRESULT WINAPI hook_d3d_set_render_state(void *device, DWORD state, DWORD value);
+static HRESULT WINAPI hook_d3d_set_texture(void *device, DWORD stage, void *texture);
+static HRESULT WINAPI hook_d3d_set_fvf(void *device, DWORD fvf);
+static HRESULT WINAPI hook_d3d_draw_primitive(void *device, DWORD primitive_type, UINT start_vertex,
+                                             UINT primitive_count);
+static HRESULT WINAPI hook_d3d_draw_indexed_primitive(void *device, DWORD primitive_type, INT base_vertex_index,
+                                                     UINT min_vertex_index, UINT num_vertices, UINT start_index,
+                                                     UINT primitive_count);
+static HRESULT WINAPI hook_d3d_draw_primitive_up(void *device, DWORD primitive_type, UINT primitive_count,
+                                                const void *vertex_stream_zero_data,
+                                                UINT vertex_stream_zero_stride);
+static HRESULT WINAPI hook_d3d_draw_indexed_primitive_up(void *device, DWORD primitive_type, UINT min_vertex_index,
+                                                        UINT num_vertices, UINT primitive_count,
+                                                        const void *index_data, DWORD index_data_format,
+                                                        const void *vertex_stream_zero_data,
+                                                        UINT vertex_stream_zero_stride);
 
 static probe_iat_hook g_hooks[] = {
     {"WSOCK32.dll", "WSAStartup", 115, (void *)hook_WSAStartup, &g_orig_WSAStartup, 0},
@@ -348,6 +463,18 @@ static probe_iat_hook g_file_path_hooks[] = {
 
 static probe_iat_hook g_file_read_hooks[] = {
     {"KERNEL32.dll", "ReadFile", 0, (void *)hook_ReadFile, &g_orig_ReadFile, 0},
+};
+
+static probe_iat_hook g_textdraw_render_iat_hooks[] = {
+    {"d3dx9_25.dll", "D3DXCreateSprite", 0, (void *)hook_D3DXCreateSprite, &g_orig_D3DXCreateSprite, 0},
+    {"d3dx9_25.dll", "D3DXCreateTextureFromFileA", 0, (void *)hook_D3DXCreateTextureFromFileA,
+     &g_orig_D3DXCreateTextureFromFileA, 0},
+    {"d3dx9_25.dll", "D3DXCreateTextureFromFileExA", 0, (void *)hook_D3DXCreateTextureFromFileExA,
+     &g_orig_D3DXCreateTextureFromFileExA, 0},
+    {"d3dx9_25.dll", "D3DXCreateTextureFromFileInMemory", 0, (void *)hook_D3DXCreateTextureFromFileInMemory,
+     &g_orig_D3DXCreateTextureFromFileInMemory, 0},
+    {"d3dx9_25.dll", "D3DXCreateTextureFromResourceExA", 0, (void *)hook_D3DXCreateTextureFromResourceExA,
+     &g_orig_D3DXCreateTextureFromResourceExA, 0},
 };
 
 static probe_watchpoint g_watchpoints[] = {
@@ -695,15 +822,31 @@ static int gta_asset_hooks_enabled(void) {
   return env_or_flag_enabled("SAMP_PROBE_GTA_ASSET_HOOKS", PROBE_GTA_ASSET_HOOKS_FLAG);
 }
 
+static int object_info_enabled(void) {
+  /* OBSERVED_037 target:
+   * Focused custom-object runs need CModelInfo/CColModel field dumps after GTA's
+   * native registration path. Keep this separate from the hot GTA asset hook flag
+   * because the raw scans are intentionally verbose. */
+  return env_or_flag_enabled("SAMP_PROBE_OBJECT_INFO", PROBE_OBJECT_INFO_FLAG);
+}
+
 static int textdraw_hooks_enabled(void) {
   /* GTA_REVERSED_REF + TODO_VERIFY:
    * Optional CFont hooks are for focused 0.3.7 textdraw traces only. They are
    * noisy on render paths, so normal probe runs leave them disabled. */
-  return env_or_flag_enabled("SAMP_PROBE_TEXTDRAW_HOOKS", PROBE_TEXTDRAW_HOOKS_FLAG);
+  return env_or_flag_enabled("SAMP_PROBE_TEXTDRAW_HOOKS", PROBE_TEXTDRAW_HOOKS_FLAG) || textdraw_render_enabled();
 }
 
 static int textdraw_verbose_enabled(void) {
   return env_or_flag_enabled("SAMP_PROBE_TEXTDRAW_VERBOSE", PROBE_TEXTDRAW_VERBOSE_FLAG);
+}
+
+static int textdraw_render_enabled(void) {
+  /* PROBE_TRACE + TODO_VERIFY:
+   * Focused Font 4 sprite / Font 5 preview traces need D3DX/IDirect3DDevice9
+   * hooks in addition to CFont. Keep this deeper render probe separately opt-in
+   * because it patches COM vtables and can be noisy during short render runs. */
+  return env_or_flag_enabled("SAMP_PROBE_TEXTDRAW_RENDER", PROBE_TEXTDRAW_RENDER_FLAG);
 }
 
 PROBE_ALWAYS_INLINE void *probe_return_address(void) {
@@ -1156,6 +1299,229 @@ static void safe_cstr_or(const char *value, char *out, size_t out_size, const ch
   out[i] = '\0';
 }
 
+static void safe_resource_name_or(const char *value, char *out, size_t out_size, const char *fallback) {
+  if (out == NULL || out_size == 0) {
+    return;
+  }
+  if (((uintptr_t)value >> 16u) == 0) {
+    snprintf(out, out_size, "#%lu", (unsigned long)(uintptr_t)value);
+    return;
+  }
+  safe_cstr_or(value, out, out_size, fallback);
+}
+
+static int source_text_interesting(const char *source) {
+  if (source == NULL || *source == '\0') {
+    return 0;
+  }
+
+  return ascii_contains_ci(source, "SAMP") || ascii_contains_ci(source, "LD_") ||
+         ascii_contains_ci(source, ".txd") || ascii_contains_ci(source, ".png") ||
+         ascii_contains_ci(source, "memory:") || ascii_contains_ci(source, "resource:");
+}
+
+static void remember_texture_source(void *texture, const char *source) {
+  size_t i;
+  size_t empty = PROBE_TEXTURE_TRACK_SLOTS;
+
+  if (texture == NULL || source == NULL || *source == '\0') {
+    return;
+  }
+
+  EnterCriticalSection(&g_log_lock);
+  for (i = 0; i < PROBE_TEXTURE_TRACK_SLOTS; ++i) {
+    if (g_texture_records[i].texture == texture) {
+      snprintf(g_texture_records[i].source, sizeof(g_texture_records[i].source), "%s", source);
+      LeaveCriticalSection(&g_log_lock);
+      return;
+    }
+    if (empty == PROBE_TEXTURE_TRACK_SLOTS && g_texture_records[i].texture == NULL) {
+      empty = i;
+    }
+  }
+
+  if (empty != PROBE_TEXTURE_TRACK_SLOTS) {
+    g_texture_records[empty].texture = texture;
+    snprintf(g_texture_records[empty].source, sizeof(g_texture_records[empty].source), "%s", source);
+    InterlockedExchange(&g_texture_records[empty].draw_count, 0);
+  }
+  LeaveCriticalSection(&g_log_lock);
+}
+
+static int texture_source_for(void *texture, char *out, size_t out_size, LONG *draw_count_out) {
+  size_t i;
+  int found = 0;
+
+  if (out != NULL && out_size > 0) {
+    out[0] = '\0';
+  }
+  if (draw_count_out != NULL) {
+    *draw_count_out = 0;
+  }
+  if (texture == NULL) {
+    return 0;
+  }
+
+  EnterCriticalSection(&g_log_lock);
+  for (i = 0; i < PROBE_TEXTURE_TRACK_SLOTS; ++i) {
+    if (g_texture_records[i].texture == texture) {
+      found = 1;
+      if (out != NULL && out_size > 0) {
+        snprintf(out, out_size, "%s", g_texture_records[i].source);
+      }
+      if (draw_count_out != NULL) {
+        *draw_count_out = InterlockedIncrement(&g_texture_records[i].draw_count);
+      }
+      break;
+    }
+  }
+  LeaveCriticalSection(&g_log_lock);
+  return found;
+}
+
+static void textdraw_render_mark_hint(const char *reason) {
+  DWORD until;
+
+  if (!textdraw_render_enabled()) {
+    return;
+  }
+
+  until = GetTickCount() + PROBE_TEXTDRAW_RENDER_HINT_MS;
+  InterlockedExchange((volatile LONG *)&g_textdraw_render_hint_until_ms, (LONG)until);
+  if (textdraw_verbose_enabled()) {
+    probe_log("textdraw_render: hint reason=%s until_ms=%lu evidence=PROBE_TRACE,TODO_VERIFY",
+              reason != NULL ? reason : "unknown", (unsigned long)until);
+  }
+}
+
+static int textdraw_render_hint_active(void) {
+  DWORD until = (DWORD)InterlockedCompareExchange((volatile LONG *)&g_textdraw_render_hint_until_ms, 0, 0);
+  return until != 0 && (LONG)(until - GetTickCount()) > 0;
+}
+
+static int should_log_textdraw_render_call(void *caller, LONG count, const char *texture_source) {
+  if (!textdraw_render_enabled()) {
+    return 0;
+  }
+  if (env_flag_enabled("SAMP_PROBE_TEXTDRAW_RENDER_LOG_ALL")) {
+    return 1;
+  }
+  if (address_in_samp(caller) || textdraw_render_hint_active() || source_text_interesting(texture_source)) {
+    return 1;
+  }
+  return textdraw_verbose_enabled() && should_log_call(count);
+}
+
+static int patch_com_vtable_slot(void *object, unsigned index, void *replacement, void **original_slot,
+                                 const char *name) {
+  void ***object_vtable_ptr;
+  void **vtable;
+  void **slot;
+  DWORD old_protect;
+  DWORD restore_protect;
+
+  if (object == NULL || replacement == NULL || original_slot == NULL) {
+    return 0;
+  }
+  if (!memory_is_readable((uintptr_t)object, sizeof(void *))) {
+    return 0;
+  }
+
+  object_vtable_ptr = (void ***)object;
+  vtable = *object_vtable_ptr;
+  if (vtable == NULL || !memory_is_readable((uintptr_t)&vtable[index], sizeof(void *))) {
+    return 0;
+  }
+
+  slot = &vtable[index];
+  if (*slot == replacement) {
+    return 1;
+  }
+  if (*original_slot != NULL && *slot != *original_slot) {
+    probe_log("textdraw_render_hook: skip name=%s object=%p index=%u slot=%p current=%p original=%p reason=vtable_changed",
+              name != NULL ? name : "unknown", object, index, slot, *slot, *original_slot);
+    return 0;
+  }
+  if (*original_slot == NULL) {
+    *original_slot = *slot;
+  }
+
+  if (!VirtualProtect(slot, sizeof(void *), PAGE_EXECUTE_READWRITE, &old_protect)) {
+    probe_log("textdraw_render_hook: VirtualProtect failed name=%s object=%p index=%u slot=%p err=%lu",
+              name != NULL ? name : "unknown", object, index, slot, (unsigned long)GetLastError());
+    return 0;
+  }
+
+  *slot = replacement;
+  FlushInstructionCache(GetCurrentProcess(), slot, sizeof(void *));
+  (void)VirtualProtect(slot, sizeof(void *), old_protect, &restore_protect);
+  probe_log("textdraw_render_hook: installed name=%s object=%p vtable=%p index=%u slot=%p original=%p replacement=%p "
+            "evidence=PROBE_TRACE,TODO_VERIFY",
+            name != NULL ? name : "unknown", object, vtable, index, slot, *original_slot, replacement);
+  return 1;
+}
+
+static void install_d3dx_sprite_hooks(void *sprite) {
+  if (!textdraw_render_enabled() || sprite == NULL) {
+    return;
+  }
+
+  (void)patch_com_vtable_slot(sprite, PROBE_D3DXSPRITE_VTBL_BEGIN, (void *)hook_d3dx_sprite_begin,
+                              &g_orig_d3dx_sprite_begin, "ID3DXSprite.Begin");
+  (void)patch_com_vtable_slot(sprite, PROBE_D3DXSPRITE_VTBL_DRAW, (void *)hook_d3dx_sprite_draw,
+                              &g_orig_d3dx_sprite_draw, "ID3DXSprite.Draw");
+  (void)patch_com_vtable_slot(sprite, PROBE_D3DXSPRITE_VTBL_END, (void *)hook_d3dx_sprite_end,
+                              &g_orig_d3dx_sprite_end, "ID3DXSprite.End");
+}
+
+static int install_d3d_device_hooks(int log_summary) {
+  void *device;
+  void **vtable;
+  int installed = 0;
+
+  if (!textdraw_render_enabled() || InterlockedCompareExchange(&g_d3d_device_hooks_installed, 0, 0) != 0) {
+    return 0;
+  }
+
+  device = (void *)(uintptr_t)read_u32_or(PROBE_GTA_ADDR_D3D_DEVICE_PTR, 0u);
+  if (device == NULL || !memory_is_readable((uintptr_t)device, sizeof(void *))) {
+    return 0;
+  }
+
+  vtable = *(void ***)device;
+  if (vtable == NULL || !memory_is_readable((uintptr_t)&vtable[PROBE_D3DDEV_VTBL_DRAW_INDEXED_PRIMITIVE_UP],
+                                            sizeof(void *))) {
+    return 0;
+  }
+
+  installed += patch_com_vtable_slot(device, PROBE_D3DDEV_VTBL_SET_RENDER_STATE, (void *)hook_d3d_set_render_state,
+                                     &g_orig_d3d_set_render_state, "IDirect3DDevice9.SetRenderState");
+  installed += patch_com_vtable_slot(device, PROBE_D3DDEV_VTBL_SET_TEXTURE, (void *)hook_d3d_set_texture,
+                                     &g_orig_d3d_set_texture, "IDirect3DDevice9.SetTexture");
+  installed += patch_com_vtable_slot(device, PROBE_D3DDEV_VTBL_SET_FVF, (void *)hook_d3d_set_fvf,
+                                     &g_orig_d3d_set_fvf, "IDirect3DDevice9.SetFVF");
+  installed += patch_com_vtable_slot(device, PROBE_D3DDEV_VTBL_DRAW_PRIMITIVE, (void *)hook_d3d_draw_primitive,
+                                     &g_orig_d3d_draw_primitive, "IDirect3DDevice9.DrawPrimitive");
+  installed += patch_com_vtable_slot(device, PROBE_D3DDEV_VTBL_DRAW_INDEXED_PRIMITIVE,
+                                     (void *)hook_d3d_draw_indexed_primitive, &g_orig_d3d_draw_indexed_primitive,
+                                     "IDirect3DDevice9.DrawIndexedPrimitive");
+  installed += patch_com_vtable_slot(device, PROBE_D3DDEV_VTBL_DRAW_PRIMITIVE_UP, (void *)hook_d3d_draw_primitive_up,
+                                     &g_orig_d3d_draw_primitive_up, "IDirect3DDevice9.DrawPrimitiveUP");
+  installed += patch_com_vtable_slot(device, PROBE_D3DDEV_VTBL_DRAW_INDEXED_PRIMITIVE_UP,
+                                     (void *)hook_d3d_draw_indexed_primitive_up,
+                                     &g_orig_d3d_draw_indexed_primitive_up,
+                                     "IDirect3DDevice9.DrawIndexedPrimitiveUP");
+
+  if (installed > 0) {
+    g_d3d_device_vtable = vtable;
+    InterlockedExchange(&g_d3d_device_hooks_installed, 1);
+  }
+  if (log_summary && installed > 0) {
+    probe_log("textdraw_render_hook: d3d_device_summary installed=%d device=%p vtable=%p", installed, device, vtable);
+  }
+  return installed;
+}
+
 static DWORD gta_model_info_store_count_for_name(const char *name) {
   if (name == NULL) {
     return 0xffffffffu;
@@ -1186,6 +1552,140 @@ static void *gta_model_info_ptr_for_id(int model_id) {
   }
   memcpy(&value, (const void *)slot, sizeof(value));
   return value;
+}
+
+static float read_f32_or(uintptr_t address, float fallback) {
+  float value;
+
+  if (!memory_is_readable(address, sizeof(value))) {
+    return fallback;
+  }
+
+  memcpy(&value, (const void *)address, sizeof(value));
+  return value;
+}
+
+static int probe_model_id_is_tracked(int model_id) {
+  static const int tracked[] = {
+      11692, 18777, 18781, 18784, 18794, 18808, 18809, 18818, 18824, 18826,
+      18829, 18842, 18858, 18981, 18997, 19002, 19005, 19071, 19074, 19128,
+      19312, 19313, 19316, 19332, 19333, 19378, 19425, 19649, 19667, 19894,
+      19905, 19907, 19909,
+  };
+  size_t i;
+
+  for (i = 0; i < sizeof(tracked) / sizeof(tracked[0]); ++i) {
+    if (tracked[i] == model_id) {
+      return 1;
+    }
+  }
+  return 0;
+}
+
+static int probe_model_id_is_custom(int model_id) {
+  return model_id >= (int)PROBE_GTA_CUSTOM_MODEL_MIN && model_id <= (int)PROBE_GTA_CUSTOM_MODEL_MAX;
+}
+
+static int probe_model_id_interesting(int model_id) {
+  return probe_model_id_is_custom(model_id) || probe_model_id_is_tracked(model_id);
+}
+
+static void probe_bytes_hex_or(uintptr_t address, size_t size, char *out, size_t out_size) {
+  BYTE bytes[PROBE_GTA_MODEL_INFO_DUMP_BYTES];
+
+  if (out == NULL || out_size == 0) {
+    return;
+  }
+  out[0] = '\0';
+  if (size > sizeof(bytes)) {
+    size = sizeof(bytes);
+  }
+  if (address < 0x10000u || size == 0 || !memory_is_readable(address, size)) {
+    snprintf(out, out_size, "unreadable");
+    return;
+  }
+
+  memcpy(bytes, (const void *)address, size);
+  bytes_to_hex(bytes, size, out, out_size);
+}
+
+static void log_gta_model_info_dump(const char *phase, int model_id, void *caller, int force) {
+  void *model_info = gta_model_info_ptr_for_id(model_id);
+  uintptr_t model_info_addr = (uintptr_t)model_info;
+  DWORD vtable;
+  DWORD key;
+  WORD txd_index;
+  float draw_distance;
+  DWORD col_model;
+  char raw_hex[PROBE_GTA_MODEL_INFO_DUMP_BYTES * 3 + 8];
+  char col_hex[PROBE_GTA_COL_MODEL_DUMP_BYTES * 3 + 8];
+
+  if (!object_info_enabled()) {
+    return;
+  }
+  if (!force && !probe_model_id_interesting(model_id)) {
+    return;
+  }
+  if (model_info_addr < 0x10000u || !memory_is_readable(model_info_addr, 0x20u)) {
+    probe_log("gta_object_info: phase=%s caller=%p caller_samp_rva=0x%08lx model=%d model_info=%p "
+              "reason=missing_or_unreadable evidence=PROBE_TRACE,TODO_VERIFY",
+              phase != NULL ? phase : "unknown", caller, samp_rva_from_address(caller), model_id, model_info);
+    return;
+  }
+
+  vtable = read_u32_or(model_info_addr + PROBE_GTA_MODEL_INFO_OFFSET_VTABLE, 0xffffffffu);
+  key = read_u32_or(model_info_addr + PROBE_GTA_MODEL_INFO_OFFSET_KEY, 0xffffffffu);
+  txd_index = read_u16_or(model_info_addr + PROBE_GTA_MODEL_INFO_OFFSET_TXD_INDEX, 0xffffu);
+  draw_distance = read_f32_or(model_info_addr + PROBE_GTA_MODEL_INFO_OFFSET_DRAW_DISTANCE, -1.0f);
+  col_model = read_u32_or(model_info_addr + PROBE_GTA_MODEL_INFO_OFFSET_COL_MODEL, 0xffffffffu);
+  probe_bytes_hex_or(model_info_addr, PROBE_GTA_MODEL_INFO_DUMP_BYTES, raw_hex, sizeof(raw_hex));
+  probe_bytes_hex_or((uintptr_t)col_model, PROBE_GTA_COL_MODEL_DUMP_BYTES, col_hex, sizeof(col_hex));
+
+  probe_log("gta_object_info: phase=%s caller=%p caller_samp_rva=0x%08lx model=%d model_info=%p "
+            "vtable=0x%08lx key=0x%08lx txd_index=%u draw_distance=%.6f col_model=0x%08lx "
+            "raw=%s col_raw=%s evidence=OBSERVED_037,PROBE_TRACE,GTA_REVERSED_REF,TODO_VERIFY",
+            phase != NULL ? phase : "unknown", caller, samp_rva_from_address(caller), model_id, model_info,
+            (unsigned long)vtable, (unsigned long)key, (unsigned)txd_index, draw_distance, (unsigned long)col_model,
+            raw_hex, col_hex);
+}
+
+static void scan_gta_custom_model_infos(const char *phase, void *caller) {
+  int model_id;
+  LONG logged = 0;
+  LONG missing = 0;
+
+  if (!object_info_enabled()) {
+    return;
+  }
+
+  for (model_id = (int)PROBE_GTA_CUSTOM_MODEL_MIN; model_id <= (int)PROBE_GTA_CUSTOM_MODEL_MAX; ++model_id) {
+    if (gta_model_info_ptr_for_id(model_id) != NULL) {
+      log_gta_model_info_dump(phase, model_id, caller, 1);
+      ++logged;
+    } else {
+      ++missing;
+    }
+  }
+
+  probe_log("gta_object_info: scan phase=%s logged=%ld missing=%ld range=%u-%u "
+            "evidence=OBSERVED_037,PROBE_TRACE,TODO_VERIFY",
+            phase != NULL ? phase : "unknown", (long)logged, (long)missing, (unsigned)PROBE_GTA_CUSTOM_MODEL_MIN,
+            (unsigned)PROBE_GTA_CUSTOM_MODEL_MAX);
+}
+
+static void log_tracked_gta_model_infos(const char *phase, void *caller) {
+  static const int tracked[] = {
+      11692, 18777, 18818, 18842, 18997, 19313, 19316, 19425, 19894, 19905, 19907, 19909,
+  };
+  size_t i;
+
+  if (!object_info_enabled()) {
+    return;
+  }
+
+  for (i = 0; i < sizeof(tracked) / sizeof(tracked[0]); ++i) {
+    log_gta_model_info_dump(phase, tracked[i], caller, 1);
+  }
 }
 
 static DWORD decode_rel32_target_or(uintptr_t instruction_address, BYTE opcode, DWORD fallback) {
@@ -2152,10 +2652,16 @@ static int install_iat_hooks(PIMAGE_NT_HEADERS nt, int log_summary) {
       installed += hook_one_import(nt, &g_file_read_hooks[i]);
     }
   }
+  if (textdraw_render_enabled()) {
+    for (i = 0; i < sizeof(g_textdraw_render_iat_hooks) / sizeof(g_textdraw_render_iat_hooks[0]); ++i) {
+      installed += hook_one_import(nt, &g_textdraw_render_iat_hooks[i]);
+    }
+  }
 
   if (log_summary) {
-    probe_log("hook: summary installed=%d requested=%u asset_path_hooks=%d asset_read_hooks=%d", installed,
-              (unsigned)(sizeof(g_hooks) / sizeof(g_hooks[0])), asset_path_hooks_enabled(), asset_read_hooks_enabled());
+    probe_log("hook: summary installed=%d requested=%u asset_path_hooks=%d asset_read_hooks=%d textdraw_render=%d",
+              installed, (unsigned)(sizeof(g_hooks) / sizeof(g_hooks[0])), asset_path_hooks_enabled(),
+              asset_read_hooks_enabled(), textdraw_render_enabled());
   }
   return installed;
 }
@@ -2200,9 +2706,9 @@ static DWORD WINAPI probe_worker(LPVOID param) {
   init_log_path();
   probe_log("probe: attached build=%s %s", __DATE__, __TIME__);
   probe_log("probe: options asset_path_hooks=%d asset_read_hooks=%d samp_code_hooks=%d gta_asset_hooks=%d "
-            "textdraw_hooks=%d textdraw_verbose=%d",
+            "object_info=%d textdraw_hooks=%d textdraw_verbose=%d textdraw_render=%d",
             asset_path_hooks_enabled(), asset_read_hooks_enabled(), samp_code_hooks_enabled(), gta_asset_hooks_enabled(),
-            textdraw_hooks_enabled(), textdraw_verbose_enabled());
+            object_info_enabled(), textdraw_hooks_enabled(), textdraw_verbose_enabled(), textdraw_render_enabled());
 
   start_ms = GetTickCount();
   while (WaitForSingleObject(g_stop_event, 50) == WAIT_TIMEOUT) {
@@ -2246,6 +2752,7 @@ static DWORD WINAPI probe_worker(LPVOID param) {
     install_samp_code_hooks(1);
     install_gta_textdraw_code_hooks(1);
     install_gta_asset_code_hooks(1);
+    install_d3d_device_hooks(1);
   }
 
   sample_transition_state("after_samp_load");
@@ -2257,6 +2764,7 @@ static DWORD WINAPI probe_worker(LPVOID param) {
       (void)install_samp_code_hooks(0);
       (void)install_gta_textdraw_code_hooks(0);
       (void)install_gta_asset_code_hooks(0);
+      (void)install_d3d_device_hooks(0);
     }
     sample_watchpoints();
     sample_transition_state("tick");
@@ -2375,6 +2883,7 @@ static void __cdecl hook_gta_font_set_style(int style) {
   LONG n = next_call_count(&g_textdraw_font_call_count);
   char detail[64];
 
+  InterlockedExchange(&g_textdraw_current_font_style, (LONG)style);
   snprintf(detail, sizeof(detail), "style=%d", style);
   log_textdraw_font_call(caller, n, "CFont.SetFontStyle", detail);
   if (g_orig_gta_font_set_style != NULL) {
@@ -2505,15 +3014,371 @@ static void __cdecl hook_gta_font_set_justify(int justify) {
 static void __cdecl hook_gta_font_print_string(float x, float y, char *text) {
   void *caller = probe_return_address();
   LONG n = next_call_count(&g_textdraw_font_call_count);
+  LONG style = InterlockedCompareExchange(&g_textdraw_current_font_style, 0, 0);
   char safe_text[192];
   char detail[320];
 
   safe_cstr_or(text, safe_text, sizeof(safe_text), "(null)");
-  snprintf(detail, sizeof(detail), "x=%.6f y=%.6f text='%s'", x, y, safe_text);
+  snprintf(detail, sizeof(detail), "x=%.6f y=%.6f style_context=%ld text='%s'", x, y, (long)style, safe_text);
+  if (style == 5 && strcmp(safe_text, "_") == 0) {
+    textdraw_render_mark_hint("font5_preview_underscore");
+  } else if (ascii_contains_ci(safe_text, "LD_")) {
+    textdraw_render_mark_hint("font4_sprite_text");
+  }
   log_textdraw_font_call(caller, n, "CFont.PrintString", detail);
   if (g_orig_gta_font_print_string != NULL) {
     ((probe_gta_font_print_string_fn)g_orig_gta_font_print_string)(x, y, text);
   }
+}
+
+static HRESULT WINAPI hook_D3DXCreateSprite(void *device, void **sprite) {
+  static LONG count;
+  void *caller = probe_return_address();
+  LONG n = next_call_count(&count);
+  HRESULT rc = E_FAIL;
+
+  if (g_orig_D3DXCreateSprite != NULL) {
+    rc = ((probe_D3DXCreateSprite_fn)g_orig_D3DXCreateSprite)(device, sprite);
+  }
+  if (should_log_textdraw_render_call(caller, n, NULL) || should_log_call(n)) {
+    probe_log("textdraw_render: D3DXCreateSprite count=%ld caller=%p caller_samp_rva=0x%08lx device=%p sprite=%p "
+              "result=0x%08lx evidence=PROBE_TRACE,TODO_VERIFY",
+              (long)n, caller, samp_rva_from_address(caller), device, sprite != NULL ? *sprite : NULL,
+              (unsigned long)rc);
+  }
+  if (rc >= 0 && sprite != NULL && *sprite != NULL) {
+    install_d3dx_sprite_hooks(*sprite);
+  }
+  return rc;
+}
+
+static HRESULT WINAPI hook_D3DXCreateTextureFromFileA(void *device, LPCSTR src_file, void **texture) {
+  static LONG count;
+  void *caller = probe_return_address();
+  LONG n = next_call_count(&count);
+  HRESULT rc = E_FAIL;
+  char source[MAX_PATH];
+
+  safe_cstr_or(src_file, source, sizeof(source), "(null)");
+  if (g_orig_D3DXCreateTextureFromFileA != NULL) {
+    rc = ((probe_D3DXCreateTextureFromFileA_fn)g_orig_D3DXCreateTextureFromFileA)(device, src_file, texture);
+  }
+  if (rc >= 0 && texture != NULL && *texture != NULL) {
+    remember_texture_source(*texture, source);
+  }
+  if (should_log_textdraw_render_call(caller, n, source) || should_log_call(n)) {
+    probe_log("textdraw_render: D3DXCreateTextureFromFileA count=%ld caller=%p caller_samp_rva=0x%08lx device=%p "
+              "file='%s' texture=%p result=0x%08lx evidence=PROBE_TRACE,TODO_VERIFY",
+              (long)n, caller, samp_rva_from_address(caller), device, source, texture != NULL ? *texture : NULL,
+              (unsigned long)rc);
+  }
+  return rc;
+}
+
+static HRESULT WINAPI hook_D3DXCreateTextureFromFileExA(void *device, LPCSTR src_file, UINT width, UINT height,
+                                                       UINT mip_levels, DWORD usage, int format, int pool,
+                                                       DWORD filter, DWORD mip_filter, DWORD color_key,
+                                                       void *src_info, void *palette, void **texture) {
+  static LONG count;
+  void *caller = probe_return_address();
+  LONG n = next_call_count(&count);
+  HRESULT rc = E_FAIL;
+  char source[MAX_PATH];
+
+  safe_cstr_or(src_file, source, sizeof(source), "(null)");
+  if (g_orig_D3DXCreateTextureFromFileExA != NULL) {
+    rc = ((probe_D3DXCreateTextureFromFileExA_fn)g_orig_D3DXCreateTextureFromFileExA)(
+        device, src_file, width, height, mip_levels, usage, format, pool, filter, mip_filter, color_key, src_info,
+        palette, texture);
+  }
+  if (rc >= 0 && texture != NULL && *texture != NULL) {
+    remember_texture_source(*texture, source);
+  }
+  if (should_log_textdraw_render_call(caller, n, source) || should_log_call(n)) {
+    probe_log("textdraw_render: D3DXCreateTextureFromFileExA count=%ld caller=%p caller_samp_rva=0x%08lx device=%p "
+              "file='%s' size=%ux%u mip=%u usage=0x%08lx fmt=%d pool=%d texture=%p result=0x%08lx "
+              "evidence=PROBE_TRACE,TODO_VERIFY",
+              (long)n, caller, samp_rva_from_address(caller), device, source, (unsigned)width, (unsigned)height,
+              (unsigned)mip_levels, (unsigned long)usage, format, pool, texture != NULL ? *texture : NULL,
+              (unsigned long)rc);
+  }
+  return rc;
+}
+
+static HRESULT WINAPI hook_D3DXCreateTextureFromFileInMemory(void *device, LPCVOID src_data, UINT src_data_size,
+                                                            void **texture) {
+  static LONG count;
+  void *caller = probe_return_address();
+  LONG n = next_call_count(&count);
+  HRESULT rc = E_FAIL;
+  char source[64];
+
+  snprintf(source, sizeof(source), "memory:%lu", (unsigned long)src_data_size);
+  if (g_orig_D3DXCreateTextureFromFileInMemory != NULL) {
+    rc = ((probe_D3DXCreateTextureFromFileInMemory_fn)g_orig_D3DXCreateTextureFromFileInMemory)(device, src_data,
+                                                                                                src_data_size, texture);
+  }
+  if (rc >= 0 && texture != NULL && *texture != NULL) {
+    remember_texture_source(*texture, source);
+  }
+  if (should_log_textdraw_render_call(caller, n, source) || should_log_call(n)) {
+    probe_log("textdraw_render: D3DXCreateTextureFromFileInMemory count=%ld caller=%p caller_samp_rva=0x%08lx "
+              "device=%p data=%p size=%lu texture=%p result=0x%08lx evidence=PROBE_TRACE,TODO_VERIFY",
+              (long)n, caller, samp_rva_from_address(caller), device, src_data, (unsigned long)src_data_size,
+              texture != NULL ? *texture : NULL, (unsigned long)rc);
+  }
+  return rc;
+}
+
+static HRESULT WINAPI hook_D3DXCreateTextureFromResourceExA(void *device, HMODULE src_module, LPCSTR src_resource,
+                                                           UINT width, UINT height, UINT mip_levels, DWORD usage,
+                                                           int format, int pool, DWORD filter, DWORD mip_filter,
+                                                           DWORD color_key, void *src_info, void *palette,
+                                                           void **texture) {
+  static LONG count;
+  void *caller = probe_return_address();
+  LONG n = next_call_count(&count);
+  HRESULT rc = E_FAIL;
+  char resource[128];
+  char source[192];
+
+  safe_resource_name_or(src_resource, resource, sizeof(resource), "(resource)");
+  snprintf(source, sizeof(source), "resource:%p:%s", (void *)src_module, resource);
+  if (g_orig_D3DXCreateTextureFromResourceExA != NULL) {
+    rc = ((probe_D3DXCreateTextureFromResourceExA_fn)g_orig_D3DXCreateTextureFromResourceExA)(
+        device, src_module, src_resource, width, height, mip_levels, usage, format, pool, filter, mip_filter, color_key,
+        src_info, palette, texture);
+  }
+  if (rc >= 0 && texture != NULL && *texture != NULL) {
+    remember_texture_source(*texture, source);
+  }
+  if (should_log_textdraw_render_call(caller, n, source) || should_log_call(n)) {
+    probe_log("textdraw_render: D3DXCreateTextureFromResourceExA count=%ld caller=%p caller_samp_rva=0x%08lx "
+              "device=%p module=%p resource='%s' size=%ux%u texture=%p result=0x%08lx "
+              "evidence=PROBE_TRACE,TODO_VERIFY",
+              (long)n, caller, samp_rva_from_address(caller), device, (void *)src_module, resource, (unsigned)width,
+              (unsigned)height, texture != NULL ? *texture : NULL, (unsigned long)rc);
+  }
+  return rc;
+}
+
+static HRESULT WINAPI hook_d3dx_sprite_begin(void *sprite, DWORD flags) {
+  void *caller = probe_return_address();
+  LONG n = next_call_count(&g_textdraw_render_call_count);
+  HRESULT rc = E_FAIL;
+
+  if (should_log_textdraw_render_call(caller, n, NULL)) {
+    probe_log("textdraw_render: ID3DXSprite.Begin seq=%ld caller=%p caller_samp_rva=0x%08lx sprite=%p flags=0x%08lx",
+              (long)n, caller, samp_rva_from_address(caller), sprite, (unsigned long)flags);
+  }
+  if (g_orig_d3dx_sprite_begin != NULL) {
+    ++g_textdraw_render_hook_depth;
+    rc = ((probe_d3dx_sprite_begin_fn)g_orig_d3dx_sprite_begin)(sprite, flags);
+    --g_textdraw_render_hook_depth;
+  }
+  return rc;
+}
+
+static HRESULT WINAPI hook_d3dx_sprite_draw(void *sprite, void *texture, const RECT *src_rect,
+                                           const probe_d3dx_vec3 *center, const probe_d3dx_vec3 *position,
+                                           DWORD color) {
+  void *caller = probe_return_address();
+  LONG n = next_call_count(&g_textdraw_render_call_count);
+  LONG draw_count = 0;
+  HRESULT rc = E_FAIL;
+  char source[192];
+
+  (void)texture_source_for(texture, source, sizeof(source), &draw_count);
+  if (should_log_textdraw_render_call(caller, n, source)) {
+    probe_log("textdraw_render: ID3DXSprite.Draw seq=%ld caller=%p caller_samp_rva=0x%08lx sprite=%p texture=%p "
+              "texture_draw=%ld source='%s' rect=%ld,%ld,%ld,%ld center=%.3f,%.3f,%.3f pos=%.3f,%.3f,%.3f "
+              "color=0x%08lx evidence=PROBE_TRACE,TODO_VERIFY",
+              (long)n, caller, samp_rva_from_address(caller), sprite, texture, (long)draw_count, source,
+              src_rect != NULL ? (long)src_rect->left : 0l, src_rect != NULL ? (long)src_rect->top : 0l,
+              src_rect != NULL ? (long)src_rect->right : 0l, src_rect != NULL ? (long)src_rect->bottom : 0l,
+              center != NULL ? center->x : 0.0f, center != NULL ? center->y : 0.0f, center != NULL ? center->z : 0.0f,
+              position != NULL ? position->x : 0.0f, position != NULL ? position->y : 0.0f,
+              position != NULL ? position->z : 0.0f, (unsigned long)color);
+  }
+  if (g_orig_d3dx_sprite_draw != NULL) {
+    ++g_textdraw_render_hook_depth;
+    rc = ((probe_d3dx_sprite_draw_fn)g_orig_d3dx_sprite_draw)(sprite, texture, src_rect, center, position, color);
+    --g_textdraw_render_hook_depth;
+  }
+  return rc;
+}
+
+static HRESULT WINAPI hook_d3dx_sprite_end(void *sprite) {
+  void *caller = probe_return_address();
+  LONG n = next_call_count(&g_textdraw_render_call_count);
+  HRESULT rc = E_FAIL;
+
+  if (should_log_textdraw_render_call(caller, n, NULL)) {
+    probe_log("textdraw_render: ID3DXSprite.End seq=%ld caller=%p caller_samp_rva=0x%08lx sprite=%p", (long)n,
+              caller, samp_rva_from_address(caller), sprite);
+  }
+  if (g_orig_d3dx_sprite_end != NULL) {
+    ++g_textdraw_render_hook_depth;
+    rc = ((probe_d3dx_sprite_end_fn)g_orig_d3dx_sprite_end)(sprite);
+    --g_textdraw_render_hook_depth;
+  }
+  return rc;
+}
+
+static HRESULT WINAPI hook_d3d_set_render_state(void *device, DWORD state, DWORD value) {
+  void *caller = probe_return_address();
+  LONG n = next_call_count(&g_textdraw_render_call_count);
+  HRESULT rc = E_FAIL;
+
+  if (should_log_textdraw_render_call(caller, n, NULL)) {
+    probe_log("textdraw_render: IDirect3DDevice9.SetRenderState seq=%ld caller=%p caller_samp_rva=0x%08lx "
+              "device=%p state=%lu value=0x%08lx",
+              (long)n, caller, samp_rva_from_address(caller), device, (unsigned long)state, (unsigned long)value);
+  }
+  if (g_orig_d3d_set_render_state != NULL) {
+    ++g_textdraw_render_hook_depth;
+    rc = ((probe_d3d_set_render_state_fn)g_orig_d3d_set_render_state)(device, state, value);
+    --g_textdraw_render_hook_depth;
+  }
+  return rc;
+}
+
+static HRESULT WINAPI hook_d3d_set_texture(void *device, DWORD stage, void *texture) {
+  void *caller = probe_return_address();
+  LONG n = next_call_count(&g_textdraw_render_call_count);
+  HRESULT rc = E_FAIL;
+  char source[192];
+
+  (void)texture_source_for(texture, source, sizeof(source), NULL);
+  if (stage == 0) {
+    g_d3d_stage0_texture = texture;
+  }
+  if (should_log_textdraw_render_call(caller, n, source)) {
+    probe_log("textdraw_render: IDirect3DDevice9.SetTexture seq=%ld caller=%p caller_samp_rva=0x%08lx device=%p "
+              "stage=%lu texture=%p source='%s'",
+              (long)n, caller, samp_rva_from_address(caller), device, (unsigned long)stage, texture, source);
+  }
+  if (g_orig_d3d_set_texture != NULL) {
+    ++g_textdraw_render_hook_depth;
+    rc = ((probe_d3d_set_texture_fn)g_orig_d3d_set_texture)(device, stage, texture);
+    --g_textdraw_render_hook_depth;
+  }
+  return rc;
+}
+
+static HRESULT WINAPI hook_d3d_set_fvf(void *device, DWORD fvf) {
+  void *caller = probe_return_address();
+  LONG n = next_call_count(&g_textdraw_render_call_count);
+  HRESULT rc = E_FAIL;
+
+  if (should_log_textdraw_render_call(caller, n, NULL)) {
+    probe_log("textdraw_render: IDirect3DDevice9.SetFVF seq=%ld caller=%p caller_samp_rva=0x%08lx device=%p fvf=0x%08lx",
+              (long)n, caller, samp_rva_from_address(caller), device, (unsigned long)fvf);
+  }
+  if (g_orig_d3d_set_fvf != NULL) {
+    ++g_textdraw_render_hook_depth;
+    rc = ((probe_d3d_set_fvf_fn)g_orig_d3d_set_fvf)(device, fvf);
+    --g_textdraw_render_hook_depth;
+  }
+  return rc;
+}
+
+static void log_d3d_draw_call(const char *name, LONG n, void *caller, void *device, DWORD primitive_type,
+                              UINT primitive_count, const char *extra) {
+  char source[192];
+
+  (void)texture_source_for(g_d3d_stage0_texture, source, sizeof(source), NULL);
+  if (!should_log_textdraw_render_call(caller, n, source)) {
+    return;
+  }
+  probe_log("textdraw_render: %s seq=%ld caller=%p caller_samp_rva=0x%08lx device=%p prim_type=%lu prim_count=%u "
+            "stage0_texture=%p source='%s' %s evidence=PROBE_TRACE,TODO_VERIFY",
+            name != NULL ? name : "IDirect3DDevice9.Draw", (long)n, caller, samp_rva_from_address(caller), device,
+            (unsigned long)primitive_type, (unsigned)primitive_count, g_d3d_stage0_texture, source,
+            extra != NULL ? extra : "");
+}
+
+static HRESULT WINAPI hook_d3d_draw_primitive(void *device, DWORD primitive_type, UINT start_vertex,
+                                             UINT primitive_count) {
+  void *caller = probe_return_address();
+  LONG n = next_call_count(&g_textdraw_render_call_count);
+  HRESULT rc = E_FAIL;
+  char extra[80];
+
+  snprintf(extra, sizeof(extra), "start_vertex=%u", (unsigned)start_vertex);
+  log_d3d_draw_call("IDirect3DDevice9.DrawPrimitive", n, caller, device, primitive_type, primitive_count, extra);
+  if (g_orig_d3d_draw_primitive != NULL) {
+    ++g_textdraw_render_hook_depth;
+    rc = ((probe_d3d_draw_primitive_fn)g_orig_d3d_draw_primitive)(device, primitive_type, start_vertex,
+                                                                  primitive_count);
+    --g_textdraw_render_hook_depth;
+  }
+  return rc;
+}
+
+static HRESULT WINAPI hook_d3d_draw_indexed_primitive(void *device, DWORD primitive_type, INT base_vertex_index,
+                                                     UINT min_vertex_index, UINT num_vertices, UINT start_index,
+                                                     UINT primitive_count) {
+  void *caller = probe_return_address();
+  LONG n = next_call_count(&g_textdraw_render_call_count);
+  HRESULT rc = E_FAIL;
+  char extra[160];
+
+  snprintf(extra, sizeof(extra), "base=%ld min=%u vertices=%u start_index=%u", (long)base_vertex_index,
+           (unsigned)min_vertex_index, (unsigned)num_vertices, (unsigned)start_index);
+  log_d3d_draw_call("IDirect3DDevice9.DrawIndexedPrimitive", n, caller, device, primitive_type, primitive_count, extra);
+  if (g_orig_d3d_draw_indexed_primitive != NULL) {
+    ++g_textdraw_render_hook_depth;
+    rc = ((probe_d3d_draw_indexed_primitive_fn)g_orig_d3d_draw_indexed_primitive)(
+        device, primitive_type, base_vertex_index, min_vertex_index, num_vertices, start_index, primitive_count);
+    --g_textdraw_render_hook_depth;
+  }
+  return rc;
+}
+
+static HRESULT WINAPI hook_d3d_draw_primitive_up(void *device, DWORD primitive_type, UINT primitive_count,
+                                                const void *vertex_stream_zero_data,
+                                                UINT vertex_stream_zero_stride) {
+  void *caller = probe_return_address();
+  LONG n = next_call_count(&g_textdraw_render_call_count);
+  HRESULT rc = E_FAIL;
+  char extra[128];
+
+  snprintf(extra, sizeof(extra), "vertices=%p stride=%u", vertex_stream_zero_data, (unsigned)vertex_stream_zero_stride);
+  log_d3d_draw_call("IDirect3DDevice9.DrawPrimitiveUP", n, caller, device, primitive_type, primitive_count, extra);
+  if (g_orig_d3d_draw_primitive_up != NULL) {
+    ++g_textdraw_render_hook_depth;
+    rc = ((probe_d3d_draw_primitive_up_fn)g_orig_d3d_draw_primitive_up)(device, primitive_type, primitive_count,
+                                                                        vertex_stream_zero_data,
+                                                                        vertex_stream_zero_stride);
+    --g_textdraw_render_hook_depth;
+  }
+  return rc;
+}
+
+static HRESULT WINAPI hook_d3d_draw_indexed_primitive_up(void *device, DWORD primitive_type, UINT min_vertex_index,
+                                                        UINT num_vertices, UINT primitive_count,
+                                                        const void *index_data, DWORD index_data_format,
+                                                        const void *vertex_stream_zero_data,
+                                                        UINT vertex_stream_zero_stride) {
+  void *caller = probe_return_address();
+  LONG n = next_call_count(&g_textdraw_render_call_count);
+  HRESULT rc = E_FAIL;
+  char extra[192];
+
+  snprintf(extra, sizeof(extra), "min=%u vertices=%u indices=%p index_fmt=%lu vertex_data=%p stride=%u",
+           (unsigned)min_vertex_index, (unsigned)num_vertices, index_data, (unsigned long)index_data_format,
+           vertex_stream_zero_data, (unsigned)vertex_stream_zero_stride);
+  log_d3d_draw_call("IDirect3DDevice9.DrawIndexedPrimitiveUP", n, caller, device, primitive_type, primitive_count,
+                    extra);
+  if (g_orig_d3d_draw_indexed_primitive_up != NULL) {
+    ++g_textdraw_render_hook_depth;
+    rc = ((probe_d3d_draw_indexed_primitive_up_fn)g_orig_d3d_draw_indexed_primitive_up)(
+        device, primitive_type, min_vertex_index, num_vertices, primitive_count, index_data, index_data_format,
+        vertex_stream_zero_data, vertex_stream_zero_stride);
+    --g_textdraw_render_hook_depth;
+  }
+  return rc;
 }
 
 static void log_gta_model_add(const char *name, LONG count, void *caller, int model_id, DWORD before_count, void *result) {
@@ -2523,6 +3388,7 @@ static void log_gta_model_add(const char *name, LONG count, void *caller, int mo
             "result=%p model_info_ptr=%p evidence=PROBE_TRACE,GTA_REVERSED_REF,TODO_VERIFY",
             name, (long)count, caller, samp_rva_from_address(caller), model_id, (unsigned long)before_count,
             (unsigned long)after_count, result, model_info);
+  log_gta_model_info_dump(name, model_id, caller, should_log_call(count));
 }
 
 static void log_gta_physical_entity(const char *phase, LONG count, void *caller, void *entity) {
@@ -2550,6 +3416,13 @@ static void log_gta_physical_entity(const char *phase, LONG count, void *caller,
             (unsigned long)read_u32_or(PROBE_GTA_ADDR_MODEL_INFO_ATOMIC_STORE_COUNT, 0xffffffffu),
             (unsigned long)read_u32_or(PROBE_GTA_ADDR_MODEL_INFO_TIME_STORE_COUNT, 0xffffffffu),
             (unsigned long)read_u32_or(PROBE_GTA_ADDR_MODEL_INFO_CLUMP_STORE_COUNT, 0xffffffffu));
+
+  if (object_info_enabled() && model != 0xffffu && probe_model_id_interesting((int)model) &&
+      g_model_info_physical_dumped[model] == 0) {
+    g_model_info_physical_dumped[model] = 1;
+    log_gta_model_info_dump(phase != NULL && strcmp(phase, "end") == 0 ? "CPhysical.Add.end" : "CPhysical.Add.begin",
+                            (int)model, caller, 1);
+  }
 }
 
 static void PROBE_THISCALL hook_gta_physical_add(void *entity) {
@@ -2645,6 +3518,13 @@ static void __cdecl hook_gta_load_cd_directory(const char *path, int image_id) {
             (unsigned long)read_u32_or(PROBE_GTA_ADDR_MODEL_INFO_ATOMIC_STORE_COUNT, 0xffffffffu),
             (unsigned long)read_u32_or(PROBE_GTA_ADDR_MODEL_INFO_TIME_STORE_COUNT, 0xffffffffu),
             (unsigned long)read_u32_or(PROBE_GTA_ADDR_MODEL_INFO_CLUMP_STORE_COUNT, 0xffffffffu));
+  if (object_info_enabled()) {
+    log_tracked_gta_model_infos("LoadCdDirectory.end.tracked", caller);
+    if (ascii_contains_ci(safe_path, "CUSTOM.IMG") || ascii_contains_ci(safe_path, "SAMP.IMG") ||
+        ascii_contains_ci(safe_path, "SAMPCOL.IMG")) {
+      scan_gta_custom_model_infos("LoadCdDirectory.end.scan", caller);
+    }
+  }
 }
 
 static int __cdecl hook_gta_col_add_slot(const char *name) {
@@ -2677,6 +3557,7 @@ static int __cdecl hook_gta_col_load_buffer(int slot, void *buffer, int size) {
     result = ((probe_gta_col_load_buffer_fn)g_orig_gta_col_load_buffer)(slot, buffer, size);
   }
   probe_log("gta_asset: ColStore.LoadCol.end count=%ld slot=%d size=%d result=%d", (long)n, slot, size, result);
+  log_tracked_gta_model_infos("ColStore.LoadCol.end.tracked", caller);
   return result;
 }
 

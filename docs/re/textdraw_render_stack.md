@@ -98,8 +98,29 @@ Stable default path:
   background boxes until it is moved out of the EndScene overlay
 - preserve SAMP color/newline tags on the GTA `CFont` path and normalize `_` to
   spaces before `PrintString`
-- treat preview-model textdraws as placeholders until their render path is
-  implemented separately
+- render font `5` preview-model textdraws through a visible D3D proxy until the
+  GTA/RenderWare model-preview path is implemented separately
+- keep generic font `4` sprite/TXD textdraws as a placeholder path, with only
+  common solid `LD_SPAC:white`/`LD_SPAC:black` sprites special-cased
+
+Model-preview note:
+
+`OPENMP_REF` + `INFERRED` + `TODO_VERIFY`: open.mp documents font `5`
+textdraws as model previews configured by `TextDrawSetPreviewModel`,
+`TextDrawSetPreviewRot`, and `TextDrawSetPreviewVehCol`. The replacement
+decodes these fields from the open.mp textdraw transmit block and now also
+extracts the classic 0.3.7 preview tail when a compact font `5` payload carries
+one. The current render path uses `preview_model` to choose a
+vehicle/skin/object-shaped D3D proxy so UFW-style menu and car-shop slots no
+longer render as empty boxes. This proxy is not evidence for original-DLL
+rendering; true parity still needs a focused 0.3.7 trace and a
+GTA/RenderWare-backed preview renderer.
+
+Sprite note:
+
+`OPENMP_REF` + `TODO_VERIFY`: font `4` textdraw sprites use `library:texture`
+names resolved from `SA Dir/models/txd/` and `SA Dir/SAMP/`. Full TXD sprite
+loading remains open.
 
 Crash note:
 
@@ -176,5 +197,7 @@ Open verification tasks:
 - capture a focused original-DLL trace for textdraw background color alpha
 - verify the GameProcess-hook CFont path against the 0.3.7 original screenshots
 - verify `CFont` setter order for centered/right-aligned textdraws
-- validate preview-model textdraw object/material ownership
+- validate preview-model textdraw object/material ownership and replace the D3D
+  proxy with the verified GTA/RenderWare render path
+- implement full font `4` TXD sprite loading from GTA/SA-MP texture libraries
 - verify click/select hit-test bounds against original 0.3.7 behavior
