@@ -154,6 +154,8 @@ struct RpcProbeState {
   int sent_spawn_notify;
   unsigned int sent_spawn_notify_seq;
   int manual_spawn_shift_down;
+  int class_selection_after_death_requested;
+  int class_selection_after_death_consumed;
   int selected_class;
   unsigned short last_dialog_id;
   unsigned char last_dialog_style;
@@ -281,6 +283,8 @@ struct RpcProbeState {
   samp_raknet_map_icon_event map_icon_events[SAMP_RAKNET_MAP_ICON_EVENT_RING];
   unsigned int name_tag_event_seq;
   samp_raknet_name_tag_event name_tag_events[SAMP_RAKNET_NAME_TAG_EVENT_RING];
+  unsigned int death_window_event_seq;
+  samp_raknet_death_window_event death_window_events[SAMP_RAKNET_DEATH_WINDOW_EVENT_RING];
   unsigned int text_label_event_seq;
   samp_raknet_3d_text_label_event text_label_events[SAMP_RAKNET_3D_TEXT_LABEL_EVENT_RING];
   unsigned int player_pool_event_seq;
@@ -536,7 +540,7 @@ const RpcMeta kRpcMeta[] = {
     {52U, "Spawn", kRpcLocalOutgoing, "OPENMP_REF"},
     {53U, "Death", kRpcLocalOutgoing, "OPENMP_REF"},
     {54U, "NPCJoin", kRpcLocalOutgoing, "OPENMP_REF"},
-    {55U, "ScrDeathMessage", kRpcLocalDummy, "STATIC_037"},
+    {55U, "ScrDeathMessage", kRpcLocalImplemented, "STATIC_037,OPENMP_REF,TODO_VERIFY"},
     {56U, "ScrSetPlayerMapIcon", kRpcLocalImplemented, "INFERRED,TODO_VERIFY"},
     {57U, "ScrRemoveVehicleComponent", kRpcLocalDummy, "STATIC_037"},
     {58U, "ScrUpdate3DTextLabel", kRpcLocalImplemented, "SAMPFUNCS_037,TODO_VERIFY"},
@@ -698,6 +702,8 @@ unsigned int rpc_min_payload_bytes(unsigned int rpc_id) {
       return 2U;
     case 43U:
       return 20U;
+    case 55U:
+      return 5U;
     case 29U:
       return 2U;
     case 32U:
@@ -880,6 +886,8 @@ void reset_rpc_probe_runtime(RakNet::RakClientInterface *client) {
   g_rpc_probe.sent_spawn_notify = 0;
   g_rpc_probe.sent_spawn_notify_seq = 0U;
   g_rpc_probe.manual_spawn_shift_down = 0;
+  g_rpc_probe.class_selection_after_death_requested = 0;
+  g_rpc_probe.class_selection_after_death_consumed = 0;
   g_rpc_probe.selected_class = 0;
   g_rpc_probe.last_dialog_id = 0;
   g_rpc_probe.last_dialog_style = 0;
@@ -1013,6 +1021,8 @@ void reset_rpc_probe_runtime(RakNet::RakClientInterface *client) {
   std::memset(g_rpc_probe.map_icon_events, 0, sizeof(g_rpc_probe.map_icon_events));
   g_rpc_probe.name_tag_event_seq = 0U;
   std::memset(g_rpc_probe.name_tag_events, 0, sizeof(g_rpc_probe.name_tag_events));
+  g_rpc_probe.death_window_event_seq = 0U;
+  std::memset(g_rpc_probe.death_window_events, 0, sizeof(g_rpc_probe.death_window_events));
   g_rpc_probe.text_label_event_seq = 0U;
   std::memset(g_rpc_probe.text_label_events, 0, sizeof(g_rpc_probe.text_label_events));
   g_rpc_probe.player_pool_event_seq = 0U;
@@ -1953,6 +1963,21 @@ void queue_name_tag_event(unsigned short player_id, unsigned char show) {
   event->show = show != 0U ? 1U : 0U;
 }
 
+samp_raknet_death_window_event *queue_death_window_event(unsigned char action, unsigned short killer_id,
+                                                         unsigned short killee_id, unsigned char reason) {
+  const unsigned int seq = bump_seq(&g_rpc_probe.death_window_event_seq);
+  const unsigned int slot = (seq - 1U) % SAMP_RAKNET_DEATH_WINDOW_EVENT_RING;
+  samp_raknet_death_window_event *event = &g_rpc_probe.death_window_events[slot];
+
+  std::memset(event, 0, sizeof(*event));
+  event->seq = seq;
+  event->action = action;
+  event->killer_id = killer_id;
+  event->killee_id = killee_id;
+  event->reason = reason;
+  return event;
+}
+
 samp_raknet_game_text_event *queue_game_text_event(unsigned char action, std::int32_t style, std::int32_t time_ms,
                                                    const char *text) {
   const unsigned int seq = bump_seq(&g_rpc_probe.game_text_event_seq);
@@ -2221,6 +2246,37 @@ bool decode_world_player_remove_payload(const unsigned char *data, unsigned int 
   trace_netf("rpc-state id=%u world_player_%s seq=%u player=%u reason=%u", action == SAMP_RAKNET_REMOTE_PLAYER_ACTION_DEATH ? 166U : 163U,
              action == SAMP_RAKNET_REMOTE_PLAYER_ACTION_DEATH ? "death" : "remove",
              g_rpc_probe.remote_player_event_seq, static_cast<unsigned int>(player_id), static_cast<unsigned int>(reason));
+  return true;
+}
+
+bool decode_death_message_payload(const unsigned char *data, unsigned int bytes) {
+  unsigned short killer_id = 0xFFFFU;
+  unsigned short killee_id = 0xFFFFU;
+  unsigned char reason = 0U;
+  unsigned char action = SAMP_RAKNET_DEATH_WINDOW_ACTION_ADD;
+  samp_raknet_death_window_event *event = nullptr;
+
+  if (data == nullptr || bytes < 5U) {
+    return false;
+  }
+
+  /*
+   * STATIC_037 + OPENMP_REF + TODO_VERIFY:
+   * ScrDeathMessage carries killer id, killee id and a byte weapon/reason. The original DeathWindow
+   * renderer consumes these into the right-side kill feed; sprite/icon parity is still TODO_VERIFY.
+   */
+  killer_id = read_le16(data);
+  killee_id = read_le16(data + 2U);
+  reason = data[4U];
+  if (killer_id == 0xFFFFU && killee_id == 0xFFFFU) {
+    action = SAMP_RAKNET_DEATH_WINDOW_ACTION_CLEAR;
+  }
+  event = queue_death_window_event(action, killer_id, killee_id, reason);
+  trace_netf("rpc-state id=55 death_window seq=%u action=%s killer=%u killee=%u reason=%u "
+             "evidence=STATIC_037,OPENMP_REF,TODO_VERIFY",
+             event->seq, action == SAMP_RAKNET_DEATH_WINDOW_ACTION_CLEAR ? "clear" : "add",
+             static_cast<unsigned int>(killer_id), static_cast<unsigned int>(killee_id),
+             static_cast<unsigned int>(reason));
   return true;
 }
 
@@ -4341,6 +4397,10 @@ void rpc_observer(RakNet::RPCParameters *rpc_params, void *extra) {
     if (rpc_params == nullptr || !decode_remove_building_payload(rpc_params->input, bytes)) {
       trace_netf("rpc-state id=43 remove_building decode_failed bytes=%u", bytes);
     }
+  } else if (rpc_id == 55U) {
+    if (rpc_params == nullptr || !decode_death_message_payload(rpc_params->input, bytes)) {
+      trace_netf("rpc-state id=55 death_window decode_failed bytes=%u", bytes);
+    }
   } else if (rpc_id == 135U) {
     if (rpc_params == nullptr || !decode_textdraw_hide_payload(rpc_params->input, bytes)) {
       trace_netf("rpc-state id=135 textdraw_hide decode_failed bytes=%u", bytes);
@@ -5356,6 +5416,7 @@ int samp_raknet_client_get_rpc_probe_snapshot(void *client, samp_raknet_rpc_prob
   out_snapshot->remote_player_sync_count = 0U;
   out_snapshot->map_icon_event_count = 0U;
   out_snapshot->name_tag_event_count = 0U;
+  out_snapshot->death_window_event_count = 0U;
   out_snapshot->game_text_event_count = 0U;
   out_snapshot->text_label_event_count = 0U;
   out_snapshot->given_weapon_event_count = 0U;
@@ -5590,6 +5651,21 @@ int samp_raknet_client_get_rpc_probe_snapshot(void *client, samp_raknet_rpc_prob
       }
     }
   }
+  std::memset(out_snapshot->death_window_events, 0, sizeof(out_snapshot->death_window_events));
+  if (g_rpc_probe.death_window_event_seq > 0U) {
+    const unsigned int available = g_rpc_probe.death_window_event_seq < SAMP_RAKNET_DEATH_WINDOW_EVENT_RING
+                                       ? g_rpc_probe.death_window_event_seq
+                                       : SAMP_RAKNET_DEATH_WINDOW_EVENT_RING;
+    const unsigned int first_seq = g_rpc_probe.death_window_event_seq - available + 1U;
+    for (unsigned int i = 0U; i < available; ++i) {
+      const unsigned int seq = first_seq + i;
+      const unsigned int slot = (seq - 1U) % SAMP_RAKNET_DEATH_WINDOW_EVENT_RING;
+      if (g_rpc_probe.death_window_events[slot].seq == seq) {
+        out_snapshot->death_window_events[out_snapshot->death_window_event_count++] =
+            g_rpc_probe.death_window_events[slot];
+      }
+    }
+  }
   std::memset(out_snapshot->game_text_events, 0, sizeof(out_snapshot->game_text_events));
   if (g_rpc_probe.game_text_event_seq > 0U) {
     const unsigned int available = g_rpc_probe.game_text_event_seq < SAMP_RAKNET_GAMETEXT_EVENT_RING
@@ -5676,6 +5752,64 @@ int samp_raknet_client_send_spawn_notification_for_seq(void *client, uint32_t sp
 
   return send_spawn_notification_with_seq(static_cast<RakNet::RakClientInterface *>(client),
                                           static_cast<unsigned int>(spawn_info_seq));
+}
+
+int samp_raknet_client_mark_class_selection_after_death(void *client) {
+  if (client == nullptr || client != g_rpc_probe.client) {
+    return -1;
+  }
+  if (!g_rpc_probe.saw_init_game) {
+    return -2;
+  }
+  if (g_rpc_probe.class_selection_after_death_requested && !g_rpc_probe.class_selection_after_death_consumed) {
+    return 1;
+  }
+
+  /*
+   * INFERRED + TODO_VERIFY:
+   * The local 0.2x legacy tree keeps F4 as a "wants another class" latch and only calls
+   * HandleClassSelection() from the wasted respawn path.
+   */
+  g_rpc_probe.class_selection_after_death_requested = 1;
+  g_rpc_probe.class_selection_after_death_consumed = 0;
+  trace_netf("rpc-manual: f4_after_death_latched selected_class=%d evidence=INFERRED,TODO_VERIFY",
+             g_rpc_probe.selected_class);
+  return 0;
+}
+
+int samp_raknet_client_request_class_selection_after_death(void *client) {
+  if (client == nullptr || client != g_rpc_probe.client) {
+    return -1;
+  }
+  if (!g_rpc_probe.saw_init_game) {
+    return -2;
+  }
+  if (!g_rpc_probe.class_selection_after_death_requested || g_rpc_probe.class_selection_after_death_consumed) {
+    return -3;
+  }
+
+  /*
+   * INFERRED + TODO_VERIFY:
+   * Mirrors legacy HandleClassSelection() after m_bWantsAnotherClass is consumed. Keep auto
+   * RequestSpawn disabled until the player explicitly confirms class selection again.
+   */
+  g_rpc_probe.class_selection_after_death_requested = 0;
+  g_rpc_probe.class_selection_after_death_consumed = 1;
+  g_rpc_probe.saw_request_class_reply = 0;
+  g_rpc_probe.request_class_outcome = 0U;
+  g_rpc_probe.waiting_for_request_class_reply = 0;
+  g_rpc_probe.saw_request_spawn_reply = 0;
+  g_rpc_probe.request_spawn_outcome = 0U;
+  g_rpc_probe.pending_request_spawn = 0;
+  g_rpc_probe.next_request_spawn_time = 0;
+  g_rpc_probe.request_spawn_send_count = 0U;
+  g_rpc_probe.request_spawn_retry_count = kMaxSpawnRetries;
+  g_rpc_probe.class_selection_ready_time = 0;
+  g_rpc_probe.manual_spawn_shift_down = 0;
+  schedule_request_class(g_rpc_probe.selected_class, "f4_after_death");
+  trace_netf("rpc-manual: f4_after_death_request_class selected_class=%d evidence=INFERRED,TODO_VERIFY",
+             g_rpc_probe.selected_class);
+  return 0;
 }
 
 int samp_raknet_client_request_class_delta(void *client, int delta) {

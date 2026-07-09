@@ -21,6 +21,8 @@ int samp_raknet_client_send_server_command(void *client, const char *command);
 int samp_raknet_client_send_spawn_notification(void *client);
 int samp_raknet_client_send_spawn_notification_for_seq(void *client, uint32_t spawn_info_seq);
 int samp_raknet_client_send_textdraw_click(void *client, uint16_t textdraw_id);
+int samp_raknet_client_mark_class_selection_after_death(void *client);
+int samp_raknet_client_request_class_selection_after_death(void *client);
 int samp_raknet_client_request_class_delta(void *client, int delta);
 
 #pragma pack(push, 1)
@@ -145,6 +147,10 @@ typedef struct samp_raknet_join_profile {
 #define SAMP_RAKNET_MAP_ICON_ACTION_SET 1u
 #define SAMP_RAKNET_MAP_ICON_ACTION_REMOVE 2u
 #define SAMP_RAKNET_NAME_TAG_EVENT_RING 64u
+#define SAMP_RAKNET_DEATH_WINDOW_EVENT_RING 16u
+#define SAMP_RAKNET_DEATH_WINDOW_MAX_ENTRIES 5u
+#define SAMP_RAKNET_DEATH_WINDOW_ACTION_ADD 1u
+#define SAMP_RAKNET_DEATH_WINDOW_ACTION_CLEAR 2u
 #define SAMP_RAKNET_3D_TEXT_LABEL_EVENT_RING 128u
 #define SAMP_RAKNET_MAX_3D_TEXT_LABELS 1024u
 #define SAMP_RAKNET_3D_TEXT_LABEL_TEXT_BYTES 512u
@@ -267,6 +273,15 @@ typedef struct samp_raknet_name_tag_event {
   uint8_t reserved;
 } samp_raknet_name_tag_event;
 
+typedef struct samp_raknet_death_window_event {
+  uint32_t seq;
+  uint8_t action;
+  uint8_t reason;
+  uint16_t killer_id;
+  uint16_t killee_id;
+  uint16_t reserved;
+} samp_raknet_death_window_event;
+
 typedef struct samp_raknet_game_text_event {
   uint32_t seq;
   uint8_t action;
@@ -382,6 +397,7 @@ typedef struct samp_raknet_rpc_probe_snapshot {
   uint32_t remote_player_sync_count;
   uint32_t map_icon_event_count;
   uint32_t name_tag_event_count;
+  uint32_t death_window_event_count;
   uint32_t game_text_event_count;
   uint32_t text_label_event_count;
   uint32_t given_weapon_event_count;
@@ -505,6 +521,7 @@ typedef struct samp_raknet_rpc_probe_snapshot {
   samp_raknet_remote_onfoot_sync remote_player_syncs[SAMP_RAKNET_REMOTE_PLAYER_SYNC_RING];
   samp_raknet_map_icon_event map_icon_events[SAMP_RAKNET_MAP_ICON_EVENT_RING];
   samp_raknet_name_tag_event name_tag_events[SAMP_RAKNET_NAME_TAG_EVENT_RING];
+  samp_raknet_death_window_event death_window_events[SAMP_RAKNET_DEATH_WINDOW_EVENT_RING];
   samp_raknet_game_text_event game_text_events[SAMP_RAKNET_GAMETEXT_EVENT_RING];
   samp_raknet_3d_text_label_event text_label_events[SAMP_RAKNET_3D_TEXT_LABEL_EVENT_RING];
   samp_raknet_given_weapon_event given_weapon_events[SAMP_RAKNET_GIVE_WEAPON_EVENT_RING];

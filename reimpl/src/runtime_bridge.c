@@ -325,6 +325,7 @@
 #define SAMP_PED_OFFSET_STATE_FLAGS 1132u
 #define SAMP_PED_OFFSET_PLAYER_INFO 1152u
 #define SAMP_PED_OFFSET_AIM_Z 1300u
+#define SAMP_PED_OFFSET_ACTION 1328u
 #define SAMP_PED_OFFSET_HEALTH 1344u
 #define SAMP_PED_OFFSET_ARMOUR 1352u
 #define SAMP_PED_OFFSET_AUDIO_ENTITY 660u
@@ -339,6 +340,8 @@
 #define SAMP_WEAPON_SLOT_OFFSET_AMMO_IN_CLIP 8u
 #define SAMP_WEAPON_SLOT_OFFSET_TOTAL_AMMO 12u
 #define SAMP_PED_STATE_IN_VEHICLE 0x100u
+#define SAMP_PED_ACTION_DEATH 54u
+#define SAMP_PED_ACTION_WASTED 55u
 #define SAMP_VEHICLE_SCANNER_DISTANCE 200.0f
 #define SAMP_VEHICLE_CREATE_Z_BIAS 0.1f
 #define SAMP_VEHICLE_OFFSET_COLOR1 1076u
@@ -612,6 +615,15 @@
 #define SAMP_NAME_TAG_HEALTH_BACK 0xFF4B0B14u
 #define SAMP_NAME_TAG_ARMOUR_FILL 0xFFB7B7B7u
 #define SAMP_NAME_TAG_ARMOUR_BACK 0xFF505050u
+#define SAMP_DEATH_WINDOW_INVALID_PLAYER 0xFFFFu
+#define SAMP_DEATH_WINDOW_REASON_CONNECT 200u
+#define SAMP_DEATH_WINDOW_REASON_DISCONNECT 201u
+#define SAMP_DEATH_WINDOW_REASON_SUICIDE 255u
+#define SAMP_DEATH_WINDOW_WIDTH 340
+#define SAMP_DEATH_WINDOW_LINE_HEIGHT 18
+#define SAMP_DEATH_WINDOW_TOP 112
+#define SAMP_DEATH_WINDOW_COLOR_TEXT 0xFFE5E5E5u
+#define SAMP_DEATH_WINDOW_COLOR_MUTED 0xFFBFC7D5u
 #define SAMP_3D_TEXT_LABEL_INVALID_ATTACH 0xFFFFu
 #define SAMP_3D_TEXT_LABEL_HALF_WIDTH 260
 #define SAMP_3D_TEXT_LABEL_LINE_HEIGHT 14
@@ -1254,6 +1266,15 @@ typedef struct samp_game_text_slot_compat {
   char text[SAMP_RAKNET_GAMETEXT_TEXT_BYTES];
 } samp_game_text_slot_compat;
 
+typedef struct samp_death_window_entry_compat {
+  LONG active;
+  uint32_t seq;
+  uint16_t killer_id;
+  uint16_t killee_id;
+  uint8_t reason;
+  uint8_t reserved[3];
+} samp_death_window_entry_compat;
+
 typedef struct samp_bootstrap_shims {
   HMODULE kernel32_module;
   HMODULE user32_module;
@@ -1356,6 +1377,9 @@ typedef struct samp_runtime_state {
   LONG scoreboard_player_count;
   LONG scoreboard_local_player_id_valid;
   LONG scoreboard_local_player_id;
+  LONG death_window_event_seq;
+  LONG death_window_active_count;
+  LONG death_window_logged;
   LONG mp_session_apply_count;
   LONG mp_session_teleport_count;
   LONG mp_session_applied_player_pos_seq;
@@ -1381,6 +1405,9 @@ typedef struct samp_runtime_state {
   LONG class_selection_mouse_mode;
   LONG class_selection_mouse_down;
   LONG class_selection_overlay_logged;
+  LONG class_selection_after_death_requested;
+  LONG class_selection_after_death_consumed;
+  LONG class_selection_after_death_seen_dead;
   LONG mp_session_post_spawn_camera_restored;
   LONG mp_session_frontend_hold_logged;
   LONG time_passing_patch_applied;
@@ -1652,6 +1679,7 @@ typedef struct samp_runtime_state {
   void *textdraw_d3d_device;
   samp_textdraw_slot_compat textdraw_slots[SAMP_RAKNET_MAX_TEXTDRAWS];
   samp_game_text_slot_compat game_text_slots[SAMP_RAKNET_GAMETEXT_MAX_STYLES];
+  samp_death_window_entry_compat death_window_entries[SAMP_RAKNET_DEATH_WINDOW_MAX_ENTRIES];
   samp_scoreboard_player_compat scoreboard_players[SAMP_SCOREBOARD_MAX_PLAYERS];
   samp_remote_player_slot_compat remote_player_slots[SAMP_RAKNET_MAX_PLAYERS];
   samp_3d_text_label_slot_compat text_label_slots[SAMP_RAKNET_MAX_3D_TEXT_LABELS];
@@ -1689,6 +1717,10 @@ static int scoreboard_compat_handle_key(UINT msg, WPARAM wparam);
 static int scoreboard_compat_local_id(void);
 static void scoreboard_compat_release_font(void);
 static void scoreboard_compat_update_from_snapshot(const samp_raknet_rpc_probe_snapshot *snapshot);
+static void death_window_compat_update_from_snapshot(const samp_raknet_rpc_probe_snapshot *snapshot);
+static int death_window_compat_active(void);
+static int death_window_compat_draw_d3dx_overlay(void *device, samp_id3dx_font_compat *font);
+static void death_window_compat_reset(const char *reason);
 static int game_text_compat_active(void);
 static void game_text_compat_update_from_snapshot(const samp_raknet_rpc_probe_snapshot *snapshot);
 static void dialog_compat_normalize_selection(void);
@@ -1724,6 +1756,8 @@ static int class_selection_compat_active(void);
 static int class_selection_compat_handle_mouse(HWND hwnd, UINT msg, LPARAM lparam);
 static int class_selection_compat_draw_d3dx_overlay(void *device, samp_id3dx_font_compat *font);
 static void class_selection_compat_update_mouse_mode(void);
+static int class_selection_compat_request_f4(void);
+static int class_selection_compat_process_after_death_latch(uintptr_t ped, int spawn_ready);
 static void object_compat_update_from_snapshot(const samp_raknet_rpc_probe_snapshot *snapshot);
 static void object_compat_reset_pool(const char *reason);
 static void map_icon_compat_update_from_snapshot(const samp_raknet_rpc_probe_snapshot *snapshot);
@@ -5599,6 +5633,12 @@ static LRESULT CALLBACK chat_input_wndproc_compat(HWND hwnd, UINT msg, WPARAM wp
     return chat_input_call_original_compat(hwnd, msg, wparam, lparam);
   }
 
+  if (msg == WM_KEYDOWN && wparam == VK_F4 && (lparam & 0x40000000L) == 0) {
+    if (class_selection_compat_request_f4()) {
+      return 0;
+    }
+  }
+
   if (dialog_active) {
     LONG style = InterlockedCompareExchange(&g_runtime.dialog_overlay_style, 0, 0);
 
@@ -7404,6 +7444,286 @@ static int scoreboard_compat_draw_d3dx_overlay(void *device) {
                    scoreboard_compat_local_id(), player_count, host);
   }
   return 1;
+}
+
+static void death_window_compat_clear_entries(const char *reason) {
+  memset(g_runtime.death_window_entries, 0, sizeof(g_runtime.death_window_entries));
+  InterlockedExchange(&g_runtime.death_window_active_count, 0);
+  InterlockedExchange(&g_runtime.death_window_logged, 0);
+  runtime_tracef("death_window: clear reason=%s evidence=STATIC_037,OPENMP_REF,TODO_VERIFY",
+                 reason != NULL ? reason : "unknown");
+}
+
+static void death_window_compat_color_tag(DWORD argb, char out[9]) {
+  if (out == NULL) {
+    return;
+  }
+  (void)snprintf(out, 9u, "{%02lX%02lX%02lX}", (unsigned long)((argb >> 16) & 0xFFu),
+                 (unsigned long)((argb >> 8) & 0xFFu), (unsigned long)(argb & 0xFFu));
+  out[8] = '\0';
+}
+
+static const samp_scoreboard_player_compat *death_window_compat_scoreboard_slot(uint16_t player_id) {
+  const samp_scoreboard_player_compat *slot = NULL;
+
+  if (player_id >= SAMP_SCOREBOARD_MAX_PLAYERS) {
+    return NULL;
+  }
+  slot = scoreboard_compat_player_slot(player_id);
+  return scoreboard_compat_player_visible(slot) ? slot : NULL;
+}
+
+static const char *death_window_compat_player_name(uint16_t player_id, char *fallback, size_t fallback_size) {
+  const samp_scoreboard_player_compat *slot = death_window_compat_scoreboard_slot(player_id);
+
+  if (slot != NULL && slot->name[0] != '\0') {
+    return slot->name;
+  }
+  if (fallback == NULL || fallback_size == 0u) {
+    return "Player";
+  }
+  if (player_id == SAMP_DEATH_WINDOW_INVALID_PLAYER) {
+    strncpy(fallback, "World", fallback_size - 1u);
+  } else {
+    (void)snprintf(fallback, fallback_size, "Player%u", (unsigned)player_id);
+  }
+  fallback[fallback_size - 1u] = '\0';
+  return fallback;
+}
+
+static DWORD death_window_compat_player_color(uint16_t player_id, DWORD fallback) {
+  const samp_scoreboard_player_compat *slot = death_window_compat_scoreboard_slot(player_id);
+
+  if (slot != NULL && slot->color != 0u) {
+    return chat_compat_samp_color_to_argb(slot->color);
+  }
+  return fallback;
+}
+
+static const char *death_window_compat_reason_name(uint8_t reason) {
+  switch (reason) {
+  case 0:
+    return "Fist";
+  case 22:
+    return "9mm";
+  case 23:
+    return "SDPistol";
+  case 24:
+    return "Deagle";
+  case 25:
+    return "Shotgun";
+  case 26:
+    return "SawnOff";
+  case 27:
+    return "SPAS";
+  case 28:
+    return "Uzi";
+  case 29:
+    return "MP5";
+  case 30:
+    return "AK";
+  case 31:
+    return "M4";
+  case 32:
+    return "Tec9";
+  case 33:
+    return "Rifle";
+  case 34:
+    return "Sniper";
+  case 35:
+    return "Rocket";
+  case 36:
+    return "Heatseek";
+  case 37:
+    return "Flame";
+  case 38:
+    return "Minigun";
+  case 41:
+    return "Spray";
+  case 42:
+    return "Exting";
+  case 49:
+    return "Vehicle";
+  case 50:
+    return "Blades";
+  case 51:
+    return "Explosion";
+  case 53:
+    return "Drown";
+  case 54:
+    return "Splat";
+  case SAMP_DEATH_WINDOW_REASON_CONNECT:
+    return "Connect";
+  case SAMP_DEATH_WINDOW_REASON_DISCONNECT:
+    return "Disconnect";
+  case SAMP_DEATH_WINDOW_REASON_SUICIDE:
+    return "Death";
+  default:
+    break;
+  }
+  return "Death";
+}
+
+static void death_window_compat_push_event(const samp_raknet_death_window_event *event) {
+  int i = 0;
+
+  if (event == NULL || event->seq == 0u) {
+    return;
+  }
+  if (event->action == SAMP_RAKNET_DEATH_WINDOW_ACTION_CLEAR ||
+      (event->killer_id == SAMP_DEATH_WINDOW_INVALID_PLAYER &&
+       event->killee_id == SAMP_DEATH_WINDOW_INVALID_PLAYER)) {
+    death_window_compat_clear_entries("rpc_clear");
+    return;
+  }
+  if (event->action != SAMP_RAKNET_DEATH_WINDOW_ACTION_ADD) {
+    runtime_tracef("death_window: ignore seq=%lu action=%u evidence=STATIC_037,OPENMP_REF,TODO_VERIFY",
+                   (unsigned long)event->seq, (unsigned)event->action);
+    return;
+  }
+
+  for (i = (int)SAMP_RAKNET_DEATH_WINDOW_MAX_ENTRIES - 1; i > 0; --i) {
+    g_runtime.death_window_entries[i] = g_runtime.death_window_entries[i - 1];
+  }
+  memset(&g_runtime.death_window_entries[0], 0, sizeof(g_runtime.death_window_entries[0]));
+  g_runtime.death_window_entries[0].active = 1;
+  g_runtime.death_window_entries[0].seq = event->seq;
+  g_runtime.death_window_entries[0].killer_id = event->killer_id;
+  g_runtime.death_window_entries[0].killee_id = event->killee_id;
+  g_runtime.death_window_entries[0].reason = event->reason;
+
+  {
+    LONG active = 0;
+    for (i = 0; i < (int)SAMP_RAKNET_DEATH_WINDOW_MAX_ENTRIES; ++i) {
+      if (g_runtime.death_window_entries[i].active != 0) {
+        ++active;
+      }
+    }
+    InterlockedExchange(&g_runtime.death_window_active_count, active);
+  }
+  InterlockedExchange(&g_runtime.death_window_logged, 0);
+  runtime_tracef("death_window: add seq=%lu killer=%u killee=%u reason=%u evidence=STATIC_037,OPENMP_REF,TODO_VERIFY",
+                 (unsigned long)event->seq, (unsigned)event->killer_id, (unsigned)event->killee_id,
+                 (unsigned)event->reason);
+}
+
+static void death_window_compat_update_from_snapshot(const samp_raknet_rpc_probe_snapshot *snapshot) {
+  uint32_t previous_seq = 0u;
+  uint32_t latest_seq = 0u;
+  uint32_t count = 0u;
+  uint32_t i = 0u;
+
+  if (snapshot == NULL) {
+    return;
+  }
+
+  previous_seq = (uint32_t)InterlockedCompareExchange(&g_runtime.death_window_event_seq, 0, 0);
+  latest_seq = previous_seq;
+  count = snapshot->death_window_event_count;
+  if (count > SAMP_RAKNET_DEATH_WINDOW_EVENT_RING) {
+    count = SAMP_RAKNET_DEATH_WINDOW_EVENT_RING;
+  }
+  for (i = 0u; i < count; ++i) {
+    const samp_raknet_death_window_event *event = &snapshot->death_window_events[i];
+    if (event->seq != 0u && event->seq > previous_seq) {
+      death_window_compat_push_event(event);
+      latest_seq = event->seq;
+    }
+  }
+  if (latest_seq != previous_seq) {
+    InterlockedExchange(&g_runtime.death_window_event_seq, (LONG)latest_seq);
+  }
+}
+
+static int death_window_compat_active(void) {
+  return InterlockedCompareExchange(&g_runtime.death_window_active_count, 0, 0) > 0;
+}
+
+static int death_window_compat_draw_d3dx_overlay(void *device, samp_id3dx_font_compat *font) {
+  int viewport_x = 0;
+  int viewport_y = 0;
+  int viewport_w = 0;
+  int viewport_h = 0;
+  int panel_x = 0;
+  int panel_y = 0;
+  int i = 0;
+  int drawn = 0;
+
+  if (device == NULL || font == NULL || !death_window_compat_active()) {
+    return 0;
+  }
+  chat_compat_viewport_rect(&viewport_x, &viewport_y, &viewport_w, &viewport_h);
+  if (viewport_w <= 0 || viewport_h <= 0) {
+    return 0;
+  }
+
+  panel_x = viewport_x + viewport_w - SAMP_DEATH_WINDOW_WIDTH - 18;
+  if (panel_x < viewport_x + 20) {
+    panel_x = viewport_x + 20;
+  }
+  panel_y = viewport_y + SAMP_DEATH_WINDOW_TOP;
+  if (panel_y + (int)(SAMP_RAKNET_DEATH_WINDOW_MAX_ENTRIES * SAMP_DEATH_WINDOW_LINE_HEIGHT) >
+      viewport_y + viewport_h - 20) {
+    panel_y = viewport_y + 36;
+  }
+
+  for (i = 0; i < (int)SAMP_RAKNET_DEATH_WINDOW_MAX_ENTRIES; ++i) {
+    const samp_death_window_entry_compat *entry = &g_runtime.death_window_entries[i];
+    char killer_fallback[32];
+    char killee_fallback[32];
+    char killer_tag[9];
+    char killee_tag[9];
+    char muted_tag[9];
+    char line[160];
+    RECT rect;
+    DWORD killer_color = 0u;
+    DWORD killee_color = 0u;
+    const char *killer_name = NULL;
+    const char *killee_name = NULL;
+    const char *reason = NULL;
+
+    if (entry->active == 0) {
+      continue;
+    }
+    killer_color = death_window_compat_player_color(entry->killer_id, SAMP_DEATH_WINDOW_COLOR_TEXT);
+    killee_color = death_window_compat_player_color(entry->killee_id, SAMP_DEATH_WINDOW_COLOR_TEXT);
+    killer_name = death_window_compat_player_name(entry->killer_id, killer_fallback, sizeof(killer_fallback));
+    killee_name = death_window_compat_player_name(entry->killee_id, killee_fallback, sizeof(killee_fallback));
+    reason = death_window_compat_reason_name(entry->reason);
+    death_window_compat_color_tag(killer_color, killer_tag);
+    death_window_compat_color_tag(killee_color, killee_tag);
+    death_window_compat_color_tag(SAMP_DEATH_WINDOW_COLOR_MUTED, muted_tag);
+
+    if (entry->reason == SAMP_DEATH_WINDOW_REASON_CONNECT) {
+      (void)snprintf(line, sizeof(line), "%s%s %sconnected", killee_tag, killee_name, muted_tag);
+    } else if (entry->reason == SAMP_DEATH_WINDOW_REASON_DISCONNECT) {
+      (void)snprintf(line, sizeof(line), "%s%s %sleft", killee_tag, killee_name, muted_tag);
+    } else if (entry->killer_id == SAMP_DEATH_WINDOW_INVALID_PLAYER || entry->killer_id == entry->killee_id) {
+      (void)snprintf(line, sizeof(line), "%s%s %s[%s]", killee_tag, killee_name, muted_tag, reason);
+    } else {
+      (void)snprintf(line, sizeof(line), "%s%s %s[%s] %s%s", killer_tag, killer_name, muted_tag, reason,
+                     killee_tag, killee_name);
+    }
+    line[sizeof(line) - 1u] = '\0';
+
+    rect.left = panel_x;
+    rect.top = panel_y + (drawn * SAMP_DEATH_WINDOW_LINE_HEIGHT);
+    rect.right = viewport_x + viewport_w - 12;
+    rect.bottom = rect.top + SAMP_DEATH_WINDOW_LINE_HEIGHT + 4;
+    chat_compat_d3dx_draw_text_outline_segments(font, rect, line, SAMP_DEATH_WINDOW_COLOR_TEXT);
+    ++drawn;
+  }
+
+  if (drawn > 0 && InterlockedCompareExchange(&g_runtime.death_window_logged, 1, 0) == 0) {
+    runtime_tracef("death_window: drawing enabled entries=%d viewport=%dx%d evidence=STATIC_037,OPENMP_REF,INFERRED,TODO_VERIFY",
+                   drawn, viewport_w, viewport_h);
+  }
+  return drawn > 0;
+}
+
+static void death_window_compat_reset(const char *reason) {
+  InterlockedExchange(&g_runtime.death_window_event_seq, 0);
+  death_window_compat_clear_entries(reason);
 }
 
 static int remote_player_compat_id_valid(uint16_t player_id) {
@@ -9973,6 +10293,105 @@ static int class_selection_compat_active(void) {
   return class_outcome == 1 && !spawn_ready && spawn_info_seq != 0;
 }
 
+static int class_selection_compat_request_f4(void) {
+  int result = 0;
+
+  if (!g_runtime.settings.play_online || g_runtime.net_mgr.raknet_client == NULL) {
+    return 0;
+  }
+  if (InterlockedCompareExchange(&g_runtime.chat_input_active, 0, 0) != 0 || dialog_compat_active() ||
+      InterlockedCompareExchange(&g_runtime.textdraw_select_active, 0, 0) != 0) {
+    return 0;
+  }
+  result = samp_raknet_client_mark_class_selection_after_death(g_runtime.net_mgr.raknet_client);
+  if (result < 0) {
+    runtime_tracef("class_selection: f4_after_death ignored result=%d evidence=INFERRED,TODO_VERIFY", result);
+    return 1;
+  }
+
+  if (result == 0) {
+    InterlockedExchange(&g_runtime.class_selection_after_death_requested, 1);
+    InterlockedExchange(&g_runtime.class_selection_after_death_consumed, 0);
+    InterlockedExchange(&g_runtime.class_selection_after_death_seen_dead, 0);
+    chat_compat_add_colored_line(SAMP_CHAT_COMPAT_COLOR_INFO, "Returning to class selection after next death");
+    runtime_tracef("class_selection: f4_after_death_latched evidence=INFERRED,TODO_VERIFY");
+  } else {
+    runtime_tracef("class_selection: f4_after_death already_pending evidence=INFERRED,TODO_VERIFY");
+  }
+  return 1;
+}
+
+static int class_selection_compat_process_after_death_latch(uintptr_t ped, int spawn_ready) {
+  LONG requested = InterlockedCompareExchange(&g_runtime.class_selection_after_death_requested, 0, 0);
+  LONG consumed = InterlockedCompareExchange(&g_runtime.class_selection_after_death_consumed, 0, 0);
+  LONG seen_dead = InterlockedCompareExchange(&g_runtime.class_selection_after_death_seen_dead, 0, 0);
+  float health = 100.0f;
+  uint32_t action = 0u;
+  int health_read = 0;
+  int action_read = 0;
+  int action_is_death = 0;
+  int dead_now = 0;
+  int result = 0;
+  LONG flags = 0;
+
+  if (!requested || consumed) {
+    if (!requested) {
+      InterlockedExchange(&g_runtime.class_selection_after_death_seen_dead, 0);
+    }
+    return 0;
+  }
+  if (ped == 0u || !spawn_ready) {
+    return 0;
+  }
+
+  if (memory_is_readable_compat((const void *)(ped + SAMP_PED_OFFSET_HEALTH), sizeof(health))) {
+    memcpy(&health, (const void *)(ped + SAMP_PED_OFFSET_HEALTH), sizeof(health));
+    health_read = 1;
+  }
+  if (memory_is_readable_compat((const void *)(ped + SAMP_PED_OFFSET_ACTION), sizeof(action))) {
+    memcpy(&action, (const void *)(ped + SAMP_PED_OFFSET_ACTION), sizeof(action));
+    action_read = 1;
+  }
+
+  action_is_death = action_read && (action == SAMP_PED_ACTION_DEATH || action == SAMP_PED_ACTION_WASTED);
+  dead_now = (health_read && isfinite(health) && health <= 0.0f) || action_is_death;
+  if (dead_now) {
+    seen_dead = InterlockedExchange(&g_runtime.class_selection_after_death_seen_dead, 1);
+  }
+  if (!seen_dead && !dead_now) {
+    return 0;
+  }
+  if (action_is_death) {
+    return 0;
+  }
+
+  result = samp_raknet_client_request_class_selection_after_death(g_runtime.net_mgr.raknet_client);
+  if (result != 0) {
+    runtime_tracef("class_selection: f4_after_death consume_failed result=%d health=%.3f action=%lu "
+                   "spawn_ready=%d evidence=INFERRED,TODO_VERIFY",
+                   result, (double)health, (unsigned long)action, spawn_ready);
+    return 0;
+  }
+
+  flags = InterlockedCompareExchange(&g_runtime.raknet_rpc_flags, 0, 0);
+  flags &= ~((LONG)SAMP_RAKNET_RPC_FLAG_REQUEST_SPAWN_REPLY | (LONG)SAMP_RAKNET_RPC_FLAG_REQUEST_SPAWN_SENT);
+  InterlockedExchange(&g_runtime.raknet_rpc_flags, flags);
+  InterlockedExchange(&g_runtime.raknet_request_class_outcome, 0);
+  InterlockedExchange(&g_runtime.raknet_request_spawn_outcome, 0);
+  InterlockedExchange(&g_runtime.mp_session_spawn_finalized, 0);
+  InterlockedExchange(&g_runtime.mp_session_finalized_spawn_seq, 0);
+  InterlockedExchange(&g_runtime.mp_session_post_spawn_camera_restored, 0);
+  InterlockedExchange(&g_runtime.class_selection_overlay_logged, 0);
+  InterlockedExchange(&g_runtime.class_selection_mouse_down, 0);
+  InterlockedExchange(&g_runtime.class_selection_after_death_requested, 0);
+  InterlockedExchange(&g_runtime.class_selection_after_death_consumed, 1);
+  InterlockedExchange(&g_runtime.class_selection_after_death_seen_dead, 0);
+  runtime_tracef("class_selection: f4_after_death_consumed health=%.3f action=%lu "
+                 "spawn_ready=%d evidence=INFERRED,TODO_VERIFY",
+                 (double)health, (unsigned long)action, spawn_ready);
+  return 1;
+}
+
 static void class_selection_compat_button_rects(int *left_x, int *left_y, int *right_x, int *right_y, int *w,
                                                 int *h) {
   int viewport_x = 0;
@@ -11422,6 +11841,7 @@ static int chat_compat_draw_d3dx_overlay(void *device) {
   LONG vehicle_debug_active = 0;
   int text_labels_active = 0;
   int name_tags_active = 0;
+  int death_window_active = 0;
   int class_selection_active = 0;
   int loading_active = 0;
   int scoreboard_active = 0;
@@ -11451,13 +11871,14 @@ static int chat_compat_draw_d3dx_overlay(void *device) {
   vehicle_debug_active = InterlockedCompareExchange(&g_runtime.vehicle_debug_labels_active, 0, 0);
   text_labels_active = text_label_compat_active();
   name_tags_active = remote_player_compat_name_tags_active();
+  death_window_active = death_window_compat_active();
   class_selection_active = class_selection_compat_active();
   loading_active = loading_screen_compat_active();
   scoreboard_active = scoreboard_compat_active();
   if (count <= 0 && input_active == 0 && dialog_active == 0 && textdraw_active <= 0 && !game_text_active &&
       !loading_active &&
       !scoreboard_active && vehicle_debug_active == 0 && !text_labels_active && !name_tags_active &&
-      !class_selection_active) {
+      !death_window_active && !class_selection_active) {
     if (InterlockedCompareExchange(&g_runtime.class_selection_mouse_mode, 0, 0) != 0) {
       class_selection_compat_update_mouse_mode();
     }
@@ -11507,6 +11928,9 @@ static int chat_compat_draw_d3dx_overlay(void *device) {
   if (name_tags_active && !class_selection_active && !scoreboard_active) {
     (void)remote_player_compat_draw_name_tags_d3dx_overlay(device, g_runtime.chat_d3dx_font);
   }
+  if (death_window_active && !class_selection_active && !scoreboard_active) {
+    (void)death_window_compat_draw_d3dx_overlay(device, g_runtime.chat_d3dx_font);
+  }
   if (input_active != 0) {
     char input_line[SAMP_CHAT_INPUT_DRAW_BYTES];
     RECT rect;
@@ -11544,10 +11968,10 @@ static int chat_compat_draw_d3dx_overlay(void *device) {
   }
 
   if (InterlockedCompareExchange(&g_runtime.chat_d3d_draw_logged, 1, 0) == 0) {
-    runtime_tracef("chat_d3dx: drawing enabled device=0x%08lx lines=%ld dialog=%ld textdraws=%ld gametext=%d class_selection=%d scoreboard=%d labels=%d nametags=%d x=%d y=%d",
+    runtime_tracef("chat_d3dx: drawing enabled device=0x%08lx lines=%ld dialog=%ld textdraws=%ld gametext=%d class_selection=%d scoreboard=%d labels=%d nametags=%d deathwindow=%d x=%d y=%d",
                    (unsigned long)(uintptr_t)device, (long)count, (long)dialog_active, (long)textdraw_active,
                    game_text_active, class_selection_active, scoreboard_active, text_labels_active, name_tags_active,
-                   x, y);
+                   death_window_active, x, y);
   }
   return 1;
 }
@@ -11577,6 +12001,7 @@ static void chat_compat_try_install_d3d_hook(void) {
   LONG textdraw_active = 0;
   int game_text_active = 0;
   int text_labels_active = 0;
+  int death_window_active = 0;
   int loading_active = 0;
   int dialog_active = 0;
 
@@ -11591,10 +12016,11 @@ static void chat_compat_try_install_d3d_hook(void) {
   textdraw_active = InterlockedCompareExchange(&g_runtime.textdraw_active_count, 0, 0);
   game_text_active = game_text_compat_active();
   text_labels_active = text_label_compat_active();
+  death_window_active = death_window_compat_active();
   net_state = InterlockedCompareExchange(&g_runtime.netgame_state, 0, 0);
   if (g_runtime.settings.play_online && net_state < SAMP_NETGAME_CONNECTED && preconnect_ready == 0 &&
       !chat_d3d_early_enabled_compat() && !dialog_active && textdraw_active <= 0 && !game_text_active &&
-      !text_labels_active && !loading_active) {
+      !text_labels_active && !death_window_active && !loading_active) {
     return;
   }
 
@@ -15952,6 +16378,7 @@ static uint32_t refresh_raknet_rpc_snapshot_compat(void) {
   game_text_compat_update_from_snapshot(&snapshot);
   textdraw_compat_update_from_snapshot(&snapshot);
   scoreboard_compat_update_from_snapshot(&snapshot);
+  death_window_compat_update_from_snapshot(&snapshot);
   map_icon_compat_update_from_snapshot(&snapshot);
   remote_player_compat_update_from_snapshot(&snapshot);
   remote_player_compat_update_name_tags_from_snapshot(&snapshot);
@@ -19235,6 +19662,9 @@ static void apply_multiplayer_session_bridge_compat(void) {
   spawn_info_seq = InterlockedCompareExchange(&g_runtime.raknet_spawn_info_seq, 0, 0);
   finalized_spawn_seq = InterlockedCompareExchange(&g_runtime.mp_session_finalized_spawn_seq, 0, 0);
   spawn_finalized = InterlockedCompareExchange(&g_runtime.mp_session_spawn_finalized, 0, 0) != 0;
+  if (class_selection_compat_process_after_death_latch(ped, spawn_ready && spawn_finalized)) {
+    return;
+  }
   if (!spawn_ready) {
     apply_session_frontend_hold_flags_compat("class_select");
   }
@@ -20239,6 +20669,7 @@ static void launch_prepare_network_compat(void) {
     g_runtime.local_damage_last_tick = 0u;
     InterlockedExchange(&g_runtime.incar_sync_send_count, 0);
     InterlockedExchange(&g_runtime.incar_sync_failures, 0);
+    death_window_compat_reset("connect_reset");
     InterlockedExchange(&g_runtime.incar_sync_logged, 0);
     g_runtime.incar_sync_last_tick = 0u;
     InterlockedExchange(&g_runtime.aim_sync_send_count, 0);
@@ -20295,6 +20726,9 @@ static void launch_prepare_network_compat(void) {
     g_runtime.raknet_interior = 0u;
     g_runtime.raknet_camera_look_at_type = 0u;
     g_runtime.raknet_player_controllable = 1u;
+    InterlockedExchange(&g_runtime.class_selection_after_death_requested, 0);
+    InterlockedExchange(&g_runtime.class_selection_after_death_consumed, 0);
+    InterlockedExchange(&g_runtime.class_selection_after_death_seen_dead, 0);
     g_runtime.raknet_player_team = 0u;
     g_runtime.raknet_apply_animation_loop = 0u;
     g_runtime.raknet_apply_animation_lock_x = 0u;

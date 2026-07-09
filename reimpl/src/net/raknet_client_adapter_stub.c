@@ -60,6 +60,16 @@ int samp_raknet_client_send_textdraw_click(void *client, uint16_t textdraw_id) {
   return -1;
 }
 
+int samp_raknet_client_mark_class_selection_after_death(void *client) {
+  (void)client;
+  return -1;
+}
+
+int samp_raknet_client_request_class_selection_after_death(void *client) {
+  (void)client;
+  return -1;
+}
+
 int samp_raknet_client_request_class_delta(void *client, int delta) {
   (void)client;
   (void)delta;
