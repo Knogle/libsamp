@@ -281,11 +281,15 @@ struct RpcProbeState {
   samp_raknet_map_icon_event map_icon_events[SAMP_RAKNET_MAP_ICON_EVENT_RING];
   unsigned int name_tag_event_seq;
   samp_raknet_name_tag_event name_tag_events[SAMP_RAKNET_NAME_TAG_EVENT_RING];
+  unsigned int text_label_event_seq;
+  samp_raknet_3d_text_label_event text_label_events[SAMP_RAKNET_3D_TEXT_LABEL_EVENT_RING];
   unsigned int player_pool_event_seq;
   samp_raknet_player_pool_event player_pool_events[SAMP_RAKNET_PLAYER_POOL_EVENT_RING];
   unsigned int score_ping_seq;
   unsigned int score_ping_count;
   samp_raknet_score_ping_entry score_ping_entries[SAMP_RAKNET_SCORE_PING_MAX_ENTRIES];
+  unsigned int game_text_event_seq;
+  samp_raknet_game_text_event game_text_events[SAMP_RAKNET_GAMETEXT_EVENT_RING];
   unsigned int game_text_seq;
   std::int32_t game_text_style;
   std::int32_t game_text_time_ms;
@@ -516,7 +520,7 @@ const RpcMeta kRpcMeta[] = {
     {33U, "ScrSetPlayerShopName", kRpcLocalDummy, "SAMPFUNCS_037"},
     {34U, "ScrSetPlayerSkillLevel", kRpcLocalDummy, "SAMPFUNCS_037"},
     {35U, "ScrSetPlayerDrunkLevel", kRpcLocalDummy, "SAMPFUNCS_037"},
-    {36U, "ScrCreate3DTextLabel", kRpcLocalDecoded, "OPENMP_REF"},
+    {36U, "ScrCreate3DTextLabel", kRpcLocalImplemented, "OPENMP_REF,TODO_VERIFY"},
     {37U, "ScrDisableCheckpoint", kRpcLocalDummy, "STATIC_037"},
     {38U, "ScrSetRaceCheckpoint", kRpcLocalDummy, "STATIC_037"},
     {39U, "ScrDisableRaceCheckpoint", kRpcLocalDummy, "STATIC_037"},
@@ -535,12 +539,13 @@ const RpcMeta kRpcMeta[] = {
     {55U, "ScrDeathMessage", kRpcLocalDummy, "STATIC_037"},
     {56U, "ScrSetPlayerMapIcon", kRpcLocalImplemented, "INFERRED,TODO_VERIFY"},
     {57U, "ScrRemoveVehicleComponent", kRpcLocalDummy, "STATIC_037"},
-    {58U, "ScrUpdate3DTextLabel", kRpcLocalDummy, "SAMPFUNCS_037"},
+    {58U, "ScrUpdate3DTextLabel", kRpcLocalImplemented, "SAMPFUNCS_037,TODO_VERIFY"},
     {59U, "ScrChatBubble", kRpcLocalDummy, "SAMPFUNCS_037"},
     {60U, "ScrSomeUpdate", kRpcLocalDummy, "SAMPFUNCS_037"},
     {61U, "ScrShowDialog", kRpcLocalImplemented, "PROBE_TRACE"},
     {62U, "DialogResponse", kRpcLocalOutgoing, "OPENMP_REF"},
     {63U, "ScrDestroyPickup", kRpcLocalDummy, "STATIC_037"},
+    {64U, "ScrDelete3DTextLabel", kRpcLocalImplemented, "SAMPFUNCS_037,TODO_VERIFY"},
     {65U, "ScrLinkVehicleToInterior", kRpcLocalDummy, "STATIC_037"},
     {66U, "ScrSetPlayerArmour", kRpcLocalImplemented, "OPENMP_REF"},
     {67U, "ScrSetPlayerArmedWeapon", kRpcLocalImplemented, "OPENMP_REF"},
@@ -687,6 +692,10 @@ unsigned int rpc_min_payload_bytes(unsigned int rpc_id) {
       return 4U;
     case 36U:
       return 27U;
+    case 58U:
+      return 6U;
+    case 64U:
+      return 2U;
     case 43U:
       return 20U;
     case 29U:
@@ -929,6 +938,8 @@ void reset_rpc_probe_runtime(RakNet::RakClientInterface *client) {
   g_rpc_probe.apply_animation_seq = 0U;
   g_rpc_probe.world_visual_event_seq = 0U;
   g_rpc_probe.client_check_response_count = 0U;
+  g_rpc_probe.game_text_event_seq = 0U;
+  std::memset(g_rpc_probe.game_text_events, 0, sizeof(g_rpc_probe.game_text_events));
   g_rpc_probe.game_text_seq = 0U;
   g_rpc_probe.game_text_style = 0;
   g_rpc_probe.game_text_time_ms = 0;
@@ -1002,6 +1013,8 @@ void reset_rpc_probe_runtime(RakNet::RakClientInterface *client) {
   std::memset(g_rpc_probe.map_icon_events, 0, sizeof(g_rpc_probe.map_icon_events));
   g_rpc_probe.name_tag_event_seq = 0U;
   std::memset(g_rpc_probe.name_tag_events, 0, sizeof(g_rpc_probe.name_tag_events));
+  g_rpc_probe.text_label_event_seq = 0U;
+  std::memset(g_rpc_probe.text_label_events, 0, sizeof(g_rpc_probe.text_label_events));
   g_rpc_probe.player_pool_event_seq = 0U;
   std::memset(g_rpc_probe.player_pool_events, 0, sizeof(g_rpc_probe.player_pool_events));
   g_rpc_probe.score_ping_seq = 0U;
@@ -1940,6 +1953,110 @@ void queue_name_tag_event(unsigned short player_id, unsigned char show) {
   event->show = show != 0U ? 1U : 0U;
 }
 
+samp_raknet_game_text_event *queue_game_text_event(unsigned char action, std::int32_t style, std::int32_t time_ms,
+                                                   const char *text) {
+  const unsigned int seq = bump_seq(&g_rpc_probe.game_text_event_seq);
+  const unsigned int slot = (seq - 1U) % SAMP_RAKNET_GAMETEXT_EVENT_RING;
+  samp_raknet_game_text_event *event = &g_rpc_probe.game_text_events[slot];
+
+  std::memset(event, 0, sizeof(*event));
+  event->seq = seq;
+  event->action = action;
+  event->style = style;
+  event->time_ms = time_ms;
+  copy_text(event->text, sizeof(event->text), text);
+  return event;
+}
+
+void sanitize_3d_text_label_text(char *text) {
+  char *base = text;
+  size_t len = 0U;
+
+  if (text == nullptr) {
+    return;
+  }
+  while (*text != '\0') {
+    const unsigned char ch = static_cast<unsigned char>(*text);
+    if (ch < ' ' && *text != '\n' && *text != '\r' && *text != '\t') {
+      *text = ' ';
+    }
+    ++text;
+  }
+  len = std::strlen(base);
+  while (len > 0U) {
+    const unsigned char ch = static_cast<unsigned char>(base[len - 1U]);
+    if (ch != '\0' && ch != ' ' && ch != '\r' && ch != '\n' && ch != '\t') {
+      break;
+    }
+    base[len - 1U] = '\0';
+    --len;
+  }
+}
+
+bool decode_3d_text_label_compressed_tail(const unsigned char *data, unsigned int bytes, unsigned int offset,
+                                          char *out, size_t out_size) {
+  RakNet::StringCompressor *compressor = RakNet::StringCompressor::Instance();
+
+  if (data == nullptr || out == nullptr || out_size == 0U || offset >= bytes || compressor == nullptr) {
+    return false;
+  }
+  out[0] = '\0';
+  RakNet::BitStream bs(const_cast<unsigned char *>(data), bytes, false);
+  bs.SetReadOffset(static_cast<int>(offset * 8U));
+  if (!compressor->DecodeString(out, static_cast<int>(out_size), &bs)) {
+    return false;
+  }
+  out[out_size - 1U] = '\0';
+  sanitize_3d_text_label_text(out);
+  return true;
+}
+
+bool decode_3d_text_label_plain_tail(const unsigned char *data, unsigned int bytes, unsigned int offset, char *out,
+                                     size_t out_size) {
+  unsigned int copy_len = 0U;
+
+  if (data == nullptr || out == nullptr || out_size == 0U || offset > bytes) {
+    return false;
+  }
+  out[0] = '\0';
+  copy_len = bytes - offset;
+  if (copy_len >= out_size) {
+    copy_len = static_cast<unsigned int>(out_size - 1U);
+  }
+  if (copy_len > 0U) {
+    std::memcpy(out, data + offset, copy_len);
+  }
+  out[copy_len] = '\0';
+  sanitize_3d_text_label_text(out);
+  return true;
+}
+
+bool decode_3d_text_label_tail(const unsigned char *data, unsigned int bytes, unsigned int offset, char *out,
+                               size_t out_size) {
+  if (out == nullptr || out_size == 0U) {
+    return false;
+  }
+  out[0] = '\0';
+  if (decode_3d_text_label_compressed_tail(data, bytes, offset, out, out_size)) {
+    return true;
+  }
+  return decode_3d_text_label_plain_tail(data, bytes, offset, out, out_size);
+}
+
+samp_raknet_3d_text_label_event *queue_3d_text_label_event(unsigned char action, unsigned short label_id) {
+  const unsigned int seq = bump_seq(&g_rpc_probe.text_label_event_seq);
+  const unsigned int slot = (seq - 1U) % SAMP_RAKNET_3D_TEXT_LABEL_EVENT_RING;
+  samp_raknet_3d_text_label_event *event = &g_rpc_probe.text_label_events[slot];
+
+  std::memset(event, 0, sizeof(*event));
+  event->seq = seq;
+  event->action = action;
+  event->label_id = label_id;
+  event->attached_player_id = 0xFFFFU;
+  event->attached_vehicle_id = 0xFFFFU;
+  return event;
+}
+
 bool decode_server_join_payload(const unsigned char *data, unsigned int bytes) {
   unsigned short player_id = 0U;
   unsigned int color = 0xFFFFFFFFU;
@@ -2554,6 +2671,8 @@ bool decode_set_object_material_payload(const unsigned char *data, unsigned int 
 }
 
 bool decode_create_3d_text_label_payload(const unsigned char *data, unsigned int bytes) {
+  samp_raknet_3d_text_label_event *event = nullptr;
+
   if (data == nullptr || bytes < 27U) {
     return false;
   }
@@ -2565,10 +2684,72 @@ bool decode_create_3d_text_label_payload(const unsigned char *data, unsigned int
   const unsigned int los = data[22U] != 0U ? 1U : 0U;
   const unsigned int player_attach = read_le16(data + 23U);
   const unsigned int vehicle_attach = read_le16(data + 25U);
-  char text[SAMP_RAKNET_WORLD_VISUAL_TEXT_BYTES] = {0};
-  std::snprintf(text, sizeof(text), "draw=%.3f los=%u attach=%u/%u compressed_text=1",
-                static_cast<double>(pos[3]), los, player_attach, vehicle_attach);
+  char text[SAMP_RAKNET_3D_TEXT_LABEL_TEXT_BYTES] = {0};
+
+  if (label_id >= SAMP_RAKNET_MAX_3D_TEXT_LABELS || !std::isfinite(pos[0]) || !std::isfinite(pos[1]) ||
+      !std::isfinite(pos[2]) || !std::isfinite(pos[3]) || pos[3] < 0.0f || pos[3] > 10000.0f ||
+      (player_attach != 0xFFFFU && player_attach >= SAMP_RAKNET_MAX_PLAYERS) ||
+      (vehicle_attach != 0xFFFFU && vehicle_attach >= SAMP_RAKNET_MAX_VEHICLES) ||
+      !decode_3d_text_label_tail(data, bytes, 27U, text, sizeof(text))) {
+    return false;
+  }
+
+  event = queue_3d_text_label_event(SAMP_RAKNET_3D_TEXT_LABEL_ACTION_CREATE, label_id);
+  event->color = color;
+  event->test_los = los != 0U ? 1U : 0U;
+  event->attached_player_id = static_cast<unsigned short>(player_attach);
+  event->attached_vehicle_id = static_cast<unsigned short>(vehicle_attach);
+  event->pos[0] = pos[0];
+  event->pos[1] = pos[1];
+  event->pos[2] = pos[2];
+  event->draw_distance = pos[3];
+  copy_text(event->text, sizeof(event->text), text);
   set_world_visual_event(SAMP_RAKNET_WORLD_VISUAL_CREATE_3D_TEXT_LABEL, label_id, 0, color, pos, text);
+  trace_netf("rpc-state id=36 create_3d_text_label seq=%u label=%u color=0x%08x pos=%.3f %.3f %.3f draw=%.3f los=%u attach=%u/%u text='%.96s' evidence=OPENMP_REF,TODO_VERIFY",
+             g_rpc_probe.text_label_event_seq, static_cast<unsigned int>(label_id), color,
+             static_cast<double>(pos[0]), static_cast<double>(pos[1]), static_cast<double>(pos[2]),
+             static_cast<double>(pos[3]), los, player_attach, vehicle_attach, text);
+  return true;
+}
+
+bool decode_update_3d_text_label_payload(const unsigned char *data, unsigned int bytes) {
+  samp_raknet_3d_text_label_event *event = nullptr;
+  char text[SAMP_RAKNET_3D_TEXT_LABEL_TEXT_BYTES] = {0};
+
+  if (data == nullptr || bytes < 6U) {
+    return false;
+  }
+
+  const unsigned short label_id = read_le16(data);
+  const unsigned int color = read_le32(data + 2U);
+  if (label_id >= SAMP_RAKNET_MAX_3D_TEXT_LABELS ||
+      !decode_3d_text_label_tail(data, bytes, 6U, text, sizeof(text))) {
+    return false;
+  }
+
+  event = queue_3d_text_label_event(SAMP_RAKNET_3D_TEXT_LABEL_ACTION_UPDATE, label_id);
+  event->color = color;
+  copy_text(event->text, sizeof(event->text), text);
+  trace_netf("rpc-state id=58 update_3d_text_label seq=%u label=%u color=0x%08x text='%.96s' evidence=OPENMP_REF,SAMPFUNCS_037,TODO_VERIFY",
+             g_rpc_probe.text_label_event_seq, static_cast<unsigned int>(label_id), color, text);
+  return true;
+}
+
+bool decode_delete_3d_text_label_payload(const unsigned char *data, unsigned int bytes) {
+  samp_raknet_3d_text_label_event *event = nullptr;
+
+  if (data == nullptr || bytes < 2U) {
+    return false;
+  }
+
+  const unsigned short label_id = read_le16(data);
+  if (label_id >= SAMP_RAKNET_MAX_3D_TEXT_LABELS) {
+    return false;
+  }
+
+  event = queue_3d_text_label_event(SAMP_RAKNET_3D_TEXT_LABEL_ACTION_DELETE, label_id);
+  trace_netf("rpc-state id=64 delete_3d_text_label seq=%u label=%u evidence=SAMPFUNCS_037,TODO_VERIFY",
+             event->seq, static_cast<unsigned int>(label_id));
   return true;
 }
 
@@ -3152,9 +3333,32 @@ bool decode_game_text_payload(const unsigned char *data, unsigned int bytes) {
   std::int32_t time_ms = 0;
   std::int32_t text_len = 0;
   unsigned int copy_len = 0U;
+  bool hide = false;
+  samp_raknet_game_text_event *event = nullptr;
+  char text[SAMP_RAKNET_GAMETEXT_TEXT_BYTES];
 
-  if (data == nullptr || bytes < 12U) {
+  if (data == nullptr || bytes < 4U) {
     return false;
+  }
+
+  style = read_le_i32(data);
+  if (bytes < 12U) {
+    if (bytes != 4U && bytes != 8U) {
+      return false;
+    }
+    time_ms = bytes >= 8U ? read_le_i32(data + 4U) : 0;
+    if (time_ms < 0) {
+      time_ms = 0;
+    }
+    event = queue_game_text_event(SAMP_RAKNET_GAMETEXT_ACTION_HIDE, style, time_ms, "");
+    g_rpc_probe.game_text_seq = event->seq;
+    g_rpc_probe.game_text_style = style;
+    g_rpc_probe.game_text_time_ms = time_ms;
+    g_rpc_probe.game_text[0] = '\0';
+    trace_netf("rpc-state id=73 game_text_seq=%u action=hide layout=short style=%d time=%d "
+               "bytes=%u evidence=OPENMP_REF,INFERRED,TODO_VERIFY",
+               event->seq, static_cast<int>(style), static_cast<int>(time_ms), bytes);
+    return true;
   }
 
   /*
@@ -3164,7 +3368,6 @@ bool decode_game_text_payload(const unsigned char *data, unsigned int bytes) {
    * CMessages so this MP HUD path can be compared directly against MTA-style DX
    * text output.
    */
-  style = read_le_i32(data);
   time_ms = read_le_i32(data + 4U);
   text_len = read_le_i32(data + 8U);
   if (text_len < 0 || text_len > (std::int32_t)SAMP_RAKNET_GAMETEXT_TEXT_BYTES - 1 ||
@@ -3178,26 +3381,29 @@ bool decode_game_text_payload(const unsigned char *data, unsigned int bytes) {
   }
 
   copy_len = static_cast<unsigned int>(text_len);
-  std::memset(g_rpc_probe.game_text, 0, sizeof(g_rpc_probe.game_text));
+  std::memset(text, 0, sizeof(text));
   if (copy_len > 0U) {
-    std::memcpy(g_rpc_probe.game_text, data + 12U, copy_len);
+    std::memcpy(text, data + 12U, copy_len);
   }
-  g_rpc_probe.game_text[sizeof(g_rpc_probe.game_text) - 1U] = '\0';
-  sanitize_textdraw_text(g_rpc_probe.game_text);
-  trim_textdraw_text_tail(g_rpc_probe.game_text);
-  if (!textdraw_text_has_printable_content(g_rpc_probe.game_text)) {
-    return false;
-  }
-
+  text[sizeof(text) - 1U] = '\0';
+  sanitize_textdraw_text(text);
+  trim_textdraw_text_tail(text);
+  hide = time_ms <= 0 || !textdraw_text_has_printable_content(text);
+  event = queue_game_text_event(hide ? SAMP_RAKNET_GAMETEXT_ACTION_HIDE : SAMP_RAKNET_GAMETEXT_ACTION_SHOW,
+                                style, time_ms, hide ? "" : text);
+  g_rpc_probe.game_text_seq = event->seq;
   g_rpc_probe.game_text_style = style;
   g_rpc_probe.game_text_time_ms = time_ms;
-  ++g_rpc_probe.game_text_seq;
-  if (g_rpc_probe.game_text_seq == 0U) {
-    g_rpc_probe.game_text_seq = 1U;
+  copy_text(g_rpc_probe.game_text, sizeof(g_rpc_probe.game_text), hide ? "" : text);
+  if (hide) {
+    trace_netf("rpc-state id=73 game_text_seq=%u action=hide style=%d time=%d len=%d "
+               "evidence=STATIC_037,OPENMP_REF,INFERRED,TODO_VERIFY",
+               event->seq, static_cast<int>(style), static_cast<int>(time_ms), static_cast<int>(text_len));
+    return true;
   }
-  trace_netf("rpc-state id=73 game_text_seq=%u style=%d time=%d text='%s' evidence=STATIC_037,OPENMP_REF,TODO_VERIFY",
-             g_rpc_probe.game_text_seq, static_cast<int>(style), static_cast<int>(time_ms),
-             g_rpc_probe.game_text);
+  trace_netf("rpc-state id=73 game_text_seq=%u action=show style=%d time=%d text='%s' "
+             "evidence=STATIC_037,OPENMP_REF,TODO_VERIFY",
+             event->seq, static_cast<int>(style), static_cast<int>(time_ms), g_rpc_probe.game_text);
   return true;
 }
 
@@ -4119,6 +4325,14 @@ void rpc_observer(RakNet::RPCParameters *rpc_params, void *extra) {
   } else if (rpc_id == 36U) {
     if (rpc_params == nullptr || !decode_create_3d_text_label_payload(rpc_params->input, bytes)) {
       trace_netf("rpc-state id=36 create_3d_text_label decode_failed bytes=%u", bytes);
+    }
+  } else if (rpc_id == 58U) {
+    if (rpc_params == nullptr || !decode_update_3d_text_label_payload(rpc_params->input, bytes)) {
+      trace_netf("rpc-state id=58 update_3d_text_label decode_failed bytes=%u", bytes);
+    }
+  } else if (rpc_id == 64U) {
+    if (rpc_params == nullptr || !decode_delete_3d_text_label_payload(rpc_params->input, bytes)) {
+      trace_netf("rpc-state id=64 delete_3d_text_label decode_failed bytes=%u", bytes);
     }
   } else if (rpc_id == 42U) {
     const unsigned int seq = bump_seq(&g_rpc_probe.stop_audio_stream_seq);
@@ -5142,6 +5356,8 @@ int samp_raknet_client_get_rpc_probe_snapshot(void *client, samp_raknet_rpc_prob
   out_snapshot->remote_player_sync_count = 0U;
   out_snapshot->map_icon_event_count = 0U;
   out_snapshot->name_tag_event_count = 0U;
+  out_snapshot->game_text_event_count = 0U;
+  out_snapshot->text_label_event_count = 0U;
   out_snapshot->given_weapon_event_count = 0U;
   out_snapshot->player_pool_event_count = 0U;
   out_snapshot->score_ping_count = 0U;
@@ -5371,6 +5587,36 @@ int samp_raknet_client_get_rpc_probe_snapshot(void *client, samp_raknet_rpc_prob
       const unsigned int slot = (seq - 1U) % SAMP_RAKNET_NAME_TAG_EVENT_RING;
       if (g_rpc_probe.name_tag_events[slot].seq == seq) {
         out_snapshot->name_tag_events[out_snapshot->name_tag_event_count++] = g_rpc_probe.name_tag_events[slot];
+      }
+    }
+  }
+  std::memset(out_snapshot->game_text_events, 0, sizeof(out_snapshot->game_text_events));
+  if (g_rpc_probe.game_text_event_seq > 0U) {
+    const unsigned int available = g_rpc_probe.game_text_event_seq < SAMP_RAKNET_GAMETEXT_EVENT_RING
+                                       ? g_rpc_probe.game_text_event_seq
+                                       : SAMP_RAKNET_GAMETEXT_EVENT_RING;
+    const unsigned int first_seq = g_rpc_probe.game_text_event_seq - available + 1U;
+    for (unsigned int i = 0U; i < available; ++i) {
+      const unsigned int seq = first_seq + i;
+      const unsigned int slot = (seq - 1U) % SAMP_RAKNET_GAMETEXT_EVENT_RING;
+      if (g_rpc_probe.game_text_events[slot].seq == seq) {
+        out_snapshot->game_text_events[out_snapshot->game_text_event_count++] =
+            g_rpc_probe.game_text_events[slot];
+      }
+    }
+  }
+  std::memset(out_snapshot->text_label_events, 0, sizeof(out_snapshot->text_label_events));
+  if (g_rpc_probe.text_label_event_seq > 0U) {
+    const unsigned int available = g_rpc_probe.text_label_event_seq < SAMP_RAKNET_3D_TEXT_LABEL_EVENT_RING
+                                       ? g_rpc_probe.text_label_event_seq
+                                       : SAMP_RAKNET_3D_TEXT_LABEL_EVENT_RING;
+    const unsigned int first_seq = g_rpc_probe.text_label_event_seq - available + 1U;
+    for (unsigned int i = 0U; i < available; ++i) {
+      const unsigned int seq = first_seq + i;
+      const unsigned int slot = (seq - 1U) % SAMP_RAKNET_3D_TEXT_LABEL_EVENT_RING;
+      if (g_rpc_probe.text_label_events[slot].seq == seq) {
+        out_snapshot->text_label_events[out_snapshot->text_label_event_count++] =
+            g_rpc_probe.text_label_events[slot];
       }
     }
   }

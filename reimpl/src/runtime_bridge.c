@@ -612,6 +612,12 @@
 #define SAMP_NAME_TAG_HEALTH_BACK 0xFF4B0B14u
 #define SAMP_NAME_TAG_ARMOUR_FILL 0xFFB7B7B7u
 #define SAMP_NAME_TAG_ARMOUR_BACK 0xFF505050u
+#define SAMP_3D_TEXT_LABEL_INVALID_ATTACH 0xFFFFu
+#define SAMP_3D_TEXT_LABEL_HALF_WIDTH 260
+#define SAMP_3D_TEXT_LABEL_LINE_HEIGHT 14
+#define SAMP_3D_TEXT_LABEL_MAX_LINES 8
+#define SAMP_3D_TEXT_LABEL_DEFAULT_COLOR 0xFFFFFFFFu
+#define SAMP_3D_TEXT_LABEL_MAX_DISTANCE 10000.0f
 #define SAMP_GTA_MODEL_INFO_COUNT 20000u
 #define SAMP_GTA_VANILLA_ATOMIC_MODEL_INFO_COUNT 14000u
 /*
@@ -1228,6 +1234,26 @@ typedef struct samp_vehicle_slot_compat {
   int32_t body_color2;
 } samp_vehicle_slot_compat;
 
+typedef struct samp_3d_text_label_slot_compat {
+  LONG active;
+  uint32_t seq;
+  uint32_t color;
+  uint16_t attached_player_id;
+  uint16_t attached_vehicle_id;
+  uint8_t test_los;
+  float pos[3];
+  float draw_distance;
+  char text[SAMP_RAKNET_3D_TEXT_LABEL_TEXT_BYTES];
+} samp_3d_text_label_slot_compat;
+
+typedef struct samp_game_text_slot_compat {
+  LONG active;
+  uint32_t seq;
+  int32_t style;
+  DWORD expire_tick;
+  char text[SAMP_RAKNET_GAMETEXT_TEXT_BYTES];
+} samp_game_text_slot_compat;
+
 typedef struct samp_bootstrap_shims {
   HMODULE kernel32_module;
   HMODULE user32_module;
@@ -1543,12 +1569,15 @@ typedef struct samp_runtime_state {
   LONG textdraw_gta_font_game_process_logged;
   LONG textdraw_select_active;
   LONG textdraw_mouse_down;
+  LONG game_text_event_seq;
   LONG game_text_seq;
   LONG game_text_active;
+  LONG game_text_active_count;
   LONG game_text_logged;
   LONG remote_player_event_seq;
   LONG remote_player_sync_seq;
   LONG remote_player_name_tag_event_seq;
+  LONG text_label_event_seq;
   LONG remote_player_active_count;
   LONG remote_player_pending_count;
   LONG remote_player_logged;
@@ -1556,6 +1585,9 @@ typedef struct samp_runtime_state {
   LONG remote_player_key_context_logged;
   LONG remote_player_name_tags_logged;
   LONG remote_player_name_tags_empty_logged;
+  LONG text_label_active_count;
+  LONG text_label_logged;
+  LONG text_label_empty_logged;
   LONG map_icon_event_seq;
   LONG map_icon_logged;
   LONG object_event_seq;
@@ -1619,8 +1651,10 @@ typedef struct samp_runtime_state {
   void *loading_screen_device;
   void *textdraw_d3d_device;
   samp_textdraw_slot_compat textdraw_slots[SAMP_RAKNET_MAX_TEXTDRAWS];
+  samp_game_text_slot_compat game_text_slots[SAMP_RAKNET_GAMETEXT_MAX_STYLES];
   samp_scoreboard_player_compat scoreboard_players[SAMP_SCOREBOARD_MAX_PLAYERS];
   samp_remote_player_slot_compat remote_player_slots[SAMP_RAKNET_MAX_PLAYERS];
+  samp_3d_text_label_slot_compat text_label_slots[SAMP_RAKNET_MAX_3D_TEXT_LABELS];
   samp_map_icon_slot_compat map_icon_slots[SAMP_RAKNET_MAP_ICON_MAX];
   samp_asset_model_entry_compat samp_asset_models[SAMP_GTA_MODEL_INFO_COUNT];
   samp_asset_img_entry_compat samp_asset_img_entries[SAMP_ASSET_IMG_INDEX_MAX];
@@ -1698,6 +1732,10 @@ static void remote_player_compat_update_from_snapshot(const samp_raknet_rpc_prob
 static void remote_player_compat_reset_pool(const char *reason);
 static int remote_player_compat_name_tags_active(void);
 static int remote_player_compat_draw_name_tags_d3dx_overlay(void *device, samp_id3dx_font_compat *font);
+static void text_label_compat_update_from_snapshot(const samp_raknet_rpc_probe_snapshot *snapshot);
+static int text_label_compat_active(void);
+static int text_label_compat_draw_d3dx_overlay(void *device, samp_id3dx_font_compat *font);
+static void text_label_compat_reset_pool(const char *reason);
 static void vehicle_compat_update_from_snapshot(const samp_raknet_rpc_probe_snapshot *snapshot);
 static void vehicle_compat_reset_pool(const char *reason);
 static int loading_screen_compat_active(void);
@@ -8230,6 +8268,378 @@ static void remote_player_compat_update_name_tags_from_snapshot(const samp_rakne
   }
 }
 
+static int text_label_compat_id_valid(uint16_t label_id) {
+  return label_id < SAMP_RAKNET_MAX_3D_TEXT_LABELS;
+}
+
+static void text_label_compat_apply_event(const samp_raknet_3d_text_label_event *event) {
+  samp_3d_text_label_slot_compat *slot = NULL;
+  LONG was_active = 0;
+
+  if (event == NULL || !text_label_compat_id_valid(event->label_id)) {
+    return;
+  }
+
+  slot = &g_runtime.text_label_slots[event->label_id];
+  if (event->action == SAMP_RAKNET_3D_TEXT_LABEL_ACTION_DELETE) {
+    was_active = InterlockedExchange(&slot->active, 0);
+    if (was_active != 0) {
+      if (InterlockedCompareExchange(&g_runtime.text_label_active_count, 0, 0) > 0) {
+        InterlockedDecrement(&g_runtime.text_label_active_count);
+      }
+      memset(slot, 0, sizeof(*slot));
+      runtime_tracef("3d_text_label: delete seq=%lu id=%u evidence=OPENMP_REF,TODO_VERIFY",
+                     (unsigned long)event->seq, (unsigned)event->label_id);
+    }
+    return;
+  }
+
+  if (event->action == SAMP_RAKNET_3D_TEXT_LABEL_ACTION_UPDATE) {
+    if (InterlockedCompareExchange(&slot->active, 0, 0) == 0) {
+      runtime_tracef("3d_text_label: update_missing seq=%lu id=%u text='%.96s' evidence=OPENMP_REF,TODO_VERIFY",
+                     (unsigned long)event->seq, (unsigned)event->label_id, event->text);
+      return;
+    }
+    slot->seq = event->seq;
+    slot->color = event->color;
+    strncpy(slot->text, event->text, sizeof(slot->text) - 1u);
+    slot->text[sizeof(slot->text) - 1u] = '\0';
+    InterlockedExchange(&g_runtime.text_label_logged, 0);
+    runtime_tracef("3d_text_label: update seq=%lu id=%u color=0x%08lx text='%.96s' evidence=OPENMP_REF,TODO_VERIFY",
+                   (unsigned long)event->seq, (unsigned)event->label_id, (unsigned long)event->color,
+                   event->text);
+    return;
+  }
+
+  if (event->action != SAMP_RAKNET_3D_TEXT_LABEL_ACTION_CREATE) {
+    return;
+  }
+
+  was_active = InterlockedCompareExchange(&slot->active, 0, 0);
+  memset(slot, 0, sizeof(*slot));
+  slot->seq = event->seq;
+  slot->color = event->color;
+  slot->attached_player_id = event->attached_player_id;
+  slot->attached_vehicle_id = event->attached_vehicle_id;
+  slot->test_los = event->test_los != 0u ? 1u : 0u;
+  memcpy(slot->pos, event->pos, sizeof(slot->pos));
+  slot->draw_distance = event->draw_distance;
+  strncpy(slot->text, event->text, sizeof(slot->text) - 1u);
+  slot->text[sizeof(slot->text) - 1u] = '\0';
+  InterlockedExchange(&slot->active, 1);
+  if (was_active == 0) {
+    InterlockedIncrement(&g_runtime.text_label_active_count);
+  }
+  InterlockedExchange(&g_runtime.text_label_logged, 0);
+  InterlockedExchange(&g_runtime.text_label_empty_logged, 0);
+  runtime_tracef("3d_text_label: create seq=%lu id=%u color=0x%08lx pos=(%.3f,%.3f,%.3f) draw=%.3f los=%u "
+                 "attach=%u/%u text='%.96s' evidence=OPENMP_REF,TODO_VERIFY",
+                 (unsigned long)event->seq, (unsigned)event->label_id, (unsigned long)event->color,
+                 (double)event->pos[0], (double)event->pos[1], (double)event->pos[2],
+                 (double)event->draw_distance, (unsigned)event->test_los,
+                 (unsigned)event->attached_player_id, (unsigned)event->attached_vehicle_id, event->text);
+}
+
+static void text_label_compat_update_from_snapshot(const samp_raknet_rpc_probe_snapshot *snapshot) {
+  uint32_t previous_seq = 0u;
+  uint32_t latest_seq = 0u;
+  uint32_t count = 0u;
+  uint32_t i = 0u;
+
+  if (snapshot == NULL) {
+    return;
+  }
+
+  previous_seq = (uint32_t)InterlockedCompareExchange(&g_runtime.text_label_event_seq, 0, 0);
+  latest_seq = previous_seq;
+  count = snapshot->text_label_event_count;
+  if (count > SAMP_RAKNET_3D_TEXT_LABEL_EVENT_RING) {
+    count = SAMP_RAKNET_3D_TEXT_LABEL_EVENT_RING;
+  }
+  for (i = 0u; i < count; ++i) {
+    const samp_raknet_3d_text_label_event *event = &snapshot->text_label_events[i];
+    if (event->seq != 0u && event->seq > previous_seq) {
+      text_label_compat_apply_event(event);
+      latest_seq = event->seq;
+    }
+  }
+  if (latest_seq != previous_seq) {
+    InterlockedExchange(&g_runtime.text_label_event_seq, (LONG)latest_seq);
+  }
+}
+
+static int text_label_compat_active(void) {
+  return InterlockedCompareExchange(&g_runtime.text_label_active_count, 0, 0) > 0;
+}
+
+static int text_label_compat_los_clear(const float label_pos[3], uint8_t test_los) {
+  float camera_pos[3] = {0.0f, 0.0f, 0.0f};
+
+  if (label_pos == NULL || test_los == 0u) {
+    return 1;
+  }
+  if (!memory_is_readable_compat((const void *)(uintptr_t)(SAMP_ADDR_CAMERA_INTERNAL_AIM + 12u),
+                                 sizeof(camera_pos))) {
+    return 1;
+  }
+  memcpy(camera_pos, (const void *)(uintptr_t)(SAMP_ADDR_CAMERA_INTERNAL_AIM + 12u), sizeof(camera_pos));
+  if (!isfinite(camera_pos[0]) || !isfinite(camera_pos[1]) || !isfinite(camera_pos[2])) {
+    return 1;
+  }
+
+  /*
+   * INFERRED + TODO_VERIFY:
+   * 3DTextLabel testLOS uses the same GTA line-of-sight primitive as the traced
+   * name-tag path. Focused original 0.3.7 probes still need to confirm entity masks.
+   */
+  return gta_script_command_condition_compat(0x06BDu, "ffffffiiiii", label_pos[0], label_pos[1], label_pos[2],
+                                             camera_pos[0], camera_pos[1], camera_pos[2], 1, 0, 0, 0, 0);
+}
+
+static int text_label_compat_resolve_world_pos(const samp_3d_text_label_slot_compat *slot, float out_pos[3]) {
+  if (slot == NULL || out_pos == NULL) {
+    return 0;
+  }
+
+  if (slot->attached_player_id != SAMP_3D_TEXT_LABEL_INVALID_ATTACH) {
+    uint16_t player_id = slot->attached_player_id;
+    uintptr_t ped = 0u;
+    float base[3] = {0.0f, 0.0f, 0.0f};
+
+    if (!remote_player_compat_id_valid(player_id)) {
+      return 0;
+    }
+    if (remote_player_compat_is_local(player_id)) {
+      ped = gta_find_player_ped_compat();
+      if (ped == 0u || !gta_entity_read_position_compat(ped, &base[0], &base[1], &base[2])) {
+        return 0;
+      }
+    } else {
+      samp_remote_player_slot_compat *remote_slot = &g_runtime.remote_player_slots[player_id];
+      if (InterlockedCompareExchange(&remote_slot->active, 0, 0) == 0 &&
+          InterlockedCompareExchange(&remote_slot->pending, 0, 0) == 0) {
+        return 0;
+      }
+      memcpy(base, remote_slot->pos, sizeof(base));
+      ped = remote_player_compat_resolve_ped(remote_slot);
+      if (ped != 0u) {
+        (void)gta_entity_read_position_compat(ped, &base[0], &base[1], &base[2]);
+      }
+    }
+    out_pos[0] = base[0] + slot->pos[0];
+    out_pos[1] = base[1] + slot->pos[1];
+    out_pos[2] = base[2] + slot->pos[2];
+    return isfinite(out_pos[0]) && isfinite(out_pos[1]) && isfinite(out_pos[2]);
+  }
+
+  if (slot->attached_vehicle_id != SAMP_3D_TEXT_LABEL_INVALID_ATTACH) {
+    uint16_t vehicle_id = slot->attached_vehicle_id;
+    samp_vehicle_slot_compat *vehicle_slot = NULL;
+    uintptr_t vehicle = 0u;
+    float base[3] = {0.0f, 0.0f, 0.0f};
+
+    if (vehicle_id >= SAMP_RAKNET_MAX_VEHICLES) {
+      return 0;
+    }
+    vehicle_slot = &g_runtime.vehicle_slots[vehicle_id];
+    if (InterlockedCompareExchange(&vehicle_slot->active, 0, 0) == 0 || vehicle_slot->gta_id == 0u) {
+      return 0;
+    }
+    memcpy(base, vehicle_slot->pos, sizeof(base));
+    vehicle = vehicle_compat_game_pool_get_at(vehicle_slot->gta_id);
+    if (vehicle != 0u) {
+      (void)gta_entity_read_position_compat(vehicle, &base[0], &base[1], &base[2]);
+    }
+    out_pos[0] = base[0] + slot->pos[0];
+    out_pos[1] = base[1] + slot->pos[1];
+    out_pos[2] = base[2] + slot->pos[2];
+    return isfinite(out_pos[0]) && isfinite(out_pos[1]) && isfinite(out_pos[2]);
+  }
+
+  memcpy(out_pos, slot->pos, sizeof(slot->pos));
+  return isfinite(out_pos[0]) && isfinite(out_pos[1]) && isfinite(out_pos[2]);
+}
+
+static int text_label_compat_strip_color_tags(const char *in, char *out, size_t out_size) {
+  size_t read = 0u;
+  size_t written = 0u;
+  DWORD ignored = 0u;
+
+  if (in == NULL || out == NULL || out_size == 0u) {
+    return 0;
+  }
+  while (in[read] != '\0' && written + 1u < out_size) {
+    if (chat_compat_parse_color_tag(in + read, &ignored)) {
+      read += 8u;
+      continue;
+    }
+    out[written++] = in[read++];
+  }
+  out[written] = '\0';
+  return (int)written;
+}
+
+static const char *text_label_compat_next_line(const char *cursor, char *line, size_t line_size) {
+  size_t len = 0u;
+
+  if (cursor == NULL || line == NULL || line_size == 0u || *cursor == '\0') {
+    return NULL;
+  }
+  while (cursor[len] != '\0' && cursor[len] != '\n' && cursor[len] != '\r' && len + 1u < line_size) {
+    ++len;
+  }
+  memcpy(line, cursor, len);
+  line[len] = '\0';
+  cursor += len;
+  while (*cursor == '\r' || *cursor == '\n') {
+    ++cursor;
+  }
+  return cursor;
+}
+
+static void text_label_compat_draw_line(samp_id3dx_font_compat *font, int center_x, int y, const char *line,
+                                        DWORD color) {
+  char visible[SAMP_RAKNET_3D_TEXT_LABEL_TEXT_BYTES];
+  RECT rect;
+  int width = 0;
+
+  if (font == NULL || line == NULL || line[0] == '\0') {
+    return;
+  }
+  text_label_compat_strip_color_tags(line, visible, sizeof(visible));
+  width = chat_compat_d3dx_measure_text_width(font, visible, (int)strlen(visible) * 8);
+  if (width < 8) {
+    width = 8;
+  }
+  if (width > SAMP_3D_TEXT_LABEL_HALF_WIDTH * 2) {
+    width = SAMP_3D_TEXT_LABEL_HALF_WIDTH * 2;
+  }
+
+  rect.left = center_x - (width / 2);
+  rect.top = y;
+  rect.right = rect.left + width + 4;
+  rect.bottom = y + SAMP_3D_TEXT_LABEL_LINE_HEIGHT + 4;
+  chat_compat_d3dx_draw_text_outline_segments(font, rect, line, color);
+}
+
+static int text_label_compat_draw_d3dx_overlay(void *device, samp_id3dx_font_compat *font) {
+  uintptr_t ped = 0u;
+  float ped_pos[3] = {0.0f, 0.0f, 0.0f};
+  unsigned int i = 0u;
+  unsigned int labels = 0u;
+  unsigned int active_slots = 0u;
+  unsigned int distance_skips = 0u;
+  unsigned int los_skips = 0u;
+  unsigned int project_skips = 0u;
+  unsigned int attach_skips = 0u;
+
+  if (!text_label_compat_active() || device == NULL || font == NULL) {
+    return 0;
+  }
+
+  ped = gta_find_player_ped_compat();
+  if (ped == 0u || !gta_entity_read_position_compat(ped, &ped_pos[0], &ped_pos[1], &ped_pos[2])) {
+    return 0;
+  }
+
+  for (i = 0u; i < SAMP_RAKNET_MAX_3D_TEXT_LABELS; ++i) {
+    samp_3d_text_label_slot_compat *slot = &g_runtime.text_label_slots[i];
+    float label_pos[3] = {0.0f, 0.0f, 0.0f};
+    float screen_x = 0.0f;
+    float screen_y = 0.0f;
+    float screen_z = 0.0f;
+    float dx = 0.0f;
+    float dy = 0.0f;
+    float dz = 0.0f;
+    float distance = 0.0f;
+    float draw_distance = 0.0f;
+    DWORD color = SAMP_3D_TEXT_LABEL_DEFAULT_COLOR;
+    const char *cursor = NULL;
+    char line[SAMP_RAKNET_3D_TEXT_LABEL_TEXT_BYTES];
+    int line_count = 0;
+    int label_x = 0;
+    int label_y = 0;
+    int first_line_y = 0;
+
+    if (InterlockedCompareExchange(&slot->active, 0, 0) == 0) {
+      continue;
+    }
+    ++active_slots;
+    if (slot->text[0] == '\0' || !text_label_compat_resolve_world_pos(slot, label_pos)) {
+      ++attach_skips;
+      continue;
+    }
+
+    dx = label_pos[0] - ped_pos[0];
+    dy = label_pos[1] - ped_pos[1];
+    dz = label_pos[2] - ped_pos[2];
+    distance = sqrtf((dx * dx) + (dy * dy) + (dz * dz));
+    draw_distance = slot->draw_distance;
+    if (!isfinite(distance) || !isfinite(draw_distance) || draw_distance <= 0.0f ||
+        draw_distance > SAMP_3D_TEXT_LABEL_MAX_DISTANCE || distance > draw_distance) {
+      ++distance_skips;
+      continue;
+    }
+    if (!text_label_compat_los_clear(label_pos, slot->test_los)) {
+      ++los_skips;
+      continue;
+    }
+    if (!vehicle_debug_project_world_compat(device, label_pos[0], label_pos[1], label_pos[2], &screen_x, &screen_y,
+                                            &screen_z)) {
+      ++project_skips;
+      continue;
+    }
+
+    label_x = (int)(screen_x + 0.5f);
+    label_y = (int)(screen_y + 0.5f);
+    color = slot->color != 0u ? chat_compat_samp_color_to_argb(slot->color) : SAMP_3D_TEXT_LABEL_DEFAULT_COLOR;
+    cursor = slot->text;
+    first_line_y = label_y;
+    while (cursor != NULL && *cursor != '\0' && line_count < SAMP_3D_TEXT_LABEL_MAX_LINES) {
+      cursor = text_label_compat_next_line(cursor, line, sizeof(line));
+      if (line[0] != '\0') {
+        ++line_count;
+      }
+    }
+    if (line_count > 1) {
+      first_line_y -= (line_count - 1) * (SAMP_3D_TEXT_LABEL_LINE_HEIGHT / 2);
+    }
+
+    cursor = slot->text;
+    line_count = 0;
+    while (cursor != NULL && *cursor != '\0' && line_count < SAMP_3D_TEXT_LABEL_MAX_LINES) {
+      cursor = text_label_compat_next_line(cursor, line, sizeof(line));
+      if (line[0] == '\0') {
+        continue;
+      }
+      text_label_compat_draw_line(font, label_x, first_line_y + (line_count * SAMP_3D_TEXT_LABEL_LINE_HEIGHT),
+                                  line, color);
+      ++line_count;
+    }
+    ++labels;
+  }
+
+  if (labels != 0u && InterlockedCompareExchange(&g_runtime.text_label_logged, 1, 0) == 0) {
+    runtime_tracef("3d_text_label: draw labels=%u active=%u evidence=OPENMP_REF,INFERRED,TODO_VERIFY",
+                   labels, active_slots);
+  } else if (active_slots != 0u && labels == 0u &&
+             InterlockedCompareExchange(&g_runtime.text_label_empty_logged, 1, 0) == 0) {
+    runtime_tracef("3d_text_label: empty active=%u dist_skip=%u los_skip=%u project_skip=%u attach_skip=%u "
+                   "evidence=OPENMP_REF,INFERRED,TODO_VERIFY",
+                   active_slots, distance_skips, los_skips, project_skips, attach_skips);
+  }
+  return labels != 0u;
+}
+
+static void text_label_compat_reset_pool(const char *reason) {
+  memset(g_runtime.text_label_slots, 0, sizeof(g_runtime.text_label_slots));
+  InterlockedExchange(&g_runtime.text_label_event_seq, 0);
+  InterlockedExchange(&g_runtime.text_label_active_count, 0);
+  InterlockedExchange(&g_runtime.text_label_logged, 0);
+  InterlockedExchange(&g_runtime.text_label_empty_logged, 0);
+  runtime_tracef("3d_text_label: reset reason=%s", reason != NULL ? reason : "unknown");
+}
+
 static int remote_player_compat_name_tags_enabled(void) {
   if (InterlockedCompareExchange(&g_runtime.raknet_init_game_applied, 0, 0) == 0) {
     return 0;
@@ -10569,51 +10979,175 @@ static void game_text_compat_style_rect(int style, int viewport_x, int viewport_
   }
 }
 
-static int game_text_compat_active(void) {
-  DWORD now = GetTickCount();
-  DWORD expire = g_runtime.game_text_expire_tick;
-
-  if (InterlockedCompareExchange(&g_runtime.game_text_active, 0, 0) == 0) {
-    return 0;
-  }
-  if ((LONG)(now - expire) >= 0) {
-    InterlockedExchange(&g_runtime.game_text_active, 0);
-    return 0;
-  }
-  return 1;
+static int game_text_compat_style_valid(int style) {
+  return style >= 0 && style < (int)SAMP_RAKNET_GAMETEXT_MAX_STYLES;
 }
 
-static void game_text_compat_update_from_snapshot(const samp_raknet_rpc_probe_snapshot *snapshot) {
+static DWORD game_text_compat_display_time_ms(int32_t time_ms) {
   DWORD display_ms = 0u;
-  DWORD now = 0u;
 
-  if (snapshot == NULL || snapshot->game_text_seq == 0u ||
-      snapshot->game_text_seq == (uint32_t)InterlockedCompareExchange(&g_runtime.game_text_seq, 0, 0)) {
-    return;
+  if (time_ms <= 0) {
+    return 0u;
   }
-
-  InterlockedExchange(&g_runtime.game_text_seq, (LONG)snapshot->game_text_seq);
-  if (snapshot->game_text[0] == '\0' || snapshot->game_text_time_ms <= 0) {
-    InterlockedExchange(&g_runtime.game_text_active, 0);
-    return;
-  }
-
-  strncpy(g_runtime.game_text, snapshot->game_text, sizeof(g_runtime.game_text) - 1u);
-  g_runtime.game_text[sizeof(g_runtime.game_text) - 1u] = '\0';
-  display_ms = (DWORD)snapshot->game_text_time_ms;
+  display_ms = (DWORD)time_ms;
   if (display_ms < SAMP_GAMETEXT_COMPAT_MIN_TIME_MS) {
     display_ms = SAMP_GAMETEXT_COMPAT_DEFAULT_TIME_MS;
   }
   if (display_ms > SAMP_GAMETEXT_COMPAT_MAX_TIME_MS) {
     display_ms = SAMP_GAMETEXT_COMPAT_MAX_TIME_MS;
   }
+  return display_ms;
+}
+
+static void game_text_compat_clear_slot(int style, uint32_t seq, const char *reason) {
+  samp_game_text_slot_compat *slot = NULL;
+  LONG was_active = 0;
+
+  if (!game_text_compat_style_valid(style)) {
+    runtime_tracef("game_text: ignore_hide seq=%lu invalid_style=%d reason=%s evidence=OPENMP_REF,INFERRED,TODO_VERIFY",
+                   (unsigned long)seq, style, reason != NULL ? reason : "unknown");
+    return;
+  }
+  slot = &g_runtime.game_text_slots[style];
+  was_active = InterlockedExchange(&slot->active, 0);
+  if (was_active != 0 && InterlockedCompareExchange(&g_runtime.game_text_active_count, 0, 0) > 0) {
+    InterlockedDecrement(&g_runtime.game_text_active_count);
+  }
+  memset(slot, 0, sizeof(*slot));
+  InterlockedExchange(&g_runtime.game_text_logged, 0);
+  if (InterlockedCompareExchange(&g_runtime.game_text_active_count, 0, 0) <= 0) {
+    InterlockedExchange(&g_runtime.game_text_active, 0);
+  }
+  runtime_tracef("game_text: hide seq=%lu style=%d reason=%s evidence=OPENMP_REF,INFERRED,TODO_VERIFY",
+                 (unsigned long)seq, style, reason != NULL ? reason : "unknown");
+}
+
+static void game_text_compat_show_slot(int style, uint32_t seq, int32_t time_ms, const char *text) {
+  samp_game_text_slot_compat *slot = NULL;
+  DWORD display_ms = 0u;
+  DWORD now = 0u;
+  LONG was_active = 0;
+
+  if (!game_text_compat_style_valid(style)) {
+    runtime_tracef("game_text: ignore_show seq=%lu invalid_style=%d evidence=OPENMP_REF,INFERRED,TODO_VERIFY",
+                   (unsigned long)seq, style);
+    return;
+  }
+  if (text == NULL || text[0] == '\0') {
+    game_text_compat_clear_slot(style, seq, "empty_text");
+    return;
+  }
+  display_ms = game_text_compat_display_time_ms(time_ms);
+  if (display_ms == 0u) {
+    game_text_compat_clear_slot(style, seq, "zero_time");
+    return;
+  }
+
+  slot = &g_runtime.game_text_slots[style];
+  was_active = InterlockedCompareExchange(&slot->active, 0, 0);
+  memset(slot, 0, sizeof(*slot));
+  slot->seq = seq;
+  slot->style = style;
+  strncpy(slot->text, text, sizeof(slot->text) - 1u);
+  slot->text[sizeof(slot->text) - 1u] = '\0';
   now = GetTickCount();
-  g_runtime.game_text_expire_tick = now + display_ms;
-  InterlockedExchange(&g_runtime.game_text_style, (LONG)snapshot->game_text_style);
+  slot->expire_tick = now + display_ms;
+  InterlockedExchange(&slot->active, 1);
+  if (was_active == 0) {
+    InterlockedIncrement(&g_runtime.game_text_active_count);
+  }
+  InterlockedExchange(&g_runtime.game_text_seq, (LONG)seq);
+  InterlockedExchange(&g_runtime.game_text_style, (LONG)style);
+  g_runtime.game_text_expire_tick = slot->expire_tick;
+  strncpy(g_runtime.game_text, slot->text, sizeof(g_runtime.game_text) - 1u);
+  g_runtime.game_text[sizeof(g_runtime.game_text) - 1u] = '\0';
   InterlockedExchange(&g_runtime.game_text_active, 1);
-  runtime_tracef("game_text: show seq=%lu style=%ld time=%lu text='%s' evidence=STATIC_037,MTA_REF,INFERRED,TODO_VERIFY",
-                 (unsigned long)snapshot->game_text_seq, (long)snapshot->game_text_style,
-                 (unsigned long)display_ms, g_runtime.game_text);
+  InterlockedExchange(&g_runtime.game_text_logged, 0);
+  runtime_tracef("game_text: show seq=%lu style=%d time=%lu text='%s' "
+                 "evidence=STATIC_037,OPENMP_REF,MTA_REF,INFERRED,TODO_VERIFY",
+                 (unsigned long)seq, style, (unsigned long)display_ms, slot->text);
+}
+
+static void game_text_compat_apply_event(const samp_raknet_game_text_event *event) {
+  if (event == NULL || event->seq == 0u) {
+    return;
+  }
+  if (event->action == SAMP_RAKNET_GAMETEXT_ACTION_HIDE) {
+    game_text_compat_clear_slot(event->style, event->seq, "event");
+    return;
+  }
+  if (event->action == SAMP_RAKNET_GAMETEXT_ACTION_SHOW) {
+    game_text_compat_show_slot(event->style, event->seq, event->time_ms, event->text);
+    return;
+  }
+  runtime_tracef("game_text: ignore_event seq=%lu action=%u style=%ld evidence=OPENMP_REF,INFERRED,TODO_VERIFY",
+                 (unsigned long)event->seq, (unsigned)event->action, (long)event->style);
+}
+
+static int game_text_compat_active(void) {
+  DWORD now = GetTickCount();
+  int style = 0;
+
+  if (InterlockedCompareExchange(&g_runtime.game_text_active_count, 0, 0) <= 0) {
+    InterlockedExchange(&g_runtime.game_text_active, 0);
+    return 0;
+  }
+  for (style = 0; style < (int)SAMP_RAKNET_GAMETEXT_MAX_STYLES; ++style) {
+    samp_game_text_slot_compat *slot = &g_runtime.game_text_slots[style];
+    if (InterlockedCompareExchange(&slot->active, 0, 0) == 0) {
+      continue;
+    }
+    if ((LONG)(now - slot->expire_tick) >= 0) {
+      game_text_compat_clear_slot(style, slot->seq, "expired");
+    }
+  }
+  if (InterlockedCompareExchange(&g_runtime.game_text_active_count, 0, 0) <= 0) {
+    InterlockedExchange(&g_runtime.game_text_active, 0);
+    return 0;
+  }
+  InterlockedExchange(&g_runtime.game_text_active, 1);
+  return 1;
+}
+
+static void game_text_compat_update_from_snapshot(const samp_raknet_rpc_probe_snapshot *snapshot) {
+  uint32_t previous_event_seq = 0u;
+  uint32_t latest_event_seq = 0u;
+  uint32_t count = 0u;
+  uint32_t i = 0u;
+
+  if (snapshot == NULL) {
+    return;
+  }
+
+  previous_event_seq = (uint32_t)InterlockedCompareExchange(&g_runtime.game_text_event_seq, 0, 0);
+  latest_event_seq = previous_event_seq;
+  count = snapshot->game_text_event_count;
+  if (count > SAMP_RAKNET_GAMETEXT_EVENT_RING) {
+    count = SAMP_RAKNET_GAMETEXT_EVENT_RING;
+  }
+  for (i = 0u; i < count; ++i) {
+    const samp_raknet_game_text_event *event = &snapshot->game_text_events[i];
+    if (event->seq != 0u && event->seq > previous_event_seq) {
+      game_text_compat_apply_event(event);
+      latest_event_seq = event->seq;
+    }
+  }
+  if (latest_event_seq != previous_event_seq) {
+    InterlockedExchange(&g_runtime.game_text_event_seq, (LONG)latest_event_seq);
+    return;
+  }
+
+  if (snapshot->game_text_seq == 0u ||
+      snapshot->game_text_seq == (uint32_t)InterlockedCompareExchange(&g_runtime.game_text_seq, 0, 0)) {
+    return;
+  }
+  if (snapshot->game_text[0] == '\0' || snapshot->game_text_time_ms <= 0) {
+    game_text_compat_clear_slot((int)snapshot->game_text_style, snapshot->game_text_seq, "legacy_snapshot");
+    InterlockedExchange(&g_runtime.game_text_seq, (LONG)snapshot->game_text_seq);
+    return;
+  }
+  game_text_compat_show_slot((int)snapshot->game_text_style, snapshot->game_text_seq, snapshot->game_text_time_ms,
+                             snapshot->game_text);
 }
 
 static int game_text_compat_draw_d3dx_overlay(void *device) {
@@ -10622,15 +11156,8 @@ static int game_text_compat_draw_d3dx_overlay(void *device) {
   int viewport_w = 0;
   int viewport_h = 0;
   int style = 0;
-  int bucket = 0;
-  int font_height = 0;
-  int line_step = 0;
-  RECT rect;
-  UINT flags = DT_CENTER;
-  DWORD color = 0xFFFFFFFFu;
+  int drawn = 0;
   DWORD outline_color = 0xFF000000u;
-  char render_text[SAMP_RAKNET_GAMETEXT_TEXT_BYTES];
-  samp_id3dx_font_compat *font = NULL;
 
   if (device == NULL || !game_text_compat_active()) {
     return 0;
@@ -10640,33 +11167,51 @@ static int game_text_compat_draw_d3dx_overlay(void *device) {
   if (viewport_w <= 0 || viewport_h <= 0) {
     return 0;
   }
-  style = (int)InterlockedCompareExchange(&g_runtime.game_text_style, 0, 0);
-  bucket = game_text_compat_style_bucket(style);
-  font = textdraw_compat_ensure_font(device, bucket);
-  if (font == NULL) {
-    return 0;
-  }
-  textdraw_compat_prepare_render_text(g_runtime.game_text, render_text, sizeof(render_text));
-  if (render_text[0] == '\0') {
-    return 0;
+
+  for (style = 0; style < (int)SAMP_RAKNET_GAMETEXT_MAX_STYLES; ++style) {
+    samp_game_text_slot_compat *slot = &g_runtime.game_text_slots[style];
+    int bucket = 0;
+    int font_height = 0;
+    int line_step = 0;
+    RECT rect;
+    UINT flags = DT_CENTER;
+    DWORD color = 0xFFFFFFFFu;
+    char render_text[SAMP_RAKNET_GAMETEXT_TEXT_BYTES];
+    samp_id3dx_font_compat *font = NULL;
+
+    if (InterlockedCompareExchange(&slot->active, 0, 0) == 0) {
+      continue;
+    }
+    bucket = game_text_compat_style_bucket(style);
+    font = textdraw_compat_ensure_font(device, bucket);
+    if (font == NULL) {
+      continue;
+    }
+    textdraw_compat_prepare_render_text(slot->text, render_text, sizeof(render_text));
+    if (render_text[0] == '\0') {
+      continue;
+    }
+
+    font_height = textdraw_compat_font_height_for_bucket(bucket);
+    game_text_compat_style_rect(style, viewport_x, viewport_y, viewport_w, viewport_h, font_height, &rect, &flags,
+                                &line_step);
+    color = game_text_compat_style_color(style);
+    if (strchr(render_text, '\n') != NULL) {
+      flags |= DT_WORDBREAK;
+    } else {
+      flags |= DT_SINGLELINE;
+    }
+    textdraw_compat_draw_text_segments(font, rect, render_text, color, flags, outline_color, 2, line_step);
+    ++drawn;
   }
 
-  font_height = textdraw_compat_font_height_for_bucket(bucket);
-  game_text_compat_style_rect(style, viewport_x, viewport_y, viewport_w, viewport_h, font_height, &rect, &flags,
-                              &line_step);
-  color = game_text_compat_style_color(style);
-  if (strchr(render_text, '\n') != NULL) {
-    flags |= DT_WORDBREAK;
-  } else {
-    flags |= DT_SINGLELINE;
+  if (drawn > 0 && InterlockedCompareExchange(&g_runtime.game_text_logged, 1, 0) == 0) {
+    runtime_tracef("game_text: drawing enabled styles=%d active=%ld viewport=%dx%d "
+                   "evidence=MTA_REF,INFERRED,TODO_VERIFY",
+                   drawn, (long)InterlockedCompareExchange(&g_runtime.game_text_active_count, 0, 0), viewport_w,
+                   viewport_h);
   }
-  textdraw_compat_draw_text_segments(font, rect, render_text, color, flags, outline_color, 2, line_step);
-
-  if (InterlockedCompareExchange(&g_runtime.game_text_logged, 1, 0) == 0) {
-    runtime_tracef("game_text: drawing enabled style=%d bucket=%d viewport=%dx%d evidence=MTA_REF,INFERRED",
-                   style, bucket, viewport_w, viewport_h);
-  }
-  return 1;
+  return drawn > 0 ? 1 : 0;
 }
 
 static int textdraw_compat_draw_d3dx_overlay(void *device) {
@@ -10875,6 +11420,7 @@ static int chat_compat_draw_d3dx_overlay(void *device) {
   LONG textdraw_active = 0;
   int game_text_active = 0;
   LONG vehicle_debug_active = 0;
+  int text_labels_active = 0;
   int name_tags_active = 0;
   int class_selection_active = 0;
   int loading_active = 0;
@@ -10903,13 +11449,15 @@ static int chat_compat_draw_d3dx_overlay(void *device) {
   textdraw_active = InterlockedCompareExchange(&g_runtime.textdraw_active_count, 0, 0);
   game_text_active = game_text_compat_active();
   vehicle_debug_active = InterlockedCompareExchange(&g_runtime.vehicle_debug_labels_active, 0, 0);
+  text_labels_active = text_label_compat_active();
   name_tags_active = remote_player_compat_name_tags_active();
   class_selection_active = class_selection_compat_active();
   loading_active = loading_screen_compat_active();
   scoreboard_active = scoreboard_compat_active();
   if (count <= 0 && input_active == 0 && dialog_active == 0 && textdraw_active <= 0 && !game_text_active &&
       !loading_active &&
-      !scoreboard_active && vehicle_debug_active == 0 && !name_tags_active && !class_selection_active) {
+      !scoreboard_active && vehicle_debug_active == 0 && !text_labels_active && !name_tags_active &&
+      !class_selection_active) {
     if (InterlockedCompareExchange(&g_runtime.class_selection_mouse_mode, 0, 0) != 0) {
       class_selection_compat_update_mouse_mode();
     }
@@ -10953,6 +11501,9 @@ static int chat_compat_draw_d3dx_overlay(void *device) {
   if (vehicle_debug_active != 0) {
     (void)vehicle_debug_labels_draw_d3dx_overlay(device, g_runtime.chat_d3dx_font);
   }
+  if (text_labels_active && !class_selection_active && !scoreboard_active) {
+    (void)text_label_compat_draw_d3dx_overlay(device, g_runtime.chat_d3dx_font);
+  }
   if (name_tags_active && !class_selection_active && !scoreboard_active) {
     (void)remote_player_compat_draw_name_tags_d3dx_overlay(device, g_runtime.chat_d3dx_font);
   }
@@ -10993,9 +11544,10 @@ static int chat_compat_draw_d3dx_overlay(void *device) {
   }
 
   if (InterlockedCompareExchange(&g_runtime.chat_d3d_draw_logged, 1, 0) == 0) {
-    runtime_tracef("chat_d3dx: drawing enabled device=0x%08lx lines=%ld dialog=%ld textdraws=%ld gametext=%d class_selection=%d scoreboard=%d nametags=%d x=%d y=%d",
+    runtime_tracef("chat_d3dx: drawing enabled device=0x%08lx lines=%ld dialog=%ld textdraws=%ld gametext=%d class_selection=%d scoreboard=%d labels=%d nametags=%d x=%d y=%d",
                    (unsigned long)(uintptr_t)device, (long)count, (long)dialog_active, (long)textdraw_active,
-                   game_text_active, class_selection_active, scoreboard_active, name_tags_active, x, y);
+                   game_text_active, class_selection_active, scoreboard_active, text_labels_active, name_tags_active,
+                   x, y);
   }
   return 1;
 }
@@ -11024,6 +11576,7 @@ static void chat_compat_try_install_d3d_hook(void) {
   LONG preconnect_ready = 0;
   LONG textdraw_active = 0;
   int game_text_active = 0;
+  int text_labels_active = 0;
   int loading_active = 0;
   int dialog_active = 0;
 
@@ -11037,10 +11590,11 @@ static void chat_compat_try_install_d3d_hook(void) {
   preconnect_ready = InterlockedCompareExchange(&g_runtime.preconnect_ready, 0, 0);
   textdraw_active = InterlockedCompareExchange(&g_runtime.textdraw_active_count, 0, 0);
   game_text_active = game_text_compat_active();
+  text_labels_active = text_label_compat_active();
   net_state = InterlockedCompareExchange(&g_runtime.netgame_state, 0, 0);
   if (g_runtime.settings.play_online && net_state < SAMP_NETGAME_CONNECTED && preconnect_ready == 0 &&
       !chat_d3d_early_enabled_compat() && !dialog_active && textdraw_active <= 0 && !game_text_active &&
-      !loading_active) {
+      !text_labels_active && !loading_active) {
     return;
   }
 
@@ -15401,6 +15955,7 @@ static uint32_t refresh_raknet_rpc_snapshot_compat(void) {
   map_icon_compat_update_from_snapshot(&snapshot);
   remote_player_compat_update_from_snapshot(&snapshot);
   remote_player_compat_update_name_tags_from_snapshot(&snapshot);
+  text_label_compat_update_from_snapshot(&snapshot);
   object_compat_update_from_snapshot(&snapshot);
   vehicle_compat_update_from_snapshot(&snapshot);
   previous_chat_seq = (uint32_t)InterlockedCompareExchange(&g_runtime.chat_client_message_seq, 0, 0);
@@ -19654,12 +20209,15 @@ static void launch_prepare_network_compat(void) {
     InterlockedExchange(&g_runtime.textdraw_mouse_down, 0);
     g_runtime.textdraw_select_color = 0u;
     memset(g_runtime.textdraw_slots, 0, sizeof(g_runtime.textdraw_slots));
+    InterlockedExchange(&g_runtime.game_text_event_seq, 0);
     InterlockedExchange(&g_runtime.game_text_seq, 0);
     InterlockedExchange(&g_runtime.game_text_active, 0);
+    InterlockedExchange(&g_runtime.game_text_active_count, 0);
     InterlockedExchange(&g_runtime.game_text_logged, 0);
     InterlockedExchange(&g_runtime.game_text_style, 0);
     g_runtime.game_text_expire_tick = 0u;
     g_runtime.game_text[0] = '\0';
+    memset(g_runtime.game_text_slots, 0, sizeof(g_runtime.game_text_slots));
     InterlockedExchange(&g_runtime.scoreboard_offset, 0);
     InterlockedExchange(&g_runtime.scoreboard_logged, 0);
     InterlockedExchange(&g_runtime.scoreboard_player_pool_event_seq, 0);
@@ -19670,6 +20228,7 @@ static void launch_prepare_network_compat(void) {
     memset(g_runtime.scoreboard_players, 0, sizeof(g_runtime.scoreboard_players));
     map_icon_compat_reset("connect_reset");
     remote_player_compat_reset_pool("connect_reset");
+    text_label_compat_reset_pool("connect_reset");
     object_compat_reset_pool("connect_reset");
     vehicle_compat_reset_pool("connect_reset");
     memset(g_runtime.samp_asset_register_blocked_models, 0, sizeof(g_runtime.samp_asset_register_blocked_models));

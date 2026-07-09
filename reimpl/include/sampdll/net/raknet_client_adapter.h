@@ -145,6 +145,12 @@ typedef struct samp_raknet_join_profile {
 #define SAMP_RAKNET_MAP_ICON_ACTION_SET 1u
 #define SAMP_RAKNET_MAP_ICON_ACTION_REMOVE 2u
 #define SAMP_RAKNET_NAME_TAG_EVENT_RING 64u
+#define SAMP_RAKNET_3D_TEXT_LABEL_EVENT_RING 128u
+#define SAMP_RAKNET_MAX_3D_TEXT_LABELS 1024u
+#define SAMP_RAKNET_3D_TEXT_LABEL_TEXT_BYTES 512u
+#define SAMP_RAKNET_3D_TEXT_LABEL_ACTION_CREATE 1u
+#define SAMP_RAKNET_3D_TEXT_LABEL_ACTION_UPDATE 2u
+#define SAMP_RAKNET_3D_TEXT_LABEL_ACTION_DELETE 3u
 #define SAMP_RAKNET_REQUIRED_VEHICLE_MODELS 212u
 #define SAMP_RAKNET_DIALOG_TITLE_BYTES 256u
 #define SAMP_RAKNET_DIALOG_INFO_BYTES 4096u
@@ -153,6 +159,10 @@ typedef struct samp_raknet_join_profile {
 #define SAMP_RAKNET_TEXTDRAW_EVENT_RING 64u
 #define SAMP_RAKNET_TEXTDRAW_TEXT_BYTES 256u
 #define SAMP_RAKNET_GAMETEXT_TEXT_BYTES 512u
+#define SAMP_RAKNET_GAMETEXT_EVENT_RING 16u
+#define SAMP_RAKNET_GAMETEXT_MAX_STYLES 7u
+#define SAMP_RAKNET_GAMETEXT_ACTION_SHOW 1u
+#define SAMP_RAKNET_GAMETEXT_ACTION_HIDE 2u
 #define SAMP_RAKNET_MAX_TEXTDRAWS 4096u
 #define SAMP_RAKNET_TEXTDRAW_ACTION_SHOW 1u
 #define SAMP_RAKNET_TEXTDRAW_ACTION_HIDE 2u
@@ -257,6 +267,28 @@ typedef struct samp_raknet_name_tag_event {
   uint8_t reserved;
 } samp_raknet_name_tag_event;
 
+typedef struct samp_raknet_game_text_event {
+  uint32_t seq;
+  uint8_t action;
+  uint8_t reserved[3];
+  int32_t style;
+  int32_t time_ms;
+  char text[SAMP_RAKNET_GAMETEXT_TEXT_BYTES];
+} samp_raknet_game_text_event;
+
+typedef struct samp_raknet_3d_text_label_event {
+  uint32_t seq;
+  uint8_t action;
+  uint8_t test_los;
+  uint16_t label_id;
+  uint16_t attached_player_id;
+  uint16_t attached_vehicle_id;
+  uint32_t color;
+  float pos[3];
+  float draw_distance;
+  char text[SAMP_RAKNET_3D_TEXT_LABEL_TEXT_BYTES];
+} samp_raknet_3d_text_label_event;
+
 #pragma pack(push, 1)
 typedef struct samp_raknet_textdraw_transmit {
   float letter_width;
@@ -350,6 +382,8 @@ typedef struct samp_raknet_rpc_probe_snapshot {
   uint32_t remote_player_sync_count;
   uint32_t map_icon_event_count;
   uint32_t name_tag_event_count;
+  uint32_t game_text_event_count;
+  uint32_t text_label_event_count;
   uint32_t given_weapon_event_count;
   uint8_t textdraw_select_active;
   uint32_t textdraw_select_color;
@@ -471,6 +505,8 @@ typedef struct samp_raknet_rpc_probe_snapshot {
   samp_raknet_remote_onfoot_sync remote_player_syncs[SAMP_RAKNET_REMOTE_PLAYER_SYNC_RING];
   samp_raknet_map_icon_event map_icon_events[SAMP_RAKNET_MAP_ICON_EVENT_RING];
   samp_raknet_name_tag_event name_tag_events[SAMP_RAKNET_NAME_TAG_EVENT_RING];
+  samp_raknet_game_text_event game_text_events[SAMP_RAKNET_GAMETEXT_EVENT_RING];
+  samp_raknet_3d_text_label_event text_label_events[SAMP_RAKNET_3D_TEXT_LABEL_EVENT_RING];
   samp_raknet_given_weapon_event given_weapon_events[SAMP_RAKNET_GIVE_WEAPON_EVENT_RING];
 } samp_raknet_rpc_probe_snapshot;
 
