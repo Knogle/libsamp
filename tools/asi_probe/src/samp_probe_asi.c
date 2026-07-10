@@ -13,6 +13,7 @@
 #define PROBE_SAMP_CODE_HOOKS_FLAG "samp_probe_samp_code_hooks.flag"
 #define PROBE_GTA_ASSET_HOOKS_FLAG "samp_probe_gta_asset_hooks.flag"
 #define PROBE_OBJECT_INFO_FLAG "samp_probe_object_info.flag"
+#define PROBE_CUSTOM_OBJECT_HEAVY_FLAG "samp_probe_custom_object_heavy.flag"
 #define PROBE_TEXTDRAW_HOOKS_FLAG "samp_probe_textdraw_hooks.flag"
 #define PROBE_TEXTDRAW_VERBOSE_FLAG "samp_probe_textdraw_verbose.flag"
 #define PROBE_TEXTDRAW_RENDER_FLAG "samp_probe_textdraw_render.flag"
@@ -32,6 +33,8 @@
 #define PROBE_GTA_ADDR_MODEL_INFO_CLUMP_STORE_COUNT 0x00B1E958u
 #define PROBE_GTA_ADDR_D3D_DEVICE_PTR 0x00C97C28u
 #define PROBE_GTA_MODEL_INFO_MAX 20000u
+#define PROBE_GTA_CUSTOM_LOW_MODEL_MIN 11682u
+#define PROBE_GTA_CUSTOM_LOW_MODEL_MAX 11753u
 #define PROBE_GTA_CUSTOM_MODEL_MIN 18631u
 #define PROBE_GTA_CUSTOM_MODEL_MAX 19999u
 #define PROBE_GTA_MODEL_INFO_OFFSET_VTABLE 0u
@@ -319,6 +322,7 @@ static int asset_read_hooks_enabled(void);
 static int samp_code_hooks_enabled(void);
 static int gta_asset_hooks_enabled(void);
 static int object_info_enabled(void);
+static int custom_object_heavy_enabled(void);
 static int textdraw_hooks_enabled(void);
 static int textdraw_verbose_enabled(void);
 static int textdraw_render_enabled(void);
@@ -799,7 +803,8 @@ static int env_flag_enabled(const char *name) {
 }
 
 static int asset_path_hooks_enabled(void) {
-  return env_or_flag_enabled("SAMP_PROBE_ASSET_PATHS", PROBE_ASSET_PATHS_FLAG) || asset_read_hooks_enabled();
+  return env_or_flag_enabled("SAMP_PROBE_ASSET_PATHS", PROBE_ASSET_PATHS_FLAG) || asset_read_hooks_enabled() ||
+         custom_object_heavy_enabled();
 }
 
 static int asset_read_hooks_enabled(void) {
@@ -819,7 +824,8 @@ static int gta_asset_hooks_enabled(void) {
    * These hooks patch GTA-SA engine functions, not samp.dll. They are only for
    * short original-vs-rebuild custom-object traces because they sit on hot asset
    * loading paths and must not become part of normal gameplay runs. */
-  return env_or_flag_enabled("SAMP_PROBE_GTA_ASSET_HOOKS", PROBE_GTA_ASSET_HOOKS_FLAG);
+  return env_or_flag_enabled("SAMP_PROBE_GTA_ASSET_HOOKS", PROBE_GTA_ASSET_HOOKS_FLAG) ||
+         custom_object_heavy_enabled();
 }
 
 static int object_info_enabled(void) {
@@ -827,7 +833,15 @@ static int object_info_enabled(void) {
    * Focused custom-object runs need CModelInfo/CColModel field dumps after GTA's
    * native registration path. Keep this separate from the hot GTA asset hook flag
    * because the raw scans are intentionally verbose. */
-  return env_or_flag_enabled("SAMP_PROBE_OBJECT_INFO", PROBE_OBJECT_INFO_FLAG);
+  return env_or_flag_enabled("SAMP_PROBE_OBJECT_INFO", PROBE_OBJECT_INFO_FLAG) || custom_object_heavy_enabled();
+}
+
+static int custom_object_heavy_enabled(void) {
+  /* PROBE_TRACE + TODO_VERIFY:
+   * Heavy custom-object mode keeps normal runs quiet, but a focused original
+   * DLL run can capture stack-attributed model registration, store counters,
+   * pointer slots, and collision binding in one pass. */
+  return env_or_flag_enabled("SAMP_PROBE_CUSTOM_OBJECT_HEAVY", PROBE_CUSTOM_OBJECT_HEAVY_FLAG);
 }
 
 static int textdraw_hooks_enabled(void) {
@@ -1269,6 +1283,76 @@ static DWORD read_u32_or(uintptr_t address, DWORD fallback) {
   return value;
 }
 
+static uintptr_t probe_current_stack_pointer(void) {
+  uintptr_t sp = 0;
+
+#if defined(__GNUC__) && defined(__i386__)
+  __asm__ __volatile__("movl %%esp, %0" : "=r"(sp));
+#else
+  sp = (uintptr_t)&sp;
+#endif
+  return sp;
+}
+
+static int append_format(char *out, size_t out_size, size_t *used, const char *fmt, ...) {
+  va_list ap;
+  int written;
+
+  if (out == NULL || out_size == 0 || used == NULL || *used >= out_size) {
+    return 0;
+  }
+
+  va_start(ap, fmt);
+  written = vsnprintf(out + *used, out_size - *used, fmt, ap);
+  va_end(ap);
+  if (written < 0) {
+    return 0;
+  }
+  if ((size_t)written >= out_size - *used) {
+    *used = out_size - 1;
+    out[*used] = '\0';
+    return 0;
+  }
+  *used += (size_t)written;
+  return 1;
+}
+
+static void format_samp_stack_rvas(char *out, size_t out_size, unsigned max_words, unsigned max_hits) {
+  uintptr_t sp = probe_current_stack_pointer();
+  size_t used = 0;
+  unsigned i;
+  unsigned hits = 0;
+
+  if (out == NULL || out_size == 0) {
+    return;
+  }
+  out[0] = '\0';
+  append_format(out, out_size, &used, "sp=0x%08lx rvas=", (unsigned long)sp);
+
+  for (i = 0; i < max_words && hits < max_hits; ++i) {
+    uintptr_t slot = sp + ((uintptr_t)i * sizeof(DWORD));
+    DWORD value;
+    unsigned long rva;
+
+    if (!memory_is_readable(slot, sizeof(value))) {
+      break;
+    }
+
+    value = read_u32_or(slot, 0u);
+    if (!address_in_samp((void *)(uintptr_t)value)) {
+      continue;
+    }
+
+    rva = samp_rva_from_address((void *)(uintptr_t)value);
+    append_format(out, out_size, &used, "%s[%u]=0x%08lx", hits == 0 ? "" : ",", i, rva);
+    ++hits;
+  }
+
+  if (hits == 0) {
+    append_format(out, out_size, &used, "none");
+  }
+}
+
 static void safe_cstr_or(const char *value, char *out, size_t out_size, const char *fallback) {
   size_t i;
 
@@ -1554,6 +1638,13 @@ static void *gta_model_info_ptr_for_id(int model_id) {
   return value;
 }
 
+static uintptr_t gta_model_info_slot_address_for_id(int model_id) {
+  if (model_id < 0 || (unsigned)model_id >= PROBE_GTA_MODEL_INFO_MAX) {
+    return 0;
+  }
+  return PROBE_GTA_ADDR_MODEL_INFO_PTRS + ((uintptr_t)(unsigned)model_id * sizeof(void *));
+}
+
 static float read_f32_or(uintptr_t address, float fallback) {
   float value;
 
@@ -1567,7 +1658,7 @@ static float read_f32_or(uintptr_t address, float fallback) {
 
 static int probe_model_id_is_tracked(int model_id) {
   static const int tracked[] = {
-      11692, 18777, 18781, 18784, 18794, 18808, 18809, 18818, 18824, 18826,
+      11682, 11683, 11684, 11692, 18777, 18781, 18784, 18794, 18808, 18809, 18818, 18824, 18826,
       18829, 18842, 18858, 18981, 18997, 19002, 19005, 19071, 19074, 19128,
       19312, 19313, 19316, 19332, 19333, 19378, 19425, 19649, 19667, 19894,
       19905, 19907, 19909,
@@ -1583,6 +1674,9 @@ static int probe_model_id_is_tracked(int model_id) {
 }
 
 static int probe_model_id_is_custom(int model_id) {
+  if (model_id >= (int)PROBE_GTA_CUSTOM_LOW_MODEL_MIN && model_id <= (int)PROBE_GTA_CUSTOM_LOW_MODEL_MAX) {
+    return 1;
+  }
   return model_id >= (int)PROBE_GTA_CUSTOM_MODEL_MIN && model_id <= (int)PROBE_GTA_CUSTOM_MODEL_MAX;
 }
 
@@ -1649,8 +1743,25 @@ static void log_gta_model_info_dump(const char *phase, int model_id, void *calle
             raw_hex, col_hex);
 }
 
-static void scan_gta_custom_model_infos(const char *phase, void *caller) {
+static void scan_gta_custom_model_info_range(const char *phase, void *caller, int first_model, int last_model,
+                                             LONG *logged, LONG *missing) {
   int model_id;
+
+  for (model_id = first_model; model_id <= last_model; ++model_id) {
+    if (gta_model_info_ptr_for_id(model_id) != NULL) {
+      log_gta_model_info_dump(phase, model_id, caller, 1);
+      if (logged != NULL) {
+        ++(*logged);
+      }
+    } else {
+      if (missing != NULL) {
+        ++(*missing);
+      }
+    }
+  }
+}
+
+static void scan_gta_custom_model_infos(const char *phase, void *caller) {
   LONG logged = 0;
   LONG missing = 0;
 
@@ -1658,24 +1769,22 @@ static void scan_gta_custom_model_infos(const char *phase, void *caller) {
     return;
   }
 
-  for (model_id = (int)PROBE_GTA_CUSTOM_MODEL_MIN; model_id <= (int)PROBE_GTA_CUSTOM_MODEL_MAX; ++model_id) {
-    if (gta_model_info_ptr_for_id(model_id) != NULL) {
-      log_gta_model_info_dump(phase, model_id, caller, 1);
-      ++logged;
-    } else {
-      ++missing;
-    }
-  }
+  scan_gta_custom_model_info_range(phase, caller, (int)PROBE_GTA_CUSTOM_LOW_MODEL_MIN,
+                                   (int)PROBE_GTA_CUSTOM_LOW_MODEL_MAX, &logged, &missing);
+  scan_gta_custom_model_info_range(phase, caller, (int)PROBE_GTA_CUSTOM_MODEL_MIN,
+                                   (int)PROBE_GTA_CUSTOM_MODEL_MAX, &logged, &missing);
 
-  probe_log("gta_object_info: scan phase=%s logged=%ld missing=%ld range=%u-%u "
+  probe_log("gta_object_info: scan phase=%s logged=%ld missing=%ld ranges=%u-%u,%u-%u "
             "evidence=OBSERVED_037,PROBE_TRACE,TODO_VERIFY",
-            phase != NULL ? phase : "unknown", (long)logged, (long)missing, (unsigned)PROBE_GTA_CUSTOM_MODEL_MIN,
+            phase != NULL ? phase : "unknown", (long)logged, (long)missing, (unsigned)PROBE_GTA_CUSTOM_LOW_MODEL_MIN,
+            (unsigned)PROBE_GTA_CUSTOM_LOW_MODEL_MAX, (unsigned)PROBE_GTA_CUSTOM_MODEL_MIN,
             (unsigned)PROBE_GTA_CUSTOM_MODEL_MAX);
 }
 
 static void log_tracked_gta_model_infos(const char *phase, void *caller) {
   static const int tracked[] = {
-      11692, 18777, 18818, 18842, 18997, 19313, 19316, 19425, 19894, 19905, 19907, 19909,
+      11682, 11683, 11684, 11692, 18777, 18818, 18842, 18997, 19313, 19316, 19425, 19894,
+      19905, 19907, 19909,
   };
   size_t i;
 
@@ -2706,9 +2815,21 @@ static DWORD WINAPI probe_worker(LPVOID param) {
   init_log_path();
   probe_log("probe: attached build=%s %s", __DATE__, __TIME__);
   probe_log("probe: options asset_path_hooks=%d asset_read_hooks=%d samp_code_hooks=%d gta_asset_hooks=%d "
-            "object_info=%d textdraw_hooks=%d textdraw_verbose=%d textdraw_render=%d",
+            "object_info=%d custom_object_heavy=%d textdraw_hooks=%d textdraw_verbose=%d textdraw_render=%d",
             asset_path_hooks_enabled(), asset_read_hooks_enabled(), samp_code_hooks_enabled(), gta_asset_hooks_enabled(),
-            object_info_enabled(), textdraw_hooks_enabled(), textdraw_verbose_enabled(), textdraw_render_enabled());
+            object_info_enabled(), custom_object_heavy_enabled(), textdraw_hooks_enabled(), textdraw_verbose_enabled(),
+            textdraw_render_enabled());
+  if (custom_object_heavy_enabled()) {
+    probe_log("custom_object_heavy: store_addresses model_info_ptrs=0x%08lx atomic_count=0x%08lx "
+              "time_count=0x%08lx clump_count=0x%08lx low_range=%u-%u high_range=%u-%u "
+              "evidence=OBSERVED_037,PROBE_TRACE,TODO_VERIFY",
+              (unsigned long)PROBE_GTA_ADDR_MODEL_INFO_PTRS,
+              (unsigned long)PROBE_GTA_ADDR_MODEL_INFO_ATOMIC_STORE_COUNT,
+              (unsigned long)PROBE_GTA_ADDR_MODEL_INFO_TIME_STORE_COUNT,
+              (unsigned long)PROBE_GTA_ADDR_MODEL_INFO_CLUMP_STORE_COUNT,
+              (unsigned)PROBE_GTA_CUSTOM_LOW_MODEL_MIN, (unsigned)PROBE_GTA_CUSTOM_LOW_MODEL_MAX,
+              (unsigned)PROBE_GTA_CUSTOM_MODEL_MIN, (unsigned)PROBE_GTA_CUSTOM_MODEL_MAX);
+  }
 
   start_ms = GetTickCount();
   while (WaitForSingleObject(g_stop_event, 50) == WAIT_TIMEOUT) {
@@ -3381,14 +3502,44 @@ static HRESULT WINAPI hook_d3d_draw_indexed_primitive_up(void *device, DWORD pri
   return rc;
 }
 
-static void log_gta_model_add(const char *name, LONG count, void *caller, int model_id, DWORD before_count, void *result) {
+static void log_custom_heavy_model_add(const char *name, LONG count, void *caller, int model_id, DWORD before_count,
+                                       DWORD after_count, void *slot_before, void *slot_after, void *result) {
+  char stack_rvas[512];
+  uintptr_t slot_address;
+
+  if (!custom_object_heavy_enabled()) {
+    return;
+  }
+  if (!probe_model_id_is_custom(model_id) && !probe_model_id_is_tracked(model_id) && before_count < 13980u &&
+      !should_log_call(count)) {
+    return;
+  }
+
+  stack_rvas[0] = '\0';
+  format_samp_stack_rvas(stack_rvas, sizeof(stack_rvas), 384, 12);
+  slot_address = gta_model_info_slot_address_for_id(model_id);
+  probe_log("custom_object_heavy: model_add name=%s count=%ld caller=%p caller_samp_rva=0x%08lx model=%d "
+            "slot_addr=0x%08lx slot_before=%p slot_after=%p result=%p store_before=%lu store_after=%lu "
+            "atomic=%lu time=%lu clump=%lu stack_samp='%s' evidence=OBSERVED_037,PROBE_TRACE,TODO_VERIFY",
+            name != NULL ? name : "unknown", (long)count, caller, samp_rva_from_address(caller), model_id,
+            (unsigned long)slot_address, slot_before, slot_after, result, (unsigned long)before_count,
+            (unsigned long)after_count,
+            (unsigned long)read_u32_or(PROBE_GTA_ADDR_MODEL_INFO_ATOMIC_STORE_COUNT, 0xffffffffu),
+            (unsigned long)read_u32_or(PROBE_GTA_ADDR_MODEL_INFO_TIME_STORE_COUNT, 0xffffffffu),
+            (unsigned long)read_u32_or(PROBE_GTA_ADDR_MODEL_INFO_CLUMP_STORE_COUNT, 0xffffffffu), stack_rvas);
+}
+
+static void log_gta_model_add(const char *name, LONG count, void *caller, int model_id, DWORD before_count,
+                              void *slot_before, void *result) {
   DWORD after_count = gta_model_info_store_count_for_name(name);
   void *model_info = gta_model_info_ptr_for_id(model_id);
   probe_log("gta_asset: %s count=%ld caller=%p caller_samp_rva=0x%08lx model=%d store_before=%lu store_after=%lu "
-            "result=%p model_info_ptr=%p evidence=PROBE_TRACE,GTA_REVERSED_REF,TODO_VERIFY",
+            "slot_before=%p result=%p model_info_ptr=%p evidence=PROBE_TRACE,GTA_REVERSED_REF,TODO_VERIFY",
             name, (long)count, caller, samp_rva_from_address(caller), model_id, (unsigned long)before_count,
-            (unsigned long)after_count, result, model_info);
-  log_gta_model_info_dump(name, model_id, caller, should_log_call(count));
+            (unsigned long)after_count, slot_before, result, model_info);
+  log_custom_heavy_model_add(name, count, caller, model_id, before_count, after_count, slot_before, model_info, result);
+  log_gta_model_info_dump(name, model_id, caller, should_log_call(count) ||
+                                                    (custom_object_heavy_enabled() && probe_model_id_interesting(model_id)));
 }
 
 static void log_gta_physical_entity(const char *phase, LONG count, void *caller, void *entity) {
@@ -3401,7 +3552,10 @@ static void log_gta_physical_entity(const char *phase, LONG count, void *caller,
   BYTE status = read_u8_or(entity_addr + PROBE_GTA_ENTITY_OFFSET_STATUS, 0xffu);
   DWORD sector_link = read_u32_or(entity_addr + PROBE_GTA_PHYSICAL_OFFSET_SECTOR_LIST, 0xffffffffu);
   void *model_info = model != 0xffffu ? gta_model_info_ptr_for_id((int)model) : NULL;
-  int interesting = !readable || model >= 18631u || model == 1383u || should_log_call(count);
+  int model_interesting = model != 0xffffu &&
+                          (probe_model_id_is_custom((int)model) || probe_model_id_is_tracked((int)model));
+  int sample = should_log_call(count);
+  int interesting = !readable || model_interesting || model == 1383u || sample;
 
   if (!interesting) {
     return;
@@ -3416,6 +3570,21 @@ static void log_gta_physical_entity(const char *phase, LONG count, void *caller,
             (unsigned long)read_u32_or(PROBE_GTA_ADDR_MODEL_INFO_ATOMIC_STORE_COUNT, 0xffffffffu),
             (unsigned long)read_u32_or(PROBE_GTA_ADDR_MODEL_INFO_TIME_STORE_COUNT, 0xffffffffu),
             (unsigned long)read_u32_or(PROBE_GTA_ADDR_MODEL_INFO_CLUMP_STORE_COUNT, 0xffffffffu));
+
+  if (custom_object_heavy_enabled() && (model_interesting || !readable || sample)) {
+    char stack_rvas[512];
+    format_samp_stack_rvas(stack_rvas, sizeof(stack_rvas), 384, 12);
+    probe_log("custom_object_heavy: physical_add phase=%s count=%ld caller=%p caller_samp_rva=0x%08lx "
+              "entity=%p readable=%d vtable=0x%08lx rw_object=0x%08lx model=%u status=0x%02x "
+              "sector_link=0x%08lx model_info_ptr=%p atomic=%lu time=%lu clump=%lu stack_samp='%s' "
+              "evidence=OBSERVED_037,PROBE_TRACE,GTA_REVERSED_REF,TODO_VERIFY",
+              phase != NULL ? phase : "unknown", (long)count, caller, samp_rva_from_address(caller), entity, readable,
+              (unsigned long)vtable, (unsigned long)rw_object, (unsigned)model, (unsigned)status,
+              (unsigned long)sector_link, model_info,
+              (unsigned long)read_u32_or(PROBE_GTA_ADDR_MODEL_INFO_ATOMIC_STORE_COUNT, 0xffffffffu),
+              (unsigned long)read_u32_or(PROBE_GTA_ADDR_MODEL_INFO_TIME_STORE_COUNT, 0xffffffffu),
+              (unsigned long)read_u32_or(PROBE_GTA_ADDR_MODEL_INFO_CLUMP_STORE_COUNT, 0xffffffffu), stack_rvas);
+  }
 
   if (object_info_enabled() && model != 0xffffu && probe_model_id_interesting((int)model) &&
       g_model_info_physical_dumped[model] == 0) {
@@ -3442,12 +3611,13 @@ static void *__cdecl hook_gta_add_atomic_model(int model_id) {
   LONG n = next_call_count(&count);
   void *caller = probe_return_address();
   DWORD before_count = gta_model_info_store_count_for_name("AddAtomicModel");
+  void *slot_before = gta_model_info_ptr_for_id(model_id);
   void *result = NULL;
 
   if (g_orig_gta_add_atomic_model != NULL) {
     result = ((probe_gta_add_model_fn)g_orig_gta_add_atomic_model)(model_id);
   }
-  log_gta_model_add("AddAtomicModel", n, caller, model_id, before_count, result);
+  log_gta_model_add("AddAtomicModel", n, caller, model_id, before_count, slot_before, result);
   return result;
 }
 
@@ -3456,12 +3626,13 @@ static void *__cdecl hook_gta_add_time_model(int model_id) {
   LONG n = next_call_count(&count);
   void *caller = probe_return_address();
   DWORD before_count = gta_model_info_store_count_for_name("AddTimeModel");
+  void *slot_before = gta_model_info_ptr_for_id(model_id);
   void *result = NULL;
 
   if (g_orig_gta_add_time_model != NULL) {
     result = ((probe_gta_add_model_fn)g_orig_gta_add_time_model)(model_id);
   }
-  log_gta_model_add("AddTimeModel", n, caller, model_id, before_count, result);
+  log_gta_model_add("AddTimeModel", n, caller, model_id, before_count, slot_before, result);
   return result;
 }
 
@@ -3470,12 +3641,13 @@ static void *__cdecl hook_gta_add_clump_model(int model_id) {
   LONG n = next_call_count(&count);
   void *caller = probe_return_address();
   DWORD before_count = gta_model_info_store_count_for_name("AddClumpModel");
+  void *slot_before = gta_model_info_ptr_for_id(model_id);
   void *result = NULL;
 
   if (g_orig_gta_add_clump_model != NULL) {
     result = ((probe_gta_add_model_fn)g_orig_gta_add_clump_model)(model_id);
   }
-  log_gta_model_add("AddClumpModel", n, caller, model_id, before_count, result);
+  log_gta_model_add("AddClumpModel", n, caller, model_id, before_count, slot_before, result);
   return result;
 }
 
@@ -3493,6 +3665,19 @@ static int __cdecl hook_gta_add_image_to_list(const char *path, int not_player_i
   probe_log("gta_asset: AddImageToList count=%ld caller=%p caller_samp_rva=0x%08lx path='%s' not_player_img=%d "
             "result=%d evidence=PROBE_TRACE,GTA_REVERSED_REF,TODO_VERIFY",
             (long)n, caller, samp_rva_from_address(caller), safe_path, not_player_img, result);
+  if (custom_object_heavy_enabled() &&
+      (ascii_contains_ci(safe_path, "SAMP") || ascii_contains_ci(safe_path, "CUSTOM") ||
+       ascii_contains_ci(safe_path, "SAMPCOL") || should_log_call(n))) {
+    char stack_rvas[512];
+    format_samp_stack_rvas(stack_rvas, sizeof(stack_rvas), 384, 12);
+    probe_log("custom_object_heavy: add_image count=%ld caller=%p caller_samp_rva=0x%08lx path='%s' "
+              "not_player_img=%d result=%d atomic=%lu time=%lu clump=%lu stack_samp='%s' "
+              "evidence=OBSERVED_037,PROBE_TRACE,TODO_VERIFY",
+              (long)n, caller, samp_rva_from_address(caller), safe_path, not_player_img, result,
+              (unsigned long)read_u32_or(PROBE_GTA_ADDR_MODEL_INFO_ATOMIC_STORE_COUNT, 0xffffffffu),
+              (unsigned long)read_u32_or(PROBE_GTA_ADDR_MODEL_INFO_TIME_STORE_COUNT, 0xffffffffu),
+              (unsigned long)read_u32_or(PROBE_GTA_ADDR_MODEL_INFO_CLUMP_STORE_COUNT, 0xffffffffu), stack_rvas);
+  }
   return result;
 }
 
@@ -3510,6 +3695,15 @@ static void __cdecl hook_gta_load_cd_directory(const char *path, int image_id) {
             "atomic=%lu time=%lu clump=%lu evidence=PROBE_TRACE,GTA_REVERSED_REF,TODO_VERIFY",
             (long)n, caller, samp_rva_from_address(caller), safe_path, image_id, (unsigned long)atomic_before,
             (unsigned long)time_before, (unsigned long)clump_before);
+  if (custom_object_heavy_enabled()) {
+    char stack_rvas[512];
+    format_samp_stack_rvas(stack_rvas, sizeof(stack_rvas), 384, 12);
+    probe_log("custom_object_heavy: load_cd_directory_begin count=%ld caller=%p caller_samp_rva=0x%08lx "
+              "path='%s' image_id=%d atomic=%lu time=%lu clump=%lu stack_samp='%s' "
+              "evidence=OBSERVED_037,PROBE_TRACE,TODO_VERIFY",
+              (long)n, caller, samp_rva_from_address(caller), safe_path, image_id, (unsigned long)atomic_before,
+              (unsigned long)time_before, (unsigned long)clump_before, stack_rvas);
+  }
   if (g_orig_gta_load_cd_directory != NULL) {
     ((probe_gta_load_cd_directory_fn)g_orig_gta_load_cd_directory)(path, image_id);
   }
@@ -3518,6 +3712,19 @@ static void __cdecl hook_gta_load_cd_directory(const char *path, int image_id) {
             (unsigned long)read_u32_or(PROBE_GTA_ADDR_MODEL_INFO_ATOMIC_STORE_COUNT, 0xffffffffu),
             (unsigned long)read_u32_or(PROBE_GTA_ADDR_MODEL_INFO_TIME_STORE_COUNT, 0xffffffffu),
             (unsigned long)read_u32_or(PROBE_GTA_ADDR_MODEL_INFO_CLUMP_STORE_COUNT, 0xffffffffu));
+  if (custom_object_heavy_enabled()) {
+    char stack_rvas[512];
+    format_samp_stack_rvas(stack_rvas, sizeof(stack_rvas), 384, 12);
+    probe_log("custom_object_heavy: load_cd_directory_end count=%ld path='%s' image_id=%d atomic_before=%lu "
+              "atomic_after=%lu time_before=%lu time_after=%lu clump_before=%lu clump_after=%lu stack_samp='%s' "
+              "evidence=OBSERVED_037,PROBE_TRACE,TODO_VERIFY",
+              (long)n, safe_path, image_id, (unsigned long)atomic_before,
+              (unsigned long)read_u32_or(PROBE_GTA_ADDR_MODEL_INFO_ATOMIC_STORE_COUNT, 0xffffffffu),
+              (unsigned long)time_before,
+              (unsigned long)read_u32_or(PROBE_GTA_ADDR_MODEL_INFO_TIME_STORE_COUNT, 0xffffffffu),
+              (unsigned long)clump_before,
+              (unsigned long)read_u32_or(PROBE_GTA_ADDR_MODEL_INFO_CLUMP_STORE_COUNT, 0xffffffffu), stack_rvas);
+  }
   if (object_info_enabled()) {
     log_tracked_gta_model_infos("LoadCdDirectory.end.tracked", caller);
     if (ascii_contains_ci(safe_path, "CUSTOM.IMG") || ascii_contains_ci(safe_path, "SAMP.IMG") ||
@@ -3541,6 +3748,19 @@ static int __cdecl hook_gta_col_add_slot(const char *name) {
   probe_log("gta_asset: ColStore.AddColSlot count=%ld caller=%p caller_samp_rva=0x%08lx name='%s' result=%d "
             "evidence=PROBE_TRACE,GTA_REVERSED_REF,TODO_VERIFY",
             (long)n, caller, samp_rva_from_address(caller), safe_name, result);
+  if (custom_object_heavy_enabled() &&
+      (ascii_contains_ci(safe_name, "SAMP") || ascii_contains_ci(safe_name, "CUSTOM") ||
+       ascii_contains_ci(safe_name, "SAMPCOL") || should_log_call(n))) {
+    char stack_rvas[512];
+    format_samp_stack_rvas(stack_rvas, sizeof(stack_rvas), 384, 12);
+    probe_log("custom_object_heavy: col_add_slot count=%ld caller=%p caller_samp_rva=0x%08lx name='%s' result=%d "
+              "atomic=%lu time=%lu clump=%lu stack_samp='%s' "
+              "evidence=OBSERVED_037,PROBE_TRACE,GTA_REVERSED_REF,TODO_VERIFY",
+              (long)n, caller, samp_rva_from_address(caller), safe_name, result,
+              (unsigned long)read_u32_or(PROBE_GTA_ADDR_MODEL_INFO_ATOMIC_STORE_COUNT, 0xffffffffu),
+              (unsigned long)read_u32_or(PROBE_GTA_ADDR_MODEL_INFO_TIME_STORE_COUNT, 0xffffffffu),
+              (unsigned long)read_u32_or(PROBE_GTA_ADDR_MODEL_INFO_CLUMP_STORE_COUNT, 0xffffffffu), stack_rvas);
+  }
   return result;
 }
 
@@ -3549,14 +3769,38 @@ static int __cdecl hook_gta_col_load_buffer(int slot, void *buffer, int size) {
   LONG n = next_call_count(&count);
   void *caller = probe_return_address();
   int result = 0;
+  char payload[PROBE_PAYLOAD_PREVIEW_BYTES * 3 + 8];
 
+  payload[0] = '\0';
+  payload_to_hex(buffer, size, payload, sizeof(payload));
   probe_log("gta_asset: ColStore.LoadCol.begin count=%ld caller=%p caller_samp_rva=0x%08lx slot=%d buffer=%p size=%d "
             "evidence=PROBE_TRACE,GTA_REVERSED_REF,TODO_VERIFY",
             (long)n, caller, samp_rva_from_address(caller), slot, buffer, size);
+  if (custom_object_heavy_enabled()) {
+    char stack_rvas[512];
+    format_samp_stack_rvas(stack_rvas, sizeof(stack_rvas), 384, 12);
+    probe_log("custom_object_heavy: col_load_begin count=%ld caller=%p caller_samp_rva=0x%08lx slot=%d buffer=%p "
+              "size=%d first_bytes=%s atomic=%lu time=%lu clump=%lu stack_samp='%s' "
+              "evidence=OBSERVED_037,PROBE_TRACE,GTA_REVERSED_REF,TODO_VERIFY",
+              (long)n, caller, samp_rva_from_address(caller), slot, buffer, size, payload,
+              (unsigned long)read_u32_or(PROBE_GTA_ADDR_MODEL_INFO_ATOMIC_STORE_COUNT, 0xffffffffu),
+              (unsigned long)read_u32_or(PROBE_GTA_ADDR_MODEL_INFO_TIME_STORE_COUNT, 0xffffffffu),
+              (unsigned long)read_u32_or(PROBE_GTA_ADDR_MODEL_INFO_CLUMP_STORE_COUNT, 0xffffffffu), stack_rvas);
+  }
   if (g_orig_gta_col_load_buffer != NULL) {
     result = ((probe_gta_col_load_buffer_fn)g_orig_gta_col_load_buffer)(slot, buffer, size);
   }
   probe_log("gta_asset: ColStore.LoadCol.end count=%ld slot=%d size=%d result=%d", (long)n, slot, size, result);
+  if (custom_object_heavy_enabled()) {
+    char stack_rvas[512];
+    format_samp_stack_rvas(stack_rvas, sizeof(stack_rvas), 384, 12);
+    probe_log("custom_object_heavy: col_load_end count=%ld slot=%d size=%d result=%d atomic=%lu time=%lu clump=%lu "
+              "stack_samp='%s' evidence=OBSERVED_037,PROBE_TRACE,GTA_REVERSED_REF,TODO_VERIFY",
+              (long)n, slot, size, result,
+              (unsigned long)read_u32_or(PROBE_GTA_ADDR_MODEL_INFO_ATOMIC_STORE_COUNT, 0xffffffffu),
+              (unsigned long)read_u32_or(PROBE_GTA_ADDR_MODEL_INFO_TIME_STORE_COUNT, 0xffffffffu),
+              (unsigned long)read_u32_or(PROBE_GTA_ADDR_MODEL_INFO_CLUMP_STORE_COUNT, 0xffffffffu), stack_rvas);
+  }
   log_tracked_gta_model_infos("ColStore.LoadCol.end.tracked", caller);
   return result;
 }
