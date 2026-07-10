@@ -894,6 +894,46 @@ public OnPlayerCommandText(playerid, cmdtext[])
 		return 1;
 	}
 
+	if (!strcmp(cmdtext, "/findz", true))
+	{
+		new Float:x, Float:y, Float:z;
+		GetPlayerPos(playerid, x, y, z);
+		SetPlayerPosFindZ(playerid, x + 5.0, y, z + 50.0);
+		SendClientMessage(playerid, 0x66FF66FF, "[bare-rpctest] SetPlayerPosFindZ sent five metres east.");
+		printf("[bare-rpctest] player=%d pos_find_z=%.3f,%.3f,%.3f", playerid, x + 5.0, y, z + 50.0);
+		return 1;
+	}
+
+	if (!strcmp(cmdtext, "/velocity", true, 9) &&
+		(cmdtext[9] == '\0' || cmdtext[9] == ' ' || cmdtext[9] == '\t'))
+	{
+		new token = SkipCommandSpaces(cmdtext, 9);
+		new Float:x = floatstr(cmdtext[token]);
+		token = NextCommandToken(cmdtext, token);
+		new Float:y = floatstr(cmdtext[token]);
+		token = NextCommandToken(cmdtext, token);
+		new Float:z = floatstr(cmdtext[token]);
+		new message[128];
+		if (cmdtext[token] == '\0' || x < -20.0 || x > 20.0 || y < -20.0 || y > 20.0 || z < -20.0 || z > 20.0)
+		{
+			SendClientMessage(playerid, 0xFFCC66FF, "[bare-rpctest] Usage: /velocity <x -20..20> <y -20..20> <z -20..20>");
+			return 1;
+		}
+		SetPlayerVelocity(playerid, x, y, z);
+		format(message, sizeof(message), "[bare-rpctest] Velocity set to %.3f %.3f %.3f.", x, y, z);
+		SendClientMessage(playerid, 0x66FF66FF, message);
+		printf("[bare-rpctest] player=%d velocity=%.3f,%.3f,%.3f", playerid, x, y, z);
+		return 1;
+	}
+
+	if (!strcmp(cmdtext, "/eject", true))
+	{
+		RemovePlayerFromVehicle(playerid);
+		SendClientMessage(playerid, 0x66FF66FF, "[bare-rpctest] RemovePlayerFromVehicle sent.");
+		printf("[bare-rpctest] player=%d remove_from_vehicle=1", playerid);
+		return 1;
+	}
+
 	if (!strcmp(cmdtext, "/gravity", true, 8) &&
 		(cmdtext[8] == '\0' || cmdtext[8] == ' ' || cmdtext[8] == '\t'))
 	{

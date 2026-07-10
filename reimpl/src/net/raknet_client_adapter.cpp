@@ -234,6 +234,9 @@ struct RpcProbeState {
   unsigned int player_skill_seq;
   unsigned int player_drunk_seq;
   unsigned int player_fighting_style_seq;
+  unsigned int player_pos_find_z_seq;
+  unsigned int player_velocity_seq;
+  unsigned int remove_player_from_vehicle_seq;
   unsigned int play_sound_seq;
   unsigned int stop_audio_stream_seq;
   unsigned int player_color_seq;
@@ -260,6 +263,8 @@ struct RpcProbeState {
   unsigned int player_drunk_level;
   unsigned short player_fighting_style_player_id;
   unsigned char player_fighting_style;
+  float player_pos_find_z[3];
+  float player_velocity[3];
   samp_raknet_given_weapon_event player_given_weapon_events[SAMP_RAKNET_GIVE_WEAPON_EVENT_RING];
   unsigned int play_sound_id;
   float play_sound_pos[3];
@@ -553,7 +558,7 @@ struct RpcMeta {
 const RpcMeta kRpcMeta[] = {
     {11U, "ScrSetPlayerName", kRpcLocalDummy, "SAMPFUNCS_037"},
     {12U, "ScrSetPlayerPos", kRpcLocalImplemented, "PROBE_TRACE"},
-    {13U, "ScrSetPlayerPosFindZ", kRpcLocalDummy, "SAMPFUNCS_037"},
+    {13U, "ScrSetPlayerPosFindZ", kRpcLocalImplemented, "STATIC_037:samp.dll+0x19440"},
     {14U, "ScrSetPlayerHealth", kRpcLocalImplemented, "STATIC_037"},
     {15U, "ScrTogglePlayerControllable", kRpcLocalImplemented, "STATIC_037"},
     {16U, "ScrPlaySound", kRpcLocalImplemented, "STATIC_037"},
@@ -608,7 +613,7 @@ const RpcMeta kRpcMeta[] = {
     {68U, "ScrSetSpawnInfo", kRpcLocalImplemented, "PROBE_TRACE"},
     {69U, "ScrSetPlayerTeam", kRpcLocalDecoded, "OPENMP_REF"},
     {70U, "ScrPutPlayerInVehicle", kRpcLocalImplemented, "PROBE_TRACE,STATIC_037,TODO_VERIFY"},
-    {71U, "ScrRemovePlayerFromVehicle", kRpcLocalDummy, "STATIC_037"},
+    {71U, "ScrRemovePlayerFromVehicle", kRpcLocalImplemented, "STATIC_037:samp.dll+0x17FF0"},
     {72U, "ScrSetPlayerColor", kRpcLocalDecoded, "OPENMP_REF"},
     {73U, "ScrDisplayGameText", kRpcLocalImplemented, "STATIC_037,OPENMP_REF,TODO_VERIFY"},
     {74U, "ScrForceClassSelection", kRpcLocalDummy, "STATIC_037"},
@@ -627,7 +632,7 @@ const RpcMeta kRpcMeta[] = {
     {87U, "ScrClearAnimations", kRpcLocalDummy, "STATIC_037"},
     {88U, "ScrSetPlayerSpecialAction", kRpcLocalDummy, "STATIC_037"},
     {89U, "ScrSetPlayerFightingStyle", kRpcLocalImplemented, "STATIC_037:samp.dll+0x18740"},
-    {90U, "ScrSetPlayerVelocity", kRpcLocalDummy, "SAMPFUNCS_037"},
+    {90U, "ScrSetPlayerVelocity", kRpcLocalImplemented, "STATIC_037:samp.dll+0x18850"},
     {91U, "ScrSetVehicleVelocity", kRpcLocalDummy, "SAMPFUNCS_037"},
     {93U, "ScrClientMessage", kRpcLocalImplemented, "PROBE_TRACE"},
     {94U, "ScrSetWorldTime", kRpcLocalImplemented, "PROBE_TRACE"},
@@ -735,6 +740,8 @@ const char *rpc_source(unsigned int rpc_id) {
 unsigned int rpc_min_payload_bytes(unsigned int rpc_id) {
   switch (rpc_id) {
     case 12U:
+    case 13U:
+    case 90U:
     case 157U:
     case 158U:
       return 12U;
@@ -788,8 +795,9 @@ unsigned int rpc_min_payload_bytes(unsigned int rpc_id) {
     case 69U:
       return 3U;
     case 70U:
-    case 71U:
       return 2U;
+    case 71U:
+      return 0U;
     case 72U:
       return 6U;
     case 83U:
@@ -1013,6 +1021,9 @@ void reset_rpc_probe_runtime(RakNet::RakClientInterface *client) {
   g_rpc_probe.player_skill_seq = 0U;
   g_rpc_probe.player_drunk_seq = 0U;
   g_rpc_probe.player_fighting_style_seq = 0U;
+  g_rpc_probe.player_pos_find_z_seq = 0U;
+  g_rpc_probe.player_velocity_seq = 0U;
+  g_rpc_probe.remove_player_from_vehicle_seq = 0U;
   g_rpc_probe.play_sound_seq = 0U;
   g_rpc_probe.stop_audio_stream_seq = 0U;
   g_rpc_probe.player_color_seq = 0U;
@@ -1044,6 +1055,8 @@ void reset_rpc_probe_runtime(RakNet::RakClientInterface *client) {
   g_rpc_probe.player_drunk_level = 0U;
   g_rpc_probe.player_fighting_style_player_id = 0U;
   g_rpc_probe.player_fighting_style = 0U;
+  std::memset(g_rpc_probe.player_pos_find_z, 0, sizeof(g_rpc_probe.player_pos_find_z));
+  std::memset(g_rpc_probe.player_velocity, 0, sizeof(g_rpc_probe.player_velocity));
   std::memset(g_rpc_probe.player_given_weapon_events, 0, sizeof(g_rpc_probe.player_given_weapon_events));
   std::memset(g_rpc_probe.give_money_events, 0, sizeof(g_rpc_probe.give_money_events));
   g_rpc_probe.play_sound_id = 0U;
@@ -5302,6 +5315,42 @@ void rpc_observer(RakNet::RPCParameters *rpc_params, void *extra) {
     if (rpc_params == nullptr || !decode_gang_zone_create_payload(rpc_params->input, bytes)) {
       trace_netf("rpc-state id=108 gang_zone_create decode_failed bytes=%u", bytes);
     }
+  } else if (rpc_id == 13U) {
+    if (rpc_params != nullptr && bytes >= 12U) {
+      float pos[3];
+      read_vec3(rpc_params->input, pos);
+      if (std::isfinite(pos[0]) && std::isfinite(pos[1]) && std::isfinite(pos[2]) &&
+          pos[0] > -30000.0f && pos[0] < 30000.0f && pos[1] > -30000.0f && pos[1] < 30000.0f &&
+          pos[2] > -5000.0f && pos[2] < 20000.0f) {
+        std::memcpy(g_rpc_probe.player_pos_find_z, pos, sizeof(pos));
+        const unsigned int seq = bump_seq(&g_rpc_probe.player_pos_find_z_seq);
+        trace_netf("rpc-state id=13 pos_find_z_seq=%u pos=%.3f %.3f %.3f apply_pending=1 evidence=STATIC_037",
+                   seq, static_cast<double>(pos[0]), static_cast<double>(pos[1]), static_cast<double>(pos[2]));
+      } else {
+        trace_netf("rpc-state id=13 invalid_pos_find_z=%.3f %.3f %.3f ignored=1 evidence=STATIC_037",
+                   static_cast<double>(pos[0]), static_cast<double>(pos[1]), static_cast<double>(pos[2]));
+      }
+    }
+  } else if (rpc_id == 71U) {
+    const unsigned int seq = bump_seq(&g_rpc_probe.remove_player_from_vehicle_seq);
+    trace_netf("rpc-state id=71 remove_from_vehicle_seq=%u apply_pending=1 evidence=STATIC_037", seq);
+  } else if (rpc_id == 90U) {
+    if (rpc_params != nullptr && bytes >= 12U) {
+      float velocity[3];
+      read_vec3(rpc_params->input, velocity);
+      if (std::isfinite(velocity[0]) && std::isfinite(velocity[1]) && std::isfinite(velocity[2]) &&
+          std::fabs(velocity[0]) <= 20.0f && std::fabs(velocity[1]) <= 20.0f && std::fabs(velocity[2]) <= 20.0f) {
+        std::memcpy(g_rpc_probe.player_velocity, velocity, sizeof(velocity));
+        const unsigned int seq = bump_seq(&g_rpc_probe.player_velocity_seq);
+        trace_netf("rpc-state id=90 player_velocity_seq=%u velocity=%.4f %.4f %.4f apply_pending=1 evidence=STATIC_037",
+                   seq, static_cast<double>(velocity[0]), static_cast<double>(velocity[1]),
+                   static_cast<double>(velocity[2]));
+      } else {
+        trace_netf("rpc-state id=90 invalid_player_velocity=%.4f %.4f %.4f ignored=1 evidence=STATIC_037",
+                   static_cast<double>(velocity[0]), static_cast<double>(velocity[1]),
+                   static_cast<double>(velocity[2]));
+      }
+    }
   } else if (rpc_id == 12U) {
     if (rpc_params != nullptr && bytes >= 12U) {
       g_rpc_probe.saw_player_pos = 1;
@@ -6136,6 +6185,8 @@ int samp_raknet_client_get_rpc_probe_snapshot(void *client, samp_raknet_rpc_prob
       g_rpc_probe.reset_player_money_seq > 0U || g_rpc_probe.give_player_money_seq > 0U ||
       g_rpc_probe.player_ammo_seq > 0U || g_rpc_probe.player_skin_seq > 0U || g_rpc_probe.player_skill_seq > 0U ||
       g_rpc_probe.player_drunk_seq > 0U || g_rpc_probe.player_fighting_style_seq > 0U ||
+      g_rpc_probe.player_pos_find_z_seq > 0U || g_rpc_probe.player_velocity_seq > 0U ||
+      g_rpc_probe.remove_player_from_vehicle_seq > 0U ||
       g_rpc_probe.play_sound_seq > 0U || g_rpc_probe.stop_audio_stream_seq > 0U ||
       g_rpc_probe.player_color_seq > 0U || g_rpc_probe.player_team_seq > 0U ||
       g_rpc_probe.apply_animation_seq > 0U) {
@@ -6251,6 +6302,9 @@ int samp_raknet_client_get_rpc_probe_snapshot(void *client, samp_raknet_rpc_prob
   out_snapshot->player_skill_seq = g_rpc_probe.player_skill_seq;
   out_snapshot->player_drunk_seq = g_rpc_probe.player_drunk_seq;
   out_snapshot->player_fighting_style_seq = g_rpc_probe.player_fighting_style_seq;
+  out_snapshot->player_pos_find_z_seq = g_rpc_probe.player_pos_find_z_seq;
+  out_snapshot->player_velocity_seq = g_rpc_probe.player_velocity_seq;
+  out_snapshot->remove_player_from_vehicle_seq = g_rpc_probe.remove_player_from_vehicle_seq;
   out_snapshot->play_sound_seq = g_rpc_probe.play_sound_seq;
   out_snapshot->stop_audio_stream_seq = g_rpc_probe.stop_audio_stream_seq;
   out_snapshot->player_color_seq = g_rpc_probe.player_color_seq;
@@ -6280,6 +6334,10 @@ int samp_raknet_client_get_rpc_probe_snapshot(void *client, samp_raknet_rpc_prob
   out_snapshot->player_drunk_level = g_rpc_probe.player_drunk_level;
   out_snapshot->player_fighting_style_player_id = g_rpc_probe.player_fighting_style_player_id;
   out_snapshot->player_fighting_style = g_rpc_probe.player_fighting_style;
+  std::memcpy(out_snapshot->player_pos_find_z, g_rpc_probe.player_pos_find_z,
+              sizeof(out_snapshot->player_pos_find_z));
+  std::memcpy(out_snapshot->player_velocity, g_rpc_probe.player_velocity,
+              sizeof(out_snapshot->player_velocity));
   std::memcpy(out_snapshot->game_text, g_rpc_probe.game_text, sizeof(out_snapshot->game_text));
   if (g_rpc_probe.player_given_weapon_seq > 0U) {
     const unsigned int available = g_rpc_probe.player_given_weapon_seq < SAMP_RAKNET_GIVE_WEAPON_EVENT_RING

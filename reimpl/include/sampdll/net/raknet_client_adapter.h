@@ -499,6 +499,9 @@ typedef struct samp_raknet_rpc_probe_snapshot {
   uint32_t player_skill_seq;
   uint32_t player_drunk_seq;
   uint32_t player_fighting_style_seq;
+  uint32_t player_pos_find_z_seq;
+  uint32_t player_velocity_seq;
+  uint32_t remove_player_from_vehicle_seq;
   uint32_t play_sound_seq;
   uint32_t stop_audio_stream_seq;
   uint32_t player_color_seq;
@@ -528,6 +531,8 @@ typedef struct samp_raknet_rpc_probe_snapshot {
   uint32_t player_drunk_level;
   uint16_t player_fighting_style_player_id;
   uint8_t player_fighting_style;
+  float player_pos_find_z[3];
+  float player_velocity[3];
   uint32_t play_sound_id;
   float play_sound_pos[3];
   uint16_t player_color_player_id;

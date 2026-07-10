@@ -1665,6 +1665,9 @@ typedef struct samp_runtime_state {
   LONG mp_session_applied_player_skill_seq;
   LONG mp_session_applied_player_drunk_seq;
   LONG mp_session_applied_player_fighting_style_seq;
+  LONG mp_session_applied_player_pos_find_z_seq;
+  LONG mp_session_applied_player_velocity_seq;
+  LONG mp_session_applied_remove_player_from_vehicle_seq;
   LONG mp_session_applied_play_sound_seq;
   LONG mp_session_applied_stop_audio_stream_seq;
   LONG mp_session_applied_player_color_seq;
@@ -2107,6 +2110,8 @@ static int gta_entity_read_position_compat(uintptr_t entity, float *x, float *y,
 static int gta_entity_read_move_speed_compat(uintptr_t entity, float out_speed[3]);
 static int gta_entity_write_move_speed_compat(uintptr_t entity, const float speed[3]);
 static int gta_entity_apply_move_speed_compat(uintptr_t entity);
+static int gta_entity_teleport_compat(uintptr_t entity, float x, float y, float z);
+static int gta_ped_read_vehicle_compat(uintptr_t ped, uintptr_t *vehicle);
 static uintptr_t remote_player_compat_game_pool_get_at(uint32_t gta_id);
 static uintptr_t remote_player_compat_resolve_ped(samp_remote_player_slot_compat *slot);
 static void remote_player_compat_apply_health_state(samp_remote_player_slot_compat *slot);
@@ -18397,6 +18402,63 @@ static int gta_apply_player_fighting_style_compat(const samp_raknet_rpc_probe_sn
                                    (int)snapshot->player_fighting_style, 6);
 }
 
+static int gta_apply_player_pos_find_z_compat(const float requested[3], float *out_ground_z) {
+  uintptr_t ped = gta_find_player_ped_compat();
+  float ground_z = 0.0f;
+
+  if (requested == NULL || ped == 0u || !isfinite(requested[0]) || !isfinite(requested[1]) ||
+      !isfinite(requested[2])) {
+    return 0;
+  }
+  /* STATIC_037: samp.dll+0x19440 queries ground Z then teleports to ground + 1.5. */
+  if (!gta_script_command_compat(0x02CEu, "fffv", requested[0], requested[1], requested[2], &ground_z) ||
+      !isfinite(ground_z)) {
+    return 0;
+  }
+  if (out_ground_z != NULL) {
+    *out_ground_z = ground_z;
+  }
+  return gta_entity_teleport_compat(ped, requested[0], requested[1], ground_z + 1.5f);
+}
+
+static int gta_apply_player_velocity_compat(const float velocity[3]) {
+  uintptr_t ped = gta_find_player_ped_compat();
+  /*
+   * STATIC_037:
+   * samp.dll+0x18850 -> samp.dll+0x9ED10 only writes the three floats at the
+   * underlying CPhysical move-speed vector. It does not call ApplyMoveSpeed().
+   */
+  return ped != 0u && gta_entity_write_move_speed_compat(ped, velocity);
+}
+
+static int gta_remove_local_player_from_vehicle_compat(void) {
+  uintptr_t ped = gta_find_player_ped_compat();
+  uintptr_t vehicle = 0u;
+  uint32_t gta_vehicle_id = 0u;
+  uint32_t i = 0u;
+
+  if (ped == 0u || !gta_ped_read_vehicle_compat(ped, &vehicle)) {
+    return 0;
+  }
+  /*
+   * STATIC_037:
+   * samp.dll+0x17FF0 -> samp.dll+0xAC4E0 resolves the current GTA vehicle handle
+   * and invokes opcode 05CD (make_actor_leave_car) for normal non-train vehicles.
+   */
+  for (i = 0u; i < SAMP_RAKNET_MAX_VEHICLES; ++i) {
+    samp_vehicle_slot_compat *slot = &g_runtime.vehicle_slots[i];
+    if (InterlockedCompareExchange(&slot->active, 0, 0) != 0 && slot->gta_id != 0u &&
+        vehicle_compat_game_pool_get_at(slot->gta_id) == vehicle) {
+      gta_vehicle_id = slot->gta_id;
+      break;
+    }
+  }
+  if (gta_vehicle_id == 0u) {
+    return 0;
+  }
+  return gta_script_command_compat(0x05CDu, "ii", SAMP_GTA_ACTOR_LOCAL_ID, (int)gta_vehicle_id);
+}
+
 static uint32_t refresh_raknet_rpc_snapshot_compat(void) {
   /* The compact ring is still large enough to exhaust a meaningful fraction
    * of GTA's 1 MiB game-thread stack. This bridge is single-threaded and
@@ -18424,6 +18486,9 @@ static uint32_t refresh_raknet_rpc_snapshot_compat(void) {
   LONG previous_player_skill_seq = 0;
   LONG previous_player_drunk_seq = 0;
   LONG previous_player_fighting_style_seq = 0;
+  LONG previous_player_pos_find_z_seq = 0;
+  LONG previous_player_velocity_seq = 0;
+  LONG previous_remove_player_from_vehicle_seq = 0;
   LONG previous_play_sound_seq = 0;
   LONG previous_stop_audio_stream_seq = 0;
   LONG previous_player_color_seq = 0;
@@ -18672,6 +18737,44 @@ static uint32_t refresh_raknet_rpc_snapshot_compat(void) {
                    (unsigned long)snapshot.player_fighting_style_seq, (long)previous_player_fighting_style_seq,
                    (unsigned)snapshot.player_fighting_style_player_id,
                    (unsigned)snapshot.player_fighting_style, applied);
+  }
+  previous_player_pos_find_z_seq =
+      InterlockedCompareExchange(&g_runtime.mp_session_applied_player_pos_find_z_seq, 0, 0);
+  if (snapshot.player_pos_find_z_seq != 0u &&
+      snapshot.player_pos_find_z_seq != (uint32_t)previous_player_pos_find_z_seq) {
+    float ground_z = 0.0f;
+    int applied = gta_apply_player_pos_find_z_compat(snapshot.player_pos_find_z, &ground_z);
+    InterlockedExchange(&g_runtime.mp_session_applied_player_pos_find_z_seq,
+                        (LONG)snapshot.player_pos_find_z_seq);
+    runtime_tracef("network_prepare: apply_pos_find_z seq=%lu previous=%ld requested=(%.3f,%.3f,%.3f) "
+                   "ground_z=%.3f applied=%d evidence=STATIC_037",
+                   (unsigned long)snapshot.player_pos_find_z_seq, (long)previous_player_pos_find_z_seq,
+                   (double)snapshot.player_pos_find_z[0], (double)snapshot.player_pos_find_z[1],
+                   (double)snapshot.player_pos_find_z[2], (double)ground_z, applied);
+  }
+  previous_player_velocity_seq =
+      InterlockedCompareExchange(&g_runtime.mp_session_applied_player_velocity_seq, 0, 0);
+  if (snapshot.player_velocity_seq != 0u &&
+      snapshot.player_velocity_seq != (uint32_t)previous_player_velocity_seq) {
+    int applied = gta_apply_player_velocity_compat(snapshot.player_velocity);
+    InterlockedExchange(&g_runtime.mp_session_applied_player_velocity_seq, (LONG)snapshot.player_velocity_seq);
+    runtime_tracef("network_prepare: apply_player_velocity seq=%lu previous=%ld velocity=(%.4f,%.4f,%.4f) "
+                   "applied=%d evidence=STATIC_037,GTA_REVERSED_REF",
+                   (unsigned long)snapshot.player_velocity_seq, (long)previous_player_velocity_seq,
+                   (double)snapshot.player_velocity[0], (double)snapshot.player_velocity[1],
+                   (double)snapshot.player_velocity[2], applied);
+  }
+  previous_remove_player_from_vehicle_seq =
+      InterlockedCompareExchange(&g_runtime.mp_session_applied_remove_player_from_vehicle_seq, 0, 0);
+  if (snapshot.remove_player_from_vehicle_seq != 0u &&
+      snapshot.remove_player_from_vehicle_seq != (uint32_t)previous_remove_player_from_vehicle_seq) {
+    int applied = gta_remove_local_player_from_vehicle_compat();
+    InterlockedExchange(&g_runtime.mp_session_applied_remove_player_from_vehicle_seq,
+                        (LONG)snapshot.remove_player_from_vehicle_seq);
+    runtime_tracef("network_prepare: remove_player_from_vehicle seq=%lu previous=%ld applied=%d "
+                   "evidence=STATIC_037,GTA_REVERSED_REF",
+                   (unsigned long)snapshot.remove_player_from_vehicle_seq,
+                   (long)previous_remove_player_from_vehicle_seq, applied);
   }
   previous_play_sound_seq = InterlockedCompareExchange(&g_runtime.raknet_play_sound_seq, 0, 0);
   if (snapshot.play_sound_seq != 0u && snapshot.play_sound_seq != (uint32_t)previous_play_sound_seq) {
@@ -23725,6 +23828,9 @@ static void launch_prepare_network_compat(void) {
     InterlockedExchange(&g_runtime.mp_session_applied_player_skill_seq, 0);
     InterlockedExchange(&g_runtime.mp_session_applied_player_drunk_seq, 0);
     InterlockedExchange(&g_runtime.mp_session_applied_player_fighting_style_seq, 0);
+    InterlockedExchange(&g_runtime.mp_session_applied_player_pos_find_z_seq, 0);
+    InterlockedExchange(&g_runtime.mp_session_applied_player_velocity_seq, 0);
+    InterlockedExchange(&g_runtime.mp_session_applied_remove_player_from_vehicle_seq, 0);
     InterlockedExchange(&g_runtime.mp_session_applied_play_sound_seq, 0);
     InterlockedExchange(&g_runtime.mp_session_applied_stop_audio_stream_seq, 0);
     InterlockedExchange(&g_runtime.mp_session_applied_player_color_seq, 0);
