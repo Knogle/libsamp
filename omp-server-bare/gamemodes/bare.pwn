@@ -30,6 +30,8 @@ static const WEAPON:TEST_SECONDARY_WEAPON = WEAPON_DEAGLE;
 static const TEST_SECONDARY_AMMO = 120;
 static const WEAPON:TEST_MELEE_WEAPON = WEAPON_KNIFE;
 static const TEST_MELEE_AMMO = 1;
+static const Float:DEFAULT_GRAVITY = 0.008;
+static const Float:SMALL_RPC_TEST_GRAVITY = 0.002;
 
 static const CLASS_SELECTION_INTERIOR = 14;
 static const Float:CLASS_SELECTION_X = 258.4893;
@@ -188,6 +190,31 @@ stock SetTestVehicleHealth(playerid, slot, Float:health, const reason[])
 	format(message, sizeof(message), "[bare-vtest] %s vehicle[%d] id=%d health %.3f", reason, slot, gVehicleIds[slot], health);
 	SendClientMessage(playerid, 0x66FF66FF, message);
 	printf("[bare-vtest] %s vehicle[%d] id=%d health %.3f", reason, slot, gVehicleIds[slot], health);
+	return 1;
+}
+
+/// Applies the two small client-RPC compatibility probes.
+/// References: https://open.mp/docs/scripting/functions/SetPlayerWantedLevel
+///             https://open.mp/docs/scripting/functions/SetGravity
+stock ApplySmallRpcTest(playerid)
+{
+	SetPlayerWantedLevel(playerid, 6);
+	SetGravity(SMALL_RPC_TEST_GRAVITY);
+	SendClientMessage(playerid, 0x66FF66FF, "[bare-rpctest] Wanted=6, gravity=0.002 applied. Jump or drive to verify gravity.");
+	SendClientMessage(playerid, 0xFFFFFFFF, "[bare-rpctest] Use /smallrpcreset to restore wanted=0 and gravity=0.008.");
+	printf("[bare-rpctest] player=%d applied wanted=6 gravity=%.3f", playerid, SMALL_RPC_TEST_GRAVITY);
+	return 1;
+}
+
+/// Restores the normal values after the small client-RPC probes.
+/// References: https://open.mp/docs/scripting/functions/SetPlayerWantedLevel
+///             https://open.mp/docs/scripting/functions/SetGravity
+stock ResetSmallRpcTest(playerid)
+{
+	SetPlayerWantedLevel(playerid, 0);
+	SetGravity(DEFAULT_GRAVITY);
+	SendClientMessage(playerid, 0x66FF66FF, "[bare-rpctest] Wanted=0 and gravity=0.008 restored.");
+	printf("[bare-rpctest] player=%d reset wanted=0 gravity=%.3f", playerid, DEFAULT_GRAVITY);
 	return 1;
 }
 
@@ -718,6 +745,54 @@ public OnPlayerCommandText(playerid, cmdtext[])
 	if (!strcmp(cmdtext, "/guns", true))
 	{
 		GivePlayerTestWeapons(playerid);
+		return 1;
+	}
+
+	if (!strcmp(cmdtext, "/smallrpc", true))
+	{
+		ApplySmallRpcTest(playerid);
+		return 1;
+	}
+
+	if (!strcmp(cmdtext, "/smallrpcreset", true))
+	{
+		ResetSmallRpcTest(playerid);
+		return 1;
+	}
+
+	if (!strcmp(cmdtext, "/wanted", true, 7) &&
+		(cmdtext[7] == '\0' || cmdtext[7] == ' ' || cmdtext[7] == '\t'))
+	{
+		new token = SkipCommandSpaces(cmdtext, 7);
+		new level = strval(cmdtext[token]);
+		new message[96];
+		if (cmdtext[token] == '\0' || level < 0 || level > 6)
+		{
+			SendClientMessage(playerid, 0xFFCC66FF, "[bare-rpctest] Usage: /wanted <0-6>");
+			return 1;
+		}
+		SetPlayerWantedLevel(playerid, level);
+		format(message, sizeof(message), "[bare-rpctest] Wanted level %d applied.", level);
+		SendClientMessage(playerid, 0x66FF66FF, message);
+		printf("[bare-rpctest] player=%d wanted=%d", playerid, level);
+		return 1;
+	}
+
+	if (!strcmp(cmdtext, "/gravity", true, 8) &&
+		(cmdtext[8] == '\0' || cmdtext[8] == ' ' || cmdtext[8] == '\t'))
+	{
+		new token = SkipCommandSpaces(cmdtext, 8);
+		new Float:gravity = floatstr(cmdtext[token]);
+		new message[112];
+		if (cmdtext[token] == '\0' || gravity < -1.0 || gravity > 1.0)
+		{
+			SendClientMessage(playerid, 0xFFCC66FF, "[bare-rpctest] Usage: /gravity <-1.0..1.0> (default 0.008)");
+			return 1;
+		}
+		SetGravity(gravity);
+		format(message, sizeof(message), "[bare-rpctest] Global gravity %.6f applied.", gravity);
+		SendClientMessage(playerid, 0x66FF66FF, message);
+		printf("[bare-rpctest] player=%d gravity=%.6f", playerid, gravity);
 		return 1;
 	}
 

@@ -99,6 +99,8 @@
 #define SAMP_ADDR_POPULATION_ADD_PED 0x612710u
 #define SAMP_ADDR_RANDOM_CARS_PROCESS 0x53C1C1u
 #define SAMP_ADDR_WASTED_MESSAGE_PATCH 0x56E5ADu
+#define SAMP_ADDR_WANTED_LEVEL_PATCH 0x58DB5Fu
+#define SAMP_WANTED_LEVEL_PATCH_SIZE 9u
 #define SAMP_ADDR_CAMERA_FADE_PATCH 0x50AC20u
 #define SAMP_ADDR_CAMERA_MOUSE_ACCEL_HORIZONTAL 0xB6EC18u
 #define SAMP_ADDR_CAMERA_MOUSE_ACCEL_VERTICAL 0xB6EC1Cu
@@ -1662,6 +1664,8 @@ typedef struct samp_runtime_state {
   LONG mp_session_applied_player_color_seq;
   LONG mp_session_applied_player_team_seq;
   LONG mp_session_applied_apply_animation_seq;
+  LONG mp_session_applied_wanted_level_seq;
+  LONG mp_session_applied_gravity_seq;
   LONG mp_session_observed_world_visual_seq;
   LONG mp_session_script_failures;
   LONG mp_session_spawn_finalized;
@@ -1710,6 +1714,8 @@ typedef struct samp_runtime_state {
   DWORD preconnect_delay_active_ms;
   DWORD preconnect_delay_last_tick;
   uint8_t time_passing_saved_byte;
+  uint8_t wanted_level_patch_saved[SAMP_WANTED_LEVEL_PATCH_SIZE];
+  uint8_t wanted_level_patch_owned;
   uint8_t raknet_weather;
   uint8_t raknet_world_hour;
   uint8_t raknet_world_minute;
@@ -16313,6 +16319,69 @@ static int patch_copy(uintptr_t addr, const void *src, size_t size) {
   return 1;
 }
 
+static int apply_wanted_level_patch_compat(uint8_t level, const char *reason) {
+  static const uint8_t original[SAMP_WANTED_LEVEL_PATCH_SIZE] = {
+      0x83u, 0xFEu, 0x05u, 0x0Fu, 0x84u, 0xDAu, 0x00u, 0x00u, 0x00u};
+  uint8_t current[SAMP_WANTED_LEVEL_PATCH_SIZE];
+  uint8_t patch[SAMP_WANTED_LEVEL_PATCH_SIZE] = {
+      0xBDu, 0x00u, 0x00u, 0x00u, 0x00u, 0x90u, 0x90u, 0x90u, 0x90u};
+  int original_match = 0;
+  int patched_match = 0;
+  int applied = 0;
+
+  if (!memory_is_readable_compat((const void *)(uintptr_t)SAMP_ADDR_WANTED_LEVEL_PATCH,
+                                 sizeof(current))) {
+    runtime_tracef("wanted_level_patch: skip reason=%s address_unreadable=1 evidence=STATIC_037",
+                   reason != NULL ? reason : "unknown");
+    return 0;
+  }
+  memcpy(current, (const void *)(uintptr_t)SAMP_ADDR_WANTED_LEVEL_PATCH, sizeof(current));
+  original_match = memcmp(current, original, sizeof(original)) == 0;
+  patched_match = current[0] == 0xBDu && current[2] == 0x00u && current[3] == 0x00u &&
+                  current[4] == 0x00u && current[5] == 0x90u && current[6] == 0x90u &&
+                  current[7] == 0x90u && current[8] == 0x90u;
+  if (!original_match && !patched_match) {
+    runtime_tracef("wanted_level_patch: skip reason=%s target_bytes_mismatch=1 first=0x%02x "
+                   "evidence=STATIC_037,TODO_VERIFY",
+                   reason != NULL ? reason : "unknown", (unsigned)current[0]);
+    return 0;
+  }
+
+  if (original_match && g_runtime.wanted_level_patch_owned == 0u) {
+    memcpy(g_runtime.wanted_level_patch_saved, current, sizeof(current));
+    g_runtime.wanted_level_patch_owned = 1u;
+  }
+  patch[1] = level;
+  applied = patch_copy(SAMP_ADDR_WANTED_LEVEL_PATCH, patch, sizeof(patch));
+  runtime_tracef("wanted_level_patch: %s reason=%s level=%u addr=0x%08lx original=%d already_patched=%d "
+                 "original_bytes=83fe050f84da000000 patch_bytes=bd%02x00000090909090 "
+                 "evidence=STATIC_037",
+                 applied ? "apply" : "failed", reason != NULL ? reason : "unknown", (unsigned)level,
+                 (unsigned long)SAMP_ADDR_WANTED_LEVEL_PATCH, original_match, patched_match, (unsigned)level);
+  return applied;
+}
+
+static void restore_wanted_level_patch_compat(void) {
+  uint8_t current[SAMP_WANTED_LEVEL_PATCH_SIZE];
+
+  if (g_runtime.wanted_level_patch_owned == 0u ||
+      !memory_is_readable_compat((const void *)(uintptr_t)SAMP_ADDR_WANTED_LEVEL_PATCH, sizeof(current))) {
+    return;
+  }
+  memcpy(current, (const void *)(uintptr_t)SAMP_ADDR_WANTED_LEVEL_PATCH, sizeof(current));
+  if (current[0] == 0xBDu && current[2] == 0x00u && current[3] == 0x00u && current[4] == 0x00u &&
+      current[5] == 0x90u && current[6] == 0x90u && current[7] == 0x90u && current[8] == 0x90u) {
+    (void)patch_copy(SAMP_ADDR_WANTED_LEVEL_PATCH, g_runtime.wanted_level_patch_saved,
+                     sizeof(g_runtime.wanted_level_patch_saved));
+    runtime_tracef("wanted_level_patch: restore addr=0x%08lx size=%u evidence=STATIC_037",
+                   (unsigned long)SAMP_ADDR_WANTED_LEVEL_PATCH, (unsigned)SAMP_WANTED_LEVEL_PATCH_SIZE);
+  } else {
+    runtime_tracef("wanted_level_patch: restore_skip target_changed=1 first=0x%02x evidence=TODO_VERIFY",
+                   (unsigned)current[0]);
+  }
+  g_runtime.wanted_level_patch_owned = 0u;
+}
+
 static int patch_copy_expected_first_byte(uintptr_t addr, const void *src, size_t size, uint8_t expected_first,
                                           const char *label) {
   uint8_t before = 0u;
@@ -17796,6 +17865,13 @@ static void apply_ingame_compat_patches_once(void) {
   SAMP_APPLY_PATCH(patch_nop(SAMP_ADDR_RANDOM_CARS_PROCESS, 5u));
   SAMP_APPLY_PATCH(patch_nop(SAMP_ADDR_WASTED_MESSAGE_PATCH, 5u));
   /*
+   * STATIC_037:
+   * SA-MP 0.3.7-R5 samp.dll+0xA1420 updates the immediate byte of this
+   * GTA-SA 1.0 US patch. Install only over the exact stock bytes; later RPC
+   * 133 updates retain the same nine-byte instruction shape.
+   */
+  SAMP_APPLY_PATCH(apply_wanted_level_patch_compat(0u, "ingame_init"));
+  /*
    * STATIC_037 + TODO_VERIFY:
    * Original-compatible sessions disable GTA's high-speed motion blur at this GTA-SA
    * call site. Apply the 5-byte NOP conservatively until the exact original
@@ -18167,6 +18243,10 @@ static void apply_raknet_init_game_settings_compat(const samp_raknet_rpc_probe_s
     gravity_applied = patch_copy(SAMP_ADDR_GRAVITY, &gravity_to_apply, sizeof(gravity_to_apply));
   }
 
+  /* STATIC_037: samp.dll+0xA70B resets the patched HUD wanted level during
+   * the original session initialization before later RPC 133 updates it. */
+  (void)apply_wanted_level_patch_compat(0u, "init_game");
+
   stunt_value = (DWORD)(snapshot->init_stunt_bonus ? 1u : 0u);
   stunt_applied = patch_copy(SAMP_ADDR_STUNT_BONUS, &stunt_value, sizeof(stunt_value));
   enter_exits_touched = snapshot->init_disable_enter_exits != 0u ? 1u : 0u;
@@ -18223,6 +18303,8 @@ static uint32_t refresh_raknet_rpc_snapshot_compat(void) {
   LONG previous_player_color_seq = 0;
   LONG previous_player_team_seq = 0;
   LONG previous_apply_animation_seq = 0;
+  LONG previous_wanted_level_seq = 0;
+  LONG previous_gravity_seq = 0;
   LONG previous_world_visual_event_seq = 0;
   LONG previous_spawn_info_seq = 0;
   uint32_t previous_chat_seq = 0u;
@@ -18388,6 +18470,34 @@ static uint32_t refresh_raknet_rpc_snapshot_compat(void) {
     InterlockedExchange(&g_runtime.raknet_stop_audio_stream_seq, (LONG)snapshot.stop_audio_stream_seq);
     runtime_tracef("network_prepare: stop_audio_stream seq=%lu previous=%ld decoded_only=1",
                    (unsigned long)snapshot.stop_audio_stream_seq, (long)previous_stop_audio_stream_seq);
+  }
+  previous_wanted_level_seq =
+      InterlockedCompareExchange(&g_runtime.mp_session_applied_wanted_level_seq, 0, 0);
+  if (snapshot.player_wanted_level_seq != 0u &&
+      snapshot.player_wanted_level_seq != (uint32_t)previous_wanted_level_seq) {
+    if (apply_wanted_level_patch_compat(snapshot.player_wanted_level, "rpc_133")) {
+      InterlockedExchange(&g_runtime.mp_session_applied_wanted_level_seq,
+                          (LONG)snapshot.player_wanted_level_seq);
+      runtime_tracef("network_prepare: apply_wanted_level seq=%lu previous=%ld level=%u "
+                     "evidence=STATIC_037",
+                     (unsigned long)snapshot.player_wanted_level_seq, (long)previous_wanted_level_seq,
+                     (unsigned)snapshot.player_wanted_level);
+    }
+  }
+  previous_gravity_seq = InterlockedCompareExchange(&g_runtime.mp_session_applied_gravity_seq, 0, 0);
+  if (snapshot.gravity_seq != 0u && snapshot.gravity_seq != (uint32_t)previous_gravity_seq) {
+    if (isfinite(snapshot.gravity) && snapshot.gravity >= -1.0f && snapshot.gravity <= 1.0f &&
+        patch_copy(SAMP_ADDR_GRAVITY, &snapshot.gravity, sizeof(snapshot.gravity))) {
+      InterlockedExchange(&g_runtime.mp_session_applied_gravity_seq, (LONG)snapshot.gravity_seq);
+      runtime_tracef("network_prepare: apply_gravity seq=%lu previous=%ld gravity=%.9f "
+                     "address=0x%08lx evidence=STATIC_037",
+                     (unsigned long)snapshot.gravity_seq, (long)previous_gravity_seq,
+                     (double)snapshot.gravity, (unsigned long)SAMP_ADDR_GRAVITY);
+    } else {
+      runtime_tracef("network_prepare: skip_gravity seq=%lu gravity=%.9f reason=invalid_or_write_failed "
+                     "evidence=STATIC_037,TODO_VERIFY",
+                     (unsigned long)snapshot.gravity_seq, (double)snapshot.gravity);
+    }
   }
   previous_player_color_seq = InterlockedCompareExchange(&g_runtime.raknet_player_color_seq, 0, 0);
   if (snapshot.player_color_seq != 0u && snapshot.player_color_seq != (uint32_t)previous_player_color_seq) {
@@ -23395,6 +23505,8 @@ static void launch_prepare_network_compat(void) {
     InterlockedExchange(&g_runtime.mp_session_applied_player_color_seq, 0);
     InterlockedExchange(&g_runtime.mp_session_applied_player_team_seq, 0);
     InterlockedExchange(&g_runtime.mp_session_applied_apply_animation_seq, 0);
+    InterlockedExchange(&g_runtime.mp_session_applied_wanted_level_seq, 0);
+    InterlockedExchange(&g_runtime.mp_session_applied_gravity_seq, 0);
     InterlockedExchange(&g_runtime.mp_session_observed_world_visual_seq, 0);
     InterlockedExchange(&g_runtime.mp_session_script_failures, 0);
     InterlockedExchange(&g_runtime.mp_session_frontend_hold_logged, 0);
@@ -23925,6 +24037,7 @@ static void rollback_from_phase(samp_boot_phase phase) {
   uninstall_select_device_hook_compat();
   samp_hook_bridge_uninstall(&g_runtime.hook_bridge);
   restore_time_passing_patch_compat();
+  restore_wanted_level_patch_compat();
   phase_runtime_modules_shutdown();
   if (phase >= BOOT_PHASE_5_NETWORK_INIT) {
     phase_network_shutdown();
@@ -23994,6 +24107,7 @@ static void process_detach(LPVOID reserved) {
   uninstall_select_device_hook_compat();
   samp_hook_bridge_uninstall(&g_runtime.hook_bridge);
   restore_time_passing_patch_compat();
+  restore_wanted_level_patch_compat();
   phase_runtime_modules_shutdown();
   phase_runtime_bootstrap_shutdown();
   phase_network_shutdown();

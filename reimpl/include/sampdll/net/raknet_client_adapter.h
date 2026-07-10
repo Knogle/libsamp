@@ -491,6 +491,8 @@ typedef struct samp_raknet_rpc_probe_snapshot {
   uint32_t player_color_seq;
   uint32_t player_team_seq;
   uint32_t apply_animation_seq;
+  uint32_t player_wanted_level_seq;
+  uint32_t gravity_seq;
   uint32_t world_visual_event_seq;
   uint32_t player_pool_event_seq;
   uint32_t score_ping_seq;
@@ -517,6 +519,8 @@ typedef struct samp_raknet_rpc_probe_snapshot {
   uint8_t apply_animation_lock_y;
   uint8_t apply_animation_freeze;
   int32_t apply_animation_time;
+  uint8_t player_wanted_level;
+  float gravity;
   uint8_t world_visual_event_type;
   uint16_t world_visual_id;
   int32_t world_visual_model;

@@ -233,6 +233,8 @@ struct RpcProbeState {
   unsigned int player_color_seq;
   unsigned int player_team_seq;
   unsigned int apply_animation_seq;
+  unsigned int player_wanted_level_seq;
+  unsigned int gravity_seq;
   unsigned int world_visual_event_seq;
   unsigned int client_check_response_count;
   unsigned char player_controllable;
@@ -256,6 +258,8 @@ struct RpcProbeState {
   unsigned char apply_animation_lock_y;
   unsigned char apply_animation_freeze;
   std::int32_t apply_animation_time;
+  unsigned char player_wanted_level;
+  float gravity;
   unsigned char world_visual_event_type;
   unsigned short world_visual_id;
   std::int32_t world_visual_model;
@@ -639,7 +643,7 @@ const RpcMeta kRpcMeta[] = {
     {129U, "RequestSpawn", kRpcLocalImplemented, "OPENMP_REF"},
     {131U, "PickedUpPickup", kRpcLocalOutgoing, "OPENMP_REF"},
     {132U, "MenuSelect", kRpcLocalOutgoing, "OPENMP_REF"},
-    {133U, "ScrSetPlayerWantedLevel", kRpcLocalDummy, "STATIC_037"},
+    {133U, "ScrSetPlayerWantedLevel", kRpcLocalImplemented, "STATIC_037:samp.dll+0x1CCF0"},
     {134U, "ScrShowTextDraw", kRpcLocalImplemented, "PROBE_TRACE"},
     {135U, "ScrHideTextDraw", kRpcLocalImplemented, "PROBE_TRACE"},
     {136U, "ScrEditTextDraw/VehicleDestroyed", kRpcLocalImplemented, "PROBE_TRACE"},
@@ -649,7 +653,7 @@ const RpcMeta kRpcMeta[] = {
     {140U, "MenuQuit", kRpcLocalOutgoing, "OPENMP_REF"},
     {144U, "ScrRemovePlayerMapIcon/TogClockCompat", kRpcLocalImplemented, "INFERRED,PROBE_TRACE,TODO_VERIFY"},
     {145U, "ScrSetPlayerAmmo", kRpcLocalDummy, "SAMPFUNCS_037"},
-    {146U, "ScrSetGravity", kRpcLocalDummy, "STATIC_037"},
+    {146U, "ScrSetGravity", kRpcLocalImplemented, "STATIC_037:samp.dll+0x1ACD0"},
     {147U, "ScrSetVehicleHealth", kRpcLocalImplemented, "PROBE_TRACE"},
     {148U, "ScrAttachTrailerToVehicle", kRpcLocalDummy, "STATIC_037"},
     {149U, "ScrDetachTrailerFromVehicle", kRpcLocalDummy, "STATIC_037"},
@@ -769,10 +773,13 @@ unsigned int rpc_min_payload_bytes(unsigned int rpc_id) {
     case 93U:
       return 8U;
     case 94U:
+    case 133U:
     case 144U:
     case 152U:
     case 156U:
       return 1U;
+    case 146U:
+      return 4U;
     case 99U:
       return kOpenMpObjectMoveMinBytes;
     case 103U:
@@ -975,6 +982,8 @@ void reset_rpc_probe_runtime(RakNet::RakClientInterface *client) {
   g_rpc_probe.player_color_seq = 0U;
   g_rpc_probe.player_team_seq = 0U;
   g_rpc_probe.apply_animation_seq = 0U;
+  g_rpc_probe.player_wanted_level_seq = 0U;
+  g_rpc_probe.gravity_seq = 0U;
   g_rpc_probe.world_visual_event_seq = 0U;
   g_rpc_probe.client_check_response_count = 0U;
   g_rpc_probe.game_text_event_seq = 0U;
@@ -1004,6 +1013,8 @@ void reset_rpc_probe_runtime(RakNet::RakClientInterface *client) {
   g_rpc_probe.apply_animation_lock_y = 0U;
   g_rpc_probe.apply_animation_freeze = 0U;
   g_rpc_probe.apply_animation_time = 0;
+  g_rpc_probe.player_wanted_level = 0U;
+  g_rpc_probe.gravity = 0.0f;
   g_rpc_probe.world_visual_event_type = 0U;
   g_rpc_probe.world_visual_id = 0U;
   g_rpc_probe.world_visual_model = 0;
@@ -3057,6 +3068,47 @@ bool decode_player_armed_weapon_payload(const unsigned char *data, unsigned int 
   return true;
 }
 
+bool decode_player_wanted_level_payload(const unsigned char *data, unsigned int bytes) {
+  if (data == nullptr || bytes < 1U) {
+    return false;
+  }
+
+  /*
+   * STATIC_037:
+   * SA-MP 0.3.7-R5 samp.dll+0x1CCF0 reads one byte and passes it to
+   * samp.dll+0xA1420. SHA256=b72b5dbe725f81864ca3f78bc7063bda56cc05fc7188af822fa7a754432553a2.
+   */
+  g_rpc_probe.player_wanted_level = data[0U];
+  const unsigned int seq = bump_seq(&g_rpc_probe.player_wanted_level_seq);
+  trace_netf("rpc-state id=133 wanted_level_seq=%u level=%u apply_pending=1 evidence=STATIC_037",
+             seq, static_cast<unsigned int>(g_rpc_probe.player_wanted_level));
+  return true;
+}
+
+bool decode_gravity_payload(const unsigned char *data, unsigned int bytes) {
+  if (data == nullptr || bytes < 4U) {
+    return false;
+  }
+
+  /*
+   * STATIC_037:
+   * SA-MP 0.3.7-R5 samp.dll+0x1ACD0 reads one float and calls
+   * samp.dll+0xA1400, which writes GTA's 0x863984 gravity global.
+   * SHA256=b72b5dbe725f81864ca3f78bc7063bda56cc05fc7188af822fa7a754432553a2.
+   */
+  const float gravity = read_le_float(data);
+  if (!std::isfinite(gravity) || gravity < -1.0f || gravity > 1.0f) {
+    trace_netf("rpc-state id=146 invalid_gravity=%.9f bytes=%u ignored=1 evidence=STATIC_037,TODO_VERIFY",
+               static_cast<double>(gravity), bytes);
+    return false;
+  }
+  g_rpc_probe.gravity = gravity;
+  const unsigned int seq = bump_seq(&g_rpc_probe.gravity_seq);
+  trace_netf("rpc-state id=146 gravity_seq=%u gravity=%.9f apply_pending=1 evidence=STATIC_037",
+             seq, static_cast<double>(gravity));
+  return true;
+}
+
 bool decode_give_player_weapon_payload(const unsigned char *data, unsigned int bytes) {
   if (data == nullptr || bytes < 8U) {
     return false;
@@ -4752,6 +4804,14 @@ void rpc_observer(RakNet::RPCParameters *rpc_params, void *extra) {
     if (rpc_params == nullptr || !decode_chat_payload(rpc_params->input, bytes)) {
       trace_netf("rpc-state id=101 chat decode_failed bytes=%u", bytes);
     }
+  } else if (rpc_id == 133U) {
+    if (rpc_params == nullptr || !decode_player_wanted_level_payload(rpc_params->input, bytes)) {
+      trace_netf("rpc-state id=133 wanted_level decode_failed bytes=%u", bytes);
+    }
+  } else if (rpc_id == 146U) {
+    if (rpc_params == nullptr || !decode_gravity_payload(rpc_params->input, bytes)) {
+      trace_netf("rpc-state id=146 gravity decode_failed bytes=%u", bytes);
+    }
   } else if (rpc_id == 139U) {
     g_rpc_probe.saw_init_game = 1;
     if (rpc_params != nullptr) {
@@ -5957,6 +6017,8 @@ int samp_raknet_client_get_rpc_probe_snapshot(void *client, samp_raknet_rpc_prob
   out_snapshot->player_color_seq = g_rpc_probe.player_color_seq;
   out_snapshot->player_team_seq = g_rpc_probe.player_team_seq;
   out_snapshot->apply_animation_seq = g_rpc_probe.apply_animation_seq;
+  out_snapshot->player_wanted_level_seq = g_rpc_probe.player_wanted_level_seq;
+  out_snapshot->gravity_seq = g_rpc_probe.gravity_seq;
   out_snapshot->world_visual_event_seq = g_rpc_probe.world_visual_event_seq;
   out_snapshot->player_pool_event_seq = g_rpc_probe.player_pool_event_seq;
   out_snapshot->score_ping_seq = g_rpc_probe.score_ping_seq;
@@ -5999,6 +6061,8 @@ int samp_raknet_client_get_rpc_probe_snapshot(void *client, samp_raknet_rpc_prob
   out_snapshot->apply_animation_lock_y = g_rpc_probe.apply_animation_lock_y;
   out_snapshot->apply_animation_freeze = g_rpc_probe.apply_animation_freeze;
   out_snapshot->apply_animation_time = g_rpc_probe.apply_animation_time;
+  out_snapshot->player_wanted_level = g_rpc_probe.player_wanted_level;
+  out_snapshot->gravity = g_rpc_probe.gravity;
   out_snapshot->world_visual_event_type = g_rpc_probe.world_visual_event_type;
   out_snapshot->world_visual_id = g_rpc_probe.world_visual_id;
   out_snapshot->world_visual_model = g_rpc_probe.world_visual_model;
