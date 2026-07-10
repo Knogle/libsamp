@@ -1659,6 +1659,9 @@ typedef struct samp_runtime_state {
   LONG mp_session_applied_player_given_weapon_seq;
   LONG mp_session_applied_reset_player_weapons_seq;
   LONG mp_session_applied_reset_player_money_seq;
+  LONG mp_session_applied_give_player_money_seq;
+  LONG mp_session_applied_player_ammo_seq;
+  LONG mp_session_applied_player_skin_seq;
   LONG mp_session_applied_play_sound_seq;
   LONG mp_session_applied_stop_audio_stream_seq;
   LONG mp_session_applied_player_color_seq;
@@ -2091,6 +2094,7 @@ static int memory_is_readable_compat(const void *ptr, size_t size);
 static LONG read_game_entry_gate_value(void);
 static uint8_t read_game_u8(uintptr_t addr);
 static uintptr_t gta_find_player_ped_compat(void);
+static void mp_bridge_record_script_failure(const char *name, uint16_t opcode);
 static int gta_ped_is_in_vehicle_compat(uintptr_t ped);
 static int local_weapon_is_firearm_compat(uint8_t weapon);
 static float local_weapon_damage_compat(uint8_t weapon);
@@ -18277,6 +18281,55 @@ static void apply_raknet_init_game_settings_compat(const samp_raknet_rpc_probe_s
                  top_vehicle_count);
 }
 
+static int gta_local_set_weapon_ammo_compat(uint8_t weapon, uint16_t ammo) {
+  uintptr_t ped = gta_find_player_ped_compat();
+  uint32_t slot = 0u;
+
+  if (ped < 0x10000u || ped >= 0x80000000u || weapon > SAMP_REMOTE_PLAYER_MAX_WEAPON) {
+    return 0;
+  }
+  for (slot = 0u; slot < 13u; ++slot) {
+    uintptr_t slot_addr = ped + SAMP_PED_OFFSET_WEAPON_SLOTS + ((uintptr_t)slot * SAMP_WEAPON_SLOT_SIZE);
+    uint32_t slot_weapon = 0u;
+    uint32_t total_ammo = (uint32_t)ammo;
+    if (!memory_is_readable_compat((const void *)slot_addr, SAMP_WEAPON_SLOT_SIZE)) {
+      continue;
+    }
+    memcpy(&slot_weapon, (const void *)(slot_addr + SAMP_WEAPON_SLOT_OFFSET_TYPE), sizeof(slot_weapon));
+    if (slot_weapon != (uint32_t)weapon) {
+      continue;
+    }
+    if (!memory_is_writable_compat((void *)(slot_addr + SAMP_WEAPON_SLOT_OFFSET_TOTAL_AMMO), sizeof(total_ammo))) {
+      return 0;
+    }
+    /* STATIC_037: samp.dll+0xB0080 writes the uint16 RPC value into CWeapon+0x0C as a DWORD. */
+    memcpy((void *)(slot_addr + SAMP_WEAPON_SLOT_OFFSET_TOTAL_AMMO), &total_ammo, sizeof(total_ammo));
+    return 1;
+  }
+  return 0;
+}
+
+static int gta_local_set_skin_compat(int32_t skin) {
+  uintptr_t ped = 0u;
+
+  if (skin < 0 || skin > 311 || skin == 74 || !object_compat_model_available(skin)) {
+    return 0;
+  }
+  gta_streaming_request_model_compat(skin, 0x06);
+  gta_streaming_load_all_requested_compat(0);
+  if (!object_compat_model_available(skin)) {
+    return 0;
+  }
+  if (!gta_script_command_compat(0x09C7u, "ii", SAMP_GTA_PLAYER_LOCAL_ID, (int)skin)) {
+    return 0;
+  }
+  ped = gta_find_player_ped_compat();
+  if (ped != 0u) {
+    (void)gta_reset_ped_audio_attributes_compat(ped, "rpc153_skin");
+  }
+  return 1;
+}
+
 static uint32_t refresh_raknet_rpc_snapshot_compat(void) {
   /* The compact ring is still large enough to exhaust a meaningful fraction
    * of GTA's 1 MiB game-thread stack. This bridge is single-threaded and
@@ -18298,6 +18351,9 @@ static uint32_t refresh_raknet_rpc_snapshot_compat(void) {
   LONG previous_player_given_weapon_seq = 0;
   LONG previous_reset_player_weapons_seq = 0;
   LONG previous_reset_player_money_seq = 0;
+  LONG previous_give_player_money_seq = 0;
+  LONG previous_player_ammo_seq = 0;
+  LONG previous_player_skin_seq = 0;
   LONG previous_play_sound_seq = 0;
   LONG previous_stop_audio_stream_seq = 0;
   LONG previous_player_color_seq = 0;
@@ -18453,6 +18509,67 @@ static uint32_t refresh_raknet_rpc_snapshot_compat(void) {
     InterlockedExchange(&g_runtime.raknet_reset_player_money_seq, (LONG)snapshot.reset_player_money_seq);
     runtime_tracef("network_prepare: reset_money seq=%lu previous=%ld",
                    (unsigned long)snapshot.reset_player_money_seq, (long)previous_reset_player_money_seq);
+  }
+  previous_give_player_money_seq =
+      InterlockedCompareExchange(&g_runtime.mp_session_applied_give_player_money_seq, 0, 0);
+  if (snapshot.give_player_money_seq != 0u &&
+      snapshot.give_player_money_seq != (uint32_t)previous_give_player_money_seq) {
+    uint32_t event_count = snapshot.give_money_event_count;
+    uint32_t i = 0u;
+    LONG latest_applied = previous_give_player_money_seq;
+    if (event_count > SAMP_RAKNET_GIVE_MONEY_EVENT_RING) {
+      event_count = SAMP_RAKNET_GIVE_MONEY_EVENT_RING;
+    }
+    for (i = 0u; i < event_count; ++i) {
+      const samp_raknet_give_money_event *event = &snapshot.give_money_events[i];
+      if (event->seq > (uint32_t)previous_give_player_money_seq &&
+          event->seq <= snapshot.give_player_money_seq) {
+        int applied = gta_script_command_compat(0x0109u, "ii", SAMP_GTA_PLAYER_LOCAL_ID, (int)event->amount);
+        if (!applied) {
+          mp_bridge_record_script_failure("give_player_money_rpc", 0x0109u);
+        }
+        latest_applied = (LONG)event->seq;
+        runtime_tracef("network_prepare: apply_give_money seq=%lu previous=%ld amount=%ld applied=%d event=%lu/%lu "
+                       "evidence=STATIC_037",
+                       (unsigned long)event->seq, (long)previous_give_player_money_seq, (long)event->amount, applied,
+                       (unsigned long)(i + 1u), (unsigned long)event_count);
+      }
+    }
+    if (latest_applied == previous_give_player_money_seq) {
+      int applied = gta_script_command_compat(0x0109u, "ii", SAMP_GTA_PLAYER_LOCAL_ID,
+                                              (int)snapshot.give_player_money);
+      if (!applied) {
+        mp_bridge_record_script_failure("give_player_money_rpc_fallback", 0x0109u);
+      }
+      latest_applied = (LONG)snapshot.give_player_money_seq;
+      runtime_tracef("network_prepare: apply_give_money_fallback seq=%lu previous=%ld amount=%ld applied=%d "
+                     "evidence=STATIC_037,TODO_VERIFY",
+                     (unsigned long)snapshot.give_player_money_seq, (long)previous_give_player_money_seq,
+                     (long)snapshot.give_player_money, applied);
+    }
+    InterlockedExchange(&g_runtime.mp_session_applied_give_player_money_seq, latest_applied);
+  }
+  previous_player_ammo_seq = InterlockedCompareExchange(&g_runtime.mp_session_applied_player_ammo_seq, 0, 0);
+  if (snapshot.player_ammo_seq != 0u && snapshot.player_ammo_seq != (uint32_t)previous_player_ammo_seq) {
+    int applied = gta_local_set_weapon_ammo_compat(snapshot.player_ammo_weapon, snapshot.player_ammo);
+    InterlockedExchange(&g_runtime.mp_session_applied_player_ammo_seq, (LONG)snapshot.player_ammo_seq);
+    runtime_tracef("network_prepare: apply_player_ammo seq=%lu previous=%ld weapon=%u ammo=%u applied=%d "
+                   "evidence=STATIC_037",
+                   (unsigned long)snapshot.player_ammo_seq, (long)previous_player_ammo_seq,
+                   (unsigned)snapshot.player_ammo_weapon, (unsigned)snapshot.player_ammo, applied);
+  }
+  previous_player_skin_seq = InterlockedCompareExchange(&g_runtime.mp_session_applied_player_skin_seq, 0, 0);
+  if (snapshot.player_skin_seq != 0u && snapshot.player_skin_seq != (uint32_t)previous_player_skin_seq) {
+    int target_is_local = snapshot.auth_local_player_id_valid != 0u
+                              ? snapshot.player_skin_player_id == snapshot.auth_local_player_id
+                              : snapshot.player_skin_player_id == snapshot.init_local_player_id;
+    int applied = target_is_local ? gta_local_set_skin_compat(snapshot.player_skin) : 0;
+    InterlockedExchange(&g_runtime.mp_session_applied_player_skin_seq, (LONG)snapshot.player_skin_seq);
+    runtime_tracef("network_prepare: apply_player_skin seq=%lu previous=%ld target=%lu local=%d skin=%ld applied=%d "
+                   "evidence=STATIC_037,PROBE_TRACE,TODO_VERIFY",
+                   (unsigned long)snapshot.player_skin_seq, (long)previous_player_skin_seq,
+                   (unsigned long)snapshot.player_skin_player_id, target_is_local,
+                   (long)snapshot.player_skin, applied);
   }
   previous_play_sound_seq = InterlockedCompareExchange(&g_runtime.raknet_play_sound_seq, 0, 0);
   if (snapshot.play_sound_seq != 0u && snapshot.play_sound_seq != (uint32_t)previous_play_sound_seq) {
@@ -23500,6 +23617,9 @@ static void launch_prepare_network_compat(void) {
     InterlockedExchange(&g_runtime.mp_session_applied_player_given_weapon_seq, 0);
     InterlockedExchange(&g_runtime.mp_session_applied_reset_player_weapons_seq, 0);
     InterlockedExchange(&g_runtime.mp_session_applied_reset_player_money_seq, 0);
+    InterlockedExchange(&g_runtime.mp_session_applied_give_player_money_seq, 0);
+    InterlockedExchange(&g_runtime.mp_session_applied_player_ammo_seq, 0);
+    InterlockedExchange(&g_runtime.mp_session_applied_player_skin_seq, 0);
     InterlockedExchange(&g_runtime.mp_session_applied_play_sound_seq, 0);
     InterlockedExchange(&g_runtime.mp_session_applied_stop_audio_stream_seq, 0);
     InterlockedExchange(&g_runtime.mp_session_applied_player_color_seq, 0);

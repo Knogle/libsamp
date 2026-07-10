@@ -778,6 +778,65 @@ public OnPlayerCommandText(playerid, cmdtext[])
 		return 1;
 	}
 
+	if (!strcmp(cmdtext, "/money", true, 6) &&
+		(cmdtext[6] == '\0' || cmdtext[6] == ' ' || cmdtext[6] == '\t'))
+	{
+		new token = SkipCommandSpaces(cmdtext, 6);
+		new amount = strval(cmdtext[token]);
+		new message[112];
+		if (cmdtext[token] == '\0')
+		{
+			SendClientMessage(playerid, 0xFFCC66FF, "[bare-rpctest] Usage: /money <signed amount>");
+			return 1;
+		}
+		GivePlayerMoney(playerid, amount);
+		format(message, sizeof(message), "[bare-rpctest] Money delta %d applied.", amount);
+		SendClientMessage(playerid, 0x66FF66FF, message);
+		printf("[bare-rpctest] player=%d money_delta=%d", playerid, amount);
+		return 1;
+	}
+
+	if (!strcmp(cmdtext, "/ammo", true, 5) &&
+		(cmdtext[5] == '\0' || cmdtext[5] == ' ' || cmdtext[5] == '\t'))
+	{
+		new token = SkipCommandSpaces(cmdtext, 5);
+		new weapon = strval(cmdtext[token]);
+		token = NextCommandToken(cmdtext, token);
+		new ammo = strval(cmdtext[token]);
+		new message[112];
+		if (cmdtext[token] == '\0' || weapon < 0 || weapon > 46 || ammo < 0 || ammo > 65535)
+		{
+			SendClientMessage(playerid, 0xFFCC66FF, "[bare-rpctest] Usage: /ammo <weapon 0-46> <ammo 0-65535>");
+			return 1;
+		}
+		// SetPlayerAmmo only updates an existing weapon slot in the 0.3.7 client.
+		// Seed the requested slot first so this command exercises RPC 145 reliably.
+		GivePlayerWeapon(playerid, WEAPON:weapon, 1);
+		SetPlayerAmmo(playerid, WEAPON:weapon, ammo);
+		format(message, sizeof(message), "[bare-rpctest] Weapon %d ammo set to %d.", weapon, ammo);
+		SendClientMessage(playerid, 0x66FF66FF, message);
+		printf("[bare-rpctest] player=%d weapon=%d ammo=%d", playerid, weapon, ammo);
+		return 1;
+	}
+
+	if (!strcmp(cmdtext, "/skin", true, 5) &&
+		(cmdtext[5] == '\0' || cmdtext[5] == ' ' || cmdtext[5] == '\t'))
+	{
+		new token = SkipCommandSpaces(cmdtext, 5);
+		new skin = strval(cmdtext[token]);
+		new message[96];
+		if (cmdtext[token] == '\0' || skin < 0 || skin > 311 || skin == 74)
+		{
+			SendClientMessage(playerid, 0xFFCC66FF, "[bare-rpctest] Usage: /skin <0-311, except 74>");
+			return 1;
+		}
+		SetPlayerSkin(playerid, skin);
+		format(message, sizeof(message), "[bare-rpctest] Skin %d applied.", skin);
+		SendClientMessage(playerid, 0x66FF66FF, message);
+		printf("[bare-rpctest] player=%d skin=%d", playerid, skin);
+		return 1;
+	}
+
 	if (!strcmp(cmdtext, "/gravity", true, 8) &&
 		(cmdtext[8] == '\0' || cmdtext[8] == ' ' || cmdtext[8] == '\t'))
 	{

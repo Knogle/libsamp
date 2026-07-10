@@ -130,6 +130,7 @@ typedef struct samp_raknet_join_profile {
 
 #define SAMP_RAKNET_CLIENT_MESSAGE_RING 8u
 #define SAMP_RAKNET_GIVE_WEAPON_EVENT_RING 16u
+#define SAMP_RAKNET_GIVE_MONEY_EVENT_RING 16u
 #define SAMP_RAKNET_CLIENT_MESSAGE_BYTES 256u
 #define SAMP_RAKNET_HOSTNAME_BYTES 256u
 #define SAMP_RAKNET_MAX_PLAYERS 1000u
@@ -422,6 +423,11 @@ typedef struct samp_raknet_given_weapon_event {
   uint32_t ammo;
 } samp_raknet_given_weapon_event;
 
+typedef struct samp_raknet_give_money_event {
+  uint32_t seq;
+  int32_t amount;
+} samp_raknet_give_money_event;
+
 typedef struct samp_raknet_rpc_probe_snapshot {
   uint32_t flags;
   uint32_t client_message_count;
@@ -438,6 +444,7 @@ typedef struct samp_raknet_rpc_probe_snapshot {
   uint32_t game_text_event_count;
   uint32_t text_label_event_count;
   uint32_t given_weapon_event_count;
+  uint32_t give_money_event_count;
   uint8_t textdraw_select_active;
   uint32_t textdraw_select_color;
   uint16_t init_spawns_available;
@@ -486,6 +493,9 @@ typedef struct samp_raknet_rpc_probe_snapshot {
   uint32_t player_given_weapon_seq;
   uint32_t reset_player_weapons_seq;
   uint32_t reset_player_money_seq;
+  uint32_t give_player_money_seq;
+  uint32_t player_ammo_seq;
+  uint32_t player_skin_seq;
   uint32_t play_sound_seq;
   uint32_t stop_audio_stream_seq;
   uint32_t player_color_seq;
@@ -504,6 +514,11 @@ typedef struct samp_raknet_rpc_probe_snapshot {
   uint32_t player_armed_weapon;
   uint32_t player_given_weapon;
   uint32_t player_given_weapon_ammo;
+  int32_t give_player_money;
+  uint8_t player_ammo_weapon;
+  uint16_t player_ammo;
+  uint32_t player_skin_player_id;
+  int32_t player_skin;
   uint32_t play_sound_id;
   float play_sound_pos[3];
   uint16_t player_color_player_id;
@@ -566,6 +581,7 @@ typedef struct samp_raknet_rpc_probe_snapshot {
   samp_raknet_game_text_event game_text_events[SAMP_RAKNET_GAMETEXT_EVENT_RING];
   samp_raknet_3d_text_label_event text_label_events[SAMP_RAKNET_3D_TEXT_LABEL_EVENT_RING];
   samp_raknet_given_weapon_event given_weapon_events[SAMP_RAKNET_GIVE_WEAPON_EVENT_RING];
+  samp_raknet_give_money_event give_money_events[SAMP_RAKNET_GIVE_MONEY_EVENT_RING];
 } samp_raknet_rpc_probe_snapshot;
 
 /*
