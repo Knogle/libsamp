@@ -496,6 +496,9 @@ typedef struct samp_raknet_rpc_probe_snapshot {
   uint32_t give_player_money_seq;
   uint32_t player_ammo_seq;
   uint32_t player_skin_seq;
+  uint32_t player_skill_seq;
+  uint32_t player_drunk_seq;
+  uint32_t player_fighting_style_seq;
   uint32_t play_sound_seq;
   uint32_t stop_audio_stream_seq;
   uint32_t player_color_seq;
@@ -519,6 +522,12 @@ typedef struct samp_raknet_rpc_probe_snapshot {
   uint16_t player_ammo;
   uint32_t player_skin_player_id;
   int32_t player_skin;
+  uint16_t player_skill_player_id;
+  uint32_t player_skill;
+  uint16_t player_skill_level;
+  uint32_t player_drunk_level;
+  uint16_t player_fighting_style_player_id;
+  uint8_t player_fighting_style;
   uint32_t play_sound_id;
   float play_sound_pos[3];
   uint16_t player_color_player_id;

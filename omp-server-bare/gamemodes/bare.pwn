@@ -837,6 +837,63 @@ public OnPlayerCommandText(playerid, cmdtext[])
 		return 1;
 	}
 
+	if (!strcmp(cmdtext, "/skill", true, 6) &&
+		(cmdtext[6] == '\0' || cmdtext[6] == ' ' || cmdtext[6] == '\t'))
+	{
+		new token = SkipCommandSpaces(cmdtext, 6);
+		new skill = strval(cmdtext[token]);
+		token = NextCommandToken(cmdtext, token);
+		new level = strval(cmdtext[token]);
+		new message[112];
+		if (cmdtext[token] == '\0' || skill < 0 || skill > 10 || level < 0 || level > 999)
+		{
+			SendClientMessage(playerid, 0xFFCC66FF, "[bare-rpctest] Usage: /skill <0-10> <0-999>");
+			return 1;
+		}
+		SetPlayerSkillLevel(playerid, WEAPONSKILL:skill, level);
+		format(message, sizeof(message), "[bare-rpctest] Weapon skill %d set to %d.", skill, level);
+		SendClientMessage(playerid, 0x66FF66FF, message);
+		printf("[bare-rpctest] player=%d skill=%d level=%d", playerid, skill, level);
+		return 1;
+	}
+
+	if (!strcmp(cmdtext, "/drunk", true, 6) &&
+		(cmdtext[6] == '\0' || cmdtext[6] == ' ' || cmdtext[6] == '\t'))
+	{
+		new token = SkipCommandSpaces(cmdtext, 6);
+		new level = strval(cmdtext[token]);
+		new message[104];
+		if (cmdtext[token] == '\0' || level < 0 || level > 50000)
+		{
+			SendClientMessage(playerid, 0xFFCC66FF, "[bare-rpctest] Usage: /drunk <0-50000>");
+			return 1;
+		}
+		SetPlayerDrunkLevel(playerid, level);
+		format(message, sizeof(message), "[bare-rpctest] Drunk level set to %d.", level);
+		SendClientMessage(playerid, 0x66FF66FF, message);
+		printf("[bare-rpctest] player=%d drunk=%d", playerid, level);
+		return 1;
+	}
+
+	if (!strcmp(cmdtext, "/fight", true, 6) &&
+		(cmdtext[6] == '\0' || cmdtext[6] == ' ' || cmdtext[6] == '\t'))
+	{
+		new token = SkipCommandSpaces(cmdtext, 6);
+		new style = strval(cmdtext[token]);
+		new message[104];
+		if (cmdtext[token] == '\0' ||
+			!(style == 4 || style == 5 || style == 6 || style == 7 || style == 15 || style == 16))
+		{
+			SendClientMessage(playerid, 0xFFCC66FF, "[bare-rpctest] Usage: /fight <4,5,6,7,15,16>");
+			return 1;
+		}
+		SetPlayerFightingStyle(playerid, FIGHT_STYLE:style);
+		format(message, sizeof(message), "[bare-rpctest] Fighting style set to %d.", style);
+		SendClientMessage(playerid, 0x66FF66FF, message);
+		printf("[bare-rpctest] player=%d fighting_style=%d", playerid, style);
+		return 1;
+	}
+
 	if (!strcmp(cmdtext, "/gravity", true, 8) &&
 		(cmdtext[8] == '\0' || cmdtext[8] == ' ' || cmdtext[8] == '\t'))
 	{

@@ -1662,6 +1662,9 @@ typedef struct samp_runtime_state {
   LONG mp_session_applied_give_player_money_seq;
   LONG mp_session_applied_player_ammo_seq;
   LONG mp_session_applied_player_skin_seq;
+  LONG mp_session_applied_player_skill_seq;
+  LONG mp_session_applied_player_drunk_seq;
+  LONG mp_session_applied_player_fighting_style_seq;
   LONG mp_session_applied_play_sound_seq;
   LONG mp_session_applied_stop_audio_stream_seq;
   LONG mp_session_applied_player_color_seq;
@@ -18330,6 +18333,70 @@ static int gta_local_set_skin_compat(int32_t skin) {
   return 1;
 }
 
+static int rpc_target_is_local_compat(const samp_raknet_rpc_probe_snapshot *snapshot, uint32_t player_id) {
+  if (snapshot == NULL) {
+    return 0;
+  }
+  if (snapshot->auth_local_player_id_valid != 0u) {
+    return player_id == snapshot->auth_local_player_id;
+  }
+  return player_id == snapshot->init_local_player_id;
+}
+
+static int gta_apply_player_skill_compat(const samp_raknet_rpc_probe_snapshot *snapshot) {
+  uint32_t stat_id = 0u;
+
+  if (snapshot == NULL || snapshot->player_skill > 10u || snapshot->player_skill_level > 999u ||
+      !rpc_target_is_local_compat(snapshot, snapshot->player_skill_player_id)) {
+    return 0;
+  }
+  /*
+   * STATIC_037 + GTA_REVERSED_REF + INFERRED:
+   * samp.dll+0xAE450 maps the eleven SA-MP weapon skill IDs to GTA's contiguous
+   * float stats 69..79. Opcode 062A updates the same local-player stat value.
+   * Remote skill tables remain TODO_VERIFY until their CPlayerPed replicas exist.
+   */
+  stat_id = 69u + snapshot->player_skill;
+  return gta_script_command_compat(0x062Au, "if", (int)stat_id, (float)snapshot->player_skill_level);
+}
+
+static int gta_apply_player_drunk_compat(uint32_t level) {
+  if (level > 50000u) {
+    return 0;
+  }
+  /*
+   * STATIC_037 + INFERRED + TODO_VERIFY:
+   * 0.3.7 stores this at CPlayerPed wrapper +0x2C9 and drives its own per-frame
+   * sway. GTA opcode 052C targets the equivalent local-player drunk state while
+   * the compatibility wrapper is not yet reconstructed.
+   */
+  return gta_script_command_compat(0x052Cu, "ii", SAMP_GTA_PLAYER_LOCAL_ID, (int)level);
+}
+
+static int gta_apply_player_fighting_style_compat(const samp_raknet_rpc_probe_snapshot *snapshot) {
+  uint32_t actor_id = 0u;
+  samp_remote_player_slot_compat *slot = NULL;
+
+  if (snapshot == NULL) {
+    return 0;
+  }
+  if (rpc_target_is_local_compat(snapshot, snapshot->player_fighting_style_player_id)) {
+    actor_id = SAMP_GTA_ACTOR_LOCAL_ID;
+  } else if (snapshot->player_fighting_style_player_id < SAMP_SCOREBOARD_MAX_PLAYERS) {
+    slot = &g_runtime.remote_player_slots[snapshot->player_fighting_style_player_id];
+    slot->fighting_style = snapshot->player_fighting_style;
+    if (InterlockedCompareExchange(&slot->active, 0, 0) != 0) {
+      actor_id = slot->gta_id;
+    }
+  }
+  if (actor_id == 0u) {
+    return 0;
+  }
+  /* STATIC_037: samp.dll+0xAE0D0 invokes GTA opcode 07FE with six moves. */
+  return gta_script_command_compat(0x07FEu, "iii", (int)actor_id,
+                                   (int)snapshot->player_fighting_style, 6);
+}
+
 static uint32_t refresh_raknet_rpc_snapshot_compat(void) {
   /* The compact ring is still large enough to exhaust a meaningful fraction
    * of GTA's 1 MiB game-thread stack. This bridge is single-threaded and
@@ -18354,6 +18421,9 @@ static uint32_t refresh_raknet_rpc_snapshot_compat(void) {
   LONG previous_give_player_money_seq = 0;
   LONG previous_player_ammo_seq = 0;
   LONG previous_player_skin_seq = 0;
+  LONG previous_player_skill_seq = 0;
+  LONG previous_player_drunk_seq = 0;
+  LONG previous_player_fighting_style_seq = 0;
   LONG previous_play_sound_seq = 0;
   LONG previous_stop_audio_stream_seq = 0;
   LONG previous_player_color_seq = 0;
@@ -18570,6 +18640,38 @@ static uint32_t refresh_raknet_rpc_snapshot_compat(void) {
                    (unsigned long)snapshot.player_skin_seq, (long)previous_player_skin_seq,
                    (unsigned long)snapshot.player_skin_player_id, target_is_local,
                    (long)snapshot.player_skin, applied);
+  }
+  previous_player_skill_seq = InterlockedCompareExchange(&g_runtime.mp_session_applied_player_skill_seq, 0, 0);
+  if (snapshot.player_skill_seq != 0u && snapshot.player_skill_seq != (uint32_t)previous_player_skill_seq) {
+    int applied = gta_apply_player_skill_compat(&snapshot);
+    InterlockedExchange(&g_runtime.mp_session_applied_player_skill_seq, (LONG)snapshot.player_skill_seq);
+    runtime_tracef("network_prepare: apply_player_skill seq=%lu previous=%ld target=%u skill=%lu level=%u applied=%d "
+                   "evidence=STATIC_037,GTA_REVERSED_REF,INFERRED",
+                   (unsigned long)snapshot.player_skill_seq, (long)previous_player_skill_seq,
+                   (unsigned)snapshot.player_skill_player_id, (unsigned long)snapshot.player_skill,
+                   (unsigned)snapshot.player_skill_level, applied);
+  }
+  previous_player_drunk_seq = InterlockedCompareExchange(&g_runtime.mp_session_applied_player_drunk_seq, 0, 0);
+  if (snapshot.player_drunk_seq != 0u && snapshot.player_drunk_seq != (uint32_t)previous_player_drunk_seq) {
+    int applied = gta_apply_player_drunk_compat(snapshot.player_drunk_level);
+    InterlockedExchange(&g_runtime.mp_session_applied_player_drunk_seq, (LONG)snapshot.player_drunk_seq);
+    runtime_tracef("network_prepare: apply_player_drunk seq=%lu previous=%ld level=%lu applied=%d "
+                   "evidence=STATIC_037,INFERRED,TODO_VERIFY",
+                   (unsigned long)snapshot.player_drunk_seq, (long)previous_player_drunk_seq,
+                   (unsigned long)snapshot.player_drunk_level, applied);
+  }
+  previous_player_fighting_style_seq =
+      InterlockedCompareExchange(&g_runtime.mp_session_applied_player_fighting_style_seq, 0, 0);
+  if (snapshot.player_fighting_style_seq != 0u &&
+      snapshot.player_fighting_style_seq != (uint32_t)previous_player_fighting_style_seq) {
+    int applied = gta_apply_player_fighting_style_compat(&snapshot);
+    InterlockedExchange(&g_runtime.mp_session_applied_player_fighting_style_seq,
+                        (LONG)snapshot.player_fighting_style_seq);
+    runtime_tracef("network_prepare: apply_fighting_style seq=%lu previous=%ld target=%u style=%u applied=%d "
+                   "evidence=STATIC_037",
+                   (unsigned long)snapshot.player_fighting_style_seq, (long)previous_player_fighting_style_seq,
+                   (unsigned)snapshot.player_fighting_style_player_id,
+                   (unsigned)snapshot.player_fighting_style, applied);
   }
   previous_play_sound_seq = InterlockedCompareExchange(&g_runtime.raknet_play_sound_seq, 0, 0);
   if (snapshot.play_sound_seq != 0u && snapshot.play_sound_seq != (uint32_t)previous_play_sound_seq) {
@@ -23620,6 +23722,9 @@ static void launch_prepare_network_compat(void) {
     InterlockedExchange(&g_runtime.mp_session_applied_give_player_money_seq, 0);
     InterlockedExchange(&g_runtime.mp_session_applied_player_ammo_seq, 0);
     InterlockedExchange(&g_runtime.mp_session_applied_player_skin_seq, 0);
+    InterlockedExchange(&g_runtime.mp_session_applied_player_skill_seq, 0);
+    InterlockedExchange(&g_runtime.mp_session_applied_player_drunk_seq, 0);
+    InterlockedExchange(&g_runtime.mp_session_applied_player_fighting_style_seq, 0);
     InterlockedExchange(&g_runtime.mp_session_applied_play_sound_seq, 0);
     InterlockedExchange(&g_runtime.mp_session_applied_stop_audio_stream_seq, 0);
     InterlockedExchange(&g_runtime.mp_session_applied_player_color_seq, 0);

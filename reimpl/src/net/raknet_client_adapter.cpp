@@ -231,6 +231,9 @@ struct RpcProbeState {
   unsigned int give_player_money_seq;
   unsigned int player_ammo_seq;
   unsigned int player_skin_seq;
+  unsigned int player_skill_seq;
+  unsigned int player_drunk_seq;
+  unsigned int player_fighting_style_seq;
   unsigned int play_sound_seq;
   unsigned int stop_audio_stream_seq;
   unsigned int player_color_seq;
@@ -251,6 +254,12 @@ struct RpcProbeState {
   unsigned short player_ammo;
   unsigned int player_skin_player_id;
   std::int32_t player_skin;
+  unsigned short player_skill_player_id;
+  unsigned int player_skill;
+  unsigned short player_skill_level;
+  unsigned int player_drunk_level;
+  unsigned short player_fighting_style_player_id;
+  unsigned char player_fighting_style;
   samp_raknet_given_weapon_event player_given_weapon_events[SAMP_RAKNET_GIVE_WEAPON_EVENT_RING];
   unsigned int play_sound_id;
   float play_sound_pos[3];
@@ -565,8 +574,8 @@ const RpcMeta kRpcMeta[] = {
     {31U, "ScriptCash", kRpcLocalOutgoing, "OPENMP_REF"},
     {32U, "ScrWorldPlayerAdd", kRpcLocalImplemented, "STATIC_037,PROBE_TRACE"},
     {33U, "ScrSetPlayerShopName", kRpcLocalDummy, "SAMPFUNCS_037"},
-    {34U, "ScrSetPlayerSkillLevel", kRpcLocalDummy, "SAMPFUNCS_037"},
-    {35U, "ScrSetPlayerDrunkLevel", kRpcLocalDummy, "SAMPFUNCS_037"},
+    {34U, "ScrSetPlayerSkillLevel", kRpcLocalImplemented, "STATIC_037:samp.dll+0xF5E0"},
+    {35U, "ScrSetPlayerDrunkLevel", kRpcLocalImplemented, "STATIC_037:samp.dll+0x18DB0"},
     {36U, "ScrCreate3DTextLabel", kRpcLocalImplemented, "OPENMP_REF,TODO_VERIFY"},
     {37U, "ScrDisableCheckpoint", kRpcLocalDummy, "STATIC_037"},
     {38U, "ScrSetRaceCheckpoint", kRpcLocalDummy, "STATIC_037"},
@@ -617,7 +626,7 @@ const RpcMeta kRpcMeta[] = {
     {86U, "ScrApplyAnimation", kRpcLocalDecoded, "STATIC_037"},
     {87U, "ScrClearAnimations", kRpcLocalDummy, "STATIC_037"},
     {88U, "ScrSetPlayerSpecialAction", kRpcLocalDummy, "STATIC_037"},
-    {89U, "ScrSetPlayerFightingStyle", kRpcLocalDummy, "SAMPFUNCS_037"},
+    {89U, "ScrSetPlayerFightingStyle", kRpcLocalImplemented, "STATIC_037:samp.dll+0x18740"},
     {90U, "ScrSetPlayerVelocity", kRpcLocalDummy, "SAMPFUNCS_037"},
     {91U, "ScrSetVehicleVelocity", kRpcLocalDummy, "SAMPFUNCS_037"},
     {93U, "ScrClientMessage", kRpcLocalImplemented, "PROBE_TRACE"},
@@ -733,6 +742,12 @@ unsigned int rpc_min_payload_bytes(unsigned int rpc_id) {
       return 4U;
     case 18U:
       return 4U;
+    case 34U:
+      return 8U;
+    case 35U:
+      return 4U;
+    case 89U:
+      return 3U;
     case 153U:
       return 8U;
     case 15U:
@@ -995,6 +1010,9 @@ void reset_rpc_probe_runtime(RakNet::RakClientInterface *client) {
   g_rpc_probe.give_player_money_seq = 0U;
   g_rpc_probe.player_ammo_seq = 0U;
   g_rpc_probe.player_skin_seq = 0U;
+  g_rpc_probe.player_skill_seq = 0U;
+  g_rpc_probe.player_drunk_seq = 0U;
+  g_rpc_probe.player_fighting_style_seq = 0U;
   g_rpc_probe.play_sound_seq = 0U;
   g_rpc_probe.stop_audio_stream_seq = 0U;
   g_rpc_probe.player_color_seq = 0U;
@@ -1020,6 +1038,12 @@ void reset_rpc_probe_runtime(RakNet::RakClientInterface *client) {
   g_rpc_probe.player_ammo = 0U;
   g_rpc_probe.player_skin_player_id = 0U;
   g_rpc_probe.player_skin = 0;
+  g_rpc_probe.player_skill_player_id = 0U;
+  g_rpc_probe.player_skill = 0U;
+  g_rpc_probe.player_skill_level = 0U;
+  g_rpc_probe.player_drunk_level = 0U;
+  g_rpc_probe.player_fighting_style_player_id = 0U;
+  g_rpc_probe.player_fighting_style = 0U;
   std::memset(g_rpc_probe.player_given_weapon_events, 0, sizeof(g_rpc_probe.player_given_weapon_events));
   std::memset(g_rpc_probe.give_money_events, 0, sizeof(g_rpc_probe.give_money_events));
   g_rpc_probe.play_sound_id = 0U;
@@ -3173,6 +3197,84 @@ bool decode_player_skin_payload(const unsigned char *data, unsigned int bytes) {
   return true;
 }
 
+bool decode_player_skill_payload(const unsigned char *data, unsigned int bytes) {
+  if (data == nullptr || bytes < 8U) {
+    return false;
+  }
+
+  /*
+   * STATIC_037:
+   * SA-MP 0.3.7-R5 samp.dll+0xF5E0 reads uint16 player ID, uint32 skill ID,
+   * and uint16 level, then calls samp.dll+0xAE450 on the resolved CPlayerPed.
+   * SHA256=b72b5dbe725f81864ca3f78bc7063bda56cc05fc7188af822fa7a754432553a2.
+   */
+  const unsigned int player_id = read_le16(data);
+  const unsigned int skill = read_le32(data + 2U);
+  const unsigned int level = read_le16(data + 6U);
+  if (player_id >= SAMP_RAKNET_MAX_PLAYERS || skill > 10U || level > 999U) {
+    trace_netf("rpc-state id=34 invalid_player_skill target=%u skill=%u level=%u bytes=%u ignored=1 evidence=STATIC_037",
+               player_id, skill, level, bytes);
+    return false;
+  }
+  g_rpc_probe.player_skill_player_id = static_cast<unsigned short>(player_id);
+  g_rpc_probe.player_skill = skill;
+  g_rpc_probe.player_skill_level = static_cast<unsigned short>(level);
+  const unsigned int seq = bump_seq(&g_rpc_probe.player_skill_seq);
+  trace_netf("rpc-state id=34 player_skill_seq=%u target=%u skill=%u level=%u apply_pending=1 evidence=STATIC_037",
+             seq, player_id, skill, level);
+  return true;
+}
+
+bool decode_player_drunk_payload(const unsigned char *data, unsigned int bytes) {
+  if (data == nullptr || bytes < 4U) {
+    return false;
+  }
+
+  /*
+   * STATIC_037:
+   * SA-MP 0.3.7-R5 samp.dll+0x18DB0 reads one uint32 level and stores it via
+   * samp.dll+0xADFB0 in the local CPlayerPed compatibility wrapper.
+   * SHA256=b72b5dbe725f81864ca3f78bc7063bda56cc05fc7188af822fa7a754432553a2.
+   */
+  const unsigned int level = read_le32(data);
+  if (level > 50000U) {
+    trace_netf("rpc-state id=35 invalid_player_drunk level=%u bytes=%u ignored=1 evidence=STATIC_037,OPENMP_REF",
+               level, bytes);
+    return false;
+  }
+  g_rpc_probe.player_drunk_level = level;
+  const unsigned int seq = bump_seq(&g_rpc_probe.player_drunk_seq);
+  trace_netf("rpc-state id=35 player_drunk_seq=%u level=%u apply_pending=1 evidence=STATIC_037", seq, level);
+  return true;
+}
+
+bool decode_player_fighting_style_payload(const unsigned char *data, unsigned int bytes) {
+  if (data == nullptr || bytes < 3U) {
+    return false;
+  }
+
+  /*
+   * STATIC_037:
+   * SA-MP 0.3.7-R5 samp.dll+0x18740 reads uint16 player ID plus uint8 style,
+   * resolves the local/remote CPlayerPed, and calls samp.dll+0xAE0D0 (GTA 07FE).
+   * SHA256=b72b5dbe725f81864ca3f78bc7063bda56cc05fc7188af822fa7a754432553a2.
+   */
+  const unsigned int player_id = read_le16(data);
+  const unsigned int style = data[2U];
+  const bool valid_style = style == 4U || style == 5U || style == 6U || style == 7U || style == 15U || style == 16U;
+  if (player_id >= SAMP_RAKNET_MAX_PLAYERS || !valid_style) {
+    trace_netf("rpc-state id=89 invalid_fighting_style target=%u style=%u bytes=%u ignored=1 evidence=STATIC_037,OPENMP_REF",
+               player_id, style, bytes);
+    return false;
+  }
+  g_rpc_probe.player_fighting_style_player_id = static_cast<unsigned short>(player_id);
+  g_rpc_probe.player_fighting_style = static_cast<unsigned char>(style);
+  const unsigned int seq = bump_seq(&g_rpc_probe.player_fighting_style_seq);
+  trace_netf("rpc-state id=89 fighting_style_seq=%u target=%u style=%u apply_pending=1 evidence=STATIC_037",
+             seq, player_id, style);
+  return true;
+}
+
 bool decode_player_wanted_level_payload(const unsigned char *data, unsigned int bytes) {
   if (data == nullptr || bytes < 1U) {
     return false;
@@ -4905,6 +5007,18 @@ void rpc_observer(RakNet::RPCParameters *rpc_params, void *extra) {
     if (rpc_params == nullptr || !decode_give_player_money_payload(rpc_params->input, bytes)) {
       trace_netf("rpc-state id=18 give_money decode_failed bytes=%u", bytes);
     }
+  } else if (rpc_id == 34U) {
+    if (rpc_params == nullptr || !decode_player_skill_payload(rpc_params->input, bytes)) {
+      trace_netf("rpc-state id=34 player_skill decode_failed bytes=%u", bytes);
+    }
+  } else if (rpc_id == 35U) {
+    if (rpc_params == nullptr || !decode_player_drunk_payload(rpc_params->input, bytes)) {
+      trace_netf("rpc-state id=35 player_drunk decode_failed bytes=%u", bytes);
+    }
+  } else if (rpc_id == 89U) {
+    if (rpc_params == nullptr || !decode_player_fighting_style_payload(rpc_params->input, bytes)) {
+      trace_netf("rpc-state id=89 fighting_style decode_failed bytes=%u", bytes);
+    }
   } else if (rpc_id == 93U) {
     if (rpc_params != nullptr && bytes >= 8U) {
       decode_client_message_payload(rpc_params->input, bytes);
@@ -6020,7 +6134,8 @@ int samp_raknet_client_get_rpc_probe_snapshot(void *client, samp_raknet_rpc_prob
   if (g_rpc_probe.player_armour_seq > 0U || g_rpc_probe.player_armed_weapon_seq > 0U ||
       g_rpc_probe.player_given_weapon_seq > 0U || g_rpc_probe.reset_player_weapons_seq > 0U ||
       g_rpc_probe.reset_player_money_seq > 0U || g_rpc_probe.give_player_money_seq > 0U ||
-      g_rpc_probe.player_ammo_seq > 0U || g_rpc_probe.player_skin_seq > 0U ||
+      g_rpc_probe.player_ammo_seq > 0U || g_rpc_probe.player_skin_seq > 0U || g_rpc_probe.player_skill_seq > 0U ||
+      g_rpc_probe.player_drunk_seq > 0U || g_rpc_probe.player_fighting_style_seq > 0U ||
       g_rpc_probe.play_sound_seq > 0U || g_rpc_probe.stop_audio_stream_seq > 0U ||
       g_rpc_probe.player_color_seq > 0U || g_rpc_probe.player_team_seq > 0U ||
       g_rpc_probe.apply_animation_seq > 0U) {
@@ -6133,6 +6248,9 @@ int samp_raknet_client_get_rpc_probe_snapshot(void *client, samp_raknet_rpc_prob
   out_snapshot->give_player_money_seq = g_rpc_probe.give_player_money_seq;
   out_snapshot->player_ammo_seq = g_rpc_probe.player_ammo_seq;
   out_snapshot->player_skin_seq = g_rpc_probe.player_skin_seq;
+  out_snapshot->player_skill_seq = g_rpc_probe.player_skill_seq;
+  out_snapshot->player_drunk_seq = g_rpc_probe.player_drunk_seq;
+  out_snapshot->player_fighting_style_seq = g_rpc_probe.player_fighting_style_seq;
   out_snapshot->play_sound_seq = g_rpc_probe.play_sound_seq;
   out_snapshot->stop_audio_stream_seq = g_rpc_probe.stop_audio_stream_seq;
   out_snapshot->player_color_seq = g_rpc_probe.player_color_seq;
@@ -6156,6 +6274,12 @@ int samp_raknet_client_get_rpc_probe_snapshot(void *client, samp_raknet_rpc_prob
   out_snapshot->player_ammo = g_rpc_probe.player_ammo;
   out_snapshot->player_skin_player_id = g_rpc_probe.player_skin_player_id;
   out_snapshot->player_skin = g_rpc_probe.player_skin;
+  out_snapshot->player_skill_player_id = g_rpc_probe.player_skill_player_id;
+  out_snapshot->player_skill = g_rpc_probe.player_skill;
+  out_snapshot->player_skill_level = g_rpc_probe.player_skill_level;
+  out_snapshot->player_drunk_level = g_rpc_probe.player_drunk_level;
+  out_snapshot->player_fighting_style_player_id = g_rpc_probe.player_fighting_style_player_id;
+  out_snapshot->player_fighting_style = g_rpc_probe.player_fighting_style;
   std::memcpy(out_snapshot->game_text, g_rpc_probe.game_text, sizeof(out_snapshot->game_text));
   if (g_rpc_probe.player_given_weapon_seq > 0U) {
     const unsigned int available = g_rpc_probe.player_given_weapon_seq < SAMP_RAKNET_GIVE_WEAPON_EVENT_RING
