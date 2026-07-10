@@ -20,6 +20,7 @@ int samp_raknet_client_send_chat(void *client, const char *text);
 int samp_raknet_client_send_server_command(void *client, const char *command);
 int samp_raknet_client_send_spawn_notification(void *client);
 int samp_raknet_client_send_spawn_notification_for_seq(void *client, uint32_t spawn_info_seq);
+int samp_raknet_client_send_death_notification(void *client, uint8_t death_reason, uint8_t responsible_player);
 int samp_raknet_client_send_textdraw_click(void *client, uint16_t textdraw_id);
 int samp_raknet_client_mark_class_selection_after_death(void *client);
 int samp_raknet_client_request_class_selection_after_death(void *client);
@@ -173,7 +174,10 @@ typedef struct samp_raknet_join_profile {
 #define SAMP_RAKNET_TEXTDRAW_ACTION_SHOW 1u
 #define SAMP_RAKNET_TEXTDRAW_ACTION_HIDE 2u
 #define SAMP_RAKNET_TEXTDRAW_ACTION_EDIT 3u
-#define SAMP_RAKNET_OBJECT_EVENT_RING 128u
+/* Compact descriptors only. RakPeer::Receive may dispatch more RPCs than the
+ * outer packet budget in one call, so lifecycle/material stores remain the
+ * authoritative recovery path if this diagnostic/order ring wraps. */
+#define SAMP_RAKNET_OBJECT_EVENT_RING 1024u
 #define SAMP_RAKNET_MAX_OBJECTS 2000u
 #define SAMP_RAKNET_OBJECT_ACTION_CREATE 1u
 #define SAMP_RAKNET_OBJECT_ACTION_DESTROY 2u
@@ -182,6 +186,15 @@ typedef struct samp_raknet_join_profile {
 #define SAMP_RAKNET_OBJECT_ACTION_MOVE 5u
 #define SAMP_RAKNET_OBJECT_ACTION_STOP 6u
 #define SAMP_RAKNET_OBJECT_ACTION_ATTACH_PLAYER 7u
+#define SAMP_RAKNET_OBJECT_ACTION_SET_MATERIAL 8u
+
+#define SAMP_RAKNET_OBJECT_MATERIAL_SLOTS 16u
+#define SAMP_RAKNET_OBJECT_MATERIAL_TYPE_DEFAULT 1u
+#define SAMP_RAKNET_OBJECT_MATERIAL_TYPE_TEXT 2u
+#define SAMP_RAKNET_OBJECT_MATERIAL_SOURCE_CREATE 1u
+#define SAMP_RAKNET_OBJECT_MATERIAL_SOURCE_RPC 2u
+#define SAMP_RAKNET_OBJECT_MATERIAL_NAME_BYTES 256u
+#define SAMP_RAKNET_OBJECT_MATERIAL_TEXT_BYTES 2049u
 
 #define SAMP_RAKNET_OBJECT_ATTACH_NONE 0u
 #define SAMP_RAKNET_OBJECT_ATTACH_VEHICLE 1u
@@ -336,14 +349,37 @@ typedef struct samp_raknet_textdraw_event {
   char text[SAMP_RAKNET_TEXTDRAW_TEXT_BYTES];
 } samp_raknet_textdraw_event;
 
+typedef struct samp_raknet_object_material {
+  uint8_t type;
+  uint8_t slot;
+  uint8_t source;
+  uint8_t material_size;
+  uint8_t font_size;
+  uint8_t bold;
+  uint8_t alignment;
+  uint8_t reserved;
+  int32_t model;
+  uint32_t material_color;
+  uint32_t background_color;
+  char txd[SAMP_RAKNET_OBJECT_MATERIAL_NAME_BYTES];
+  char texture[SAMP_RAKNET_OBJECT_MATERIAL_NAME_BYTES];
+  char font[SAMP_RAKNET_OBJECT_MATERIAL_NAME_BYTES];
+  char text[SAMP_RAKNET_OBJECT_MATERIAL_TEXT_BYTES];
+} samp_raknet_object_material;
+
 typedef struct samp_raknet_object_event {
   uint32_t seq;
+  uint32_t object_generation;
+  uint32_t material_revision;
   uint8_t action;
   uint8_t has_pos;
   uint8_t has_attachment;
   uint8_t materials_count;
   uint8_t attachment_type;
   uint8_t attachment_sync_rotation;
+  uint8_t material_type;
+  uint8_t material_slot;
+  uint8_t material_source;
   uint16_t object_id;
   uint16_t attachment_parent_id;
   int32_t model;
@@ -354,6 +390,7 @@ typedef struct samp_raknet_object_event {
   float move_from[3];
   float move_to[3];
   float move_speed;
+  float draw_distance;
 } samp_raknet_object_event;
 
 typedef struct samp_raknet_vehicle_event {
@@ -543,6 +580,12 @@ int samp_raknet_client_drain_packets_autojoin(void *client, int max_packets, con
                                               int *out_connected, int *out_join_sent, int *out_last_packet_id);
 
 int samp_raknet_client_get_rpc_probe_snapshot(void *client, samp_raknet_rpc_probe_snapshot *out_snapshot);
+int samp_raknet_client_get_object_material(void *client, uint16_t object_id, uint32_t object_generation,
+                                           uint8_t material_slot, uint32_t minimum_revision,
+                                           samp_raknet_object_material *out_material,
+                                           uint32_t *out_revision);
+int samp_raknet_client_get_object_lifecycle(void *client, uint16_t object_id, uint8_t *out_alive,
+                                            samp_raknet_object_event *out_create_event);
 int samp_raknet_client_queue_dialog_response(void *client, uint16_t dialog_id, uint8_t button, int16_t listitem,
                                              const char *input);
 

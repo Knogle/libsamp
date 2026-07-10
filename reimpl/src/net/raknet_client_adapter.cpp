@@ -36,6 +36,7 @@ constexpr unsigned char kPacketPlayerSync = 207u;
 constexpr RakNet::RPCID kRpcClientJoin = static_cast<RakNet::RPCID>(25u);
 constexpr RakNet::RPCID kRpcDialogResponse = static_cast<RakNet::RPCID>(62u);
 constexpr RakNet::RPCID kRpcSpawn = static_cast<RakNet::RPCID>(52u);
+constexpr RakNet::RPCID kRpcDeath = static_cast<RakNet::RPCID>(53u);
 constexpr RakNet::RPCID kRpcServerCommand = static_cast<RakNet::RPCID>(50u);
 constexpr RakNet::RPCID kRpcChat = static_cast<RakNet::RPCID>(101u);
 constexpr RakNet::RPCID kRpcClientCheck = static_cast<RakNet::RPCID>(103u);
@@ -63,6 +64,7 @@ constexpr float kRadiansToDegrees = 57.29577951308232f;
 constexpr unsigned int kMaxSpawnRetries = 4U;
 constexpr unsigned short kDefaultFreeroamTextDrawId = 24U;
 constexpr unsigned int kGtaModelInfoCount = 20000U;
+constexpr unsigned int kObjectMaterialTextBudgetBytes = 8U * 1024U * 1024U;
 constexpr unsigned int kObservedPlayerSpawnInfoBytes = 45U;
 constexpr unsigned int kPlayerSpawnInfoBytes = 46U;
 constexpr unsigned int kDialogTitleBytes = 256U;
@@ -111,6 +113,25 @@ bool packet_resets_session_state(unsigned char packet_id) {
   return packet_id == static_cast<unsigned char>(RakNet::ID_DISCONNECTION_NOTIFICATION) ||
          packet_id == static_cast<unsigned char>(RakNet::ID_CONNECTION_LOST);
 }
+
+struct ObjectMaterialSlotState {
+  unsigned int generation;
+  unsigned int revision;
+  unsigned int materialColor;
+  unsigned int backgroundColor;
+  std::int32_t model;
+  unsigned char type;
+  unsigned char slot;
+  unsigned char source;
+  unsigned char materialSize;
+  unsigned char fontSize;
+  unsigned char bold;
+  unsigned char alignment;
+  char nameA[SAMP_RAKNET_OBJECT_MATERIAL_NAME_BYTES];
+  char nameB[SAMP_RAKNET_OBJECT_MATERIAL_NAME_BYTES];
+  char *text;
+  unsigned int textBytes;
+};
 
 struct RpcProbeState {
   RakNet::RakClientInterface *client;
@@ -273,6 +294,13 @@ struct RpcProbeState {
   unsigned int textdraw_select_color;
   unsigned int object_event_seq;
   samp_raknet_object_event object_events[SAMP_RAKNET_OBJECT_EVENT_RING];
+  unsigned int object_generations[SAMP_RAKNET_MAX_OBJECTS];
+  unsigned char object_alive[SAMP_RAKNET_MAX_OBJECTS];
+  samp_raknet_object_event object_create_states[SAMP_RAKNET_MAX_OBJECTS];
+  unsigned int object_generation_seq;
+  unsigned int object_material_revision_seq;
+  unsigned int object_material_text_bytes;
+  ObjectMaterialSlotState *object_material_slots[SAMP_RAKNET_MAX_OBJECTS][SAMP_RAKNET_OBJECT_MATERIAL_SLOTS];
   unsigned int vehicle_event_seq;
   samp_raknet_vehicle_event vehicle_events[SAMP_RAKNET_VEHICLE_EVENT_RING];
   unsigned int remote_player_event_seq;
@@ -309,6 +337,8 @@ struct RpcProbeState {
 };
 
 RpcProbeState g_rpc_probe = {};
+
+void release_all_object_material_states(const char *reason);
 
 void trace_netf(const char *fmt, ...) {
   FILE *file = std::fopen("samp_net_trace.log", "ab");
@@ -569,7 +599,7 @@ const RpcMeta kRpcMeta[] = {
     {81U, "ScrAttachCameraToObject", kRpcLocalDummy, "SAMPFUNCS_037"},
     {82U, "ScrInterpolateCamera", kRpcLocalDummy, "SAMPFUNCS_037"},
     {83U, "ClickTextDraw/SelectTextDraw", kRpcLocalImplemented, "PROBE_TRACE"},
-    {84U, "ScrSetObjectMaterial", kRpcLocalDecoded, "OPENMP_REF"},
+    {84U, "ScrSetObjectMaterial", kRpcLocalImplemented, "STATIC_037,OPENMP_REF,PROBE_TRACE"},
     {85U, "ScrGangZoneStopFlash", kRpcLocalDummy, "SAMPFUNCS_037"},
     {86U, "ScrApplyAnimation", kRpcLocalDecoded, "STATIC_037"},
     {87U, "ScrClearAnimations", kRpcLocalDummy, "STATIC_037"},
@@ -846,6 +876,7 @@ unsigned int rpc_dummy_meta_count() {
 }
 
 void reset_rpc_probe_runtime(RakNet::RakClientInterface *client) {
+  release_all_object_material_states("rpc_probe_reset");
   g_rpc_probe.client = client;
   std::memset(g_rpc_probe.local_nickname, 0, sizeof(g_rpc_probe.local_nickname));
   std::strncpy(g_rpc_probe.local_nickname, kDefaultNickname, sizeof(g_rpc_probe.local_nickname) - 1U);
@@ -1011,6 +1042,13 @@ void reset_rpc_probe_runtime(RakNet::RakClientInterface *client) {
   g_rpc_probe.textdraw_select_color = 0U;
   g_rpc_probe.object_event_seq = 0U;
   std::memset(g_rpc_probe.object_events, 0, sizeof(g_rpc_probe.object_events));
+  std::memset(g_rpc_probe.object_generations, 0, sizeof(g_rpc_probe.object_generations));
+  std::memset(g_rpc_probe.object_alive, 0, sizeof(g_rpc_probe.object_alive));
+  std::memset(g_rpc_probe.object_create_states, 0, sizeof(g_rpc_probe.object_create_states));
+  g_rpc_probe.object_generation_seq = 0U;
+  g_rpc_probe.object_material_revision_seq = 0U;
+  g_rpc_probe.object_material_text_bytes = 0U;
+  std::memset(g_rpc_probe.object_material_slots, 0, sizeof(g_rpc_probe.object_material_slots));
   g_rpc_probe.vehicle_event_seq = 0U;
   std::memset(g_rpc_probe.vehicle_events, 0, sizeof(g_rpc_probe.vehicle_events));
   g_rpc_probe.remote_player_event_seq = 0U;
@@ -1228,9 +1266,402 @@ samp_raknet_object_event *queue_object_event(unsigned char action, unsigned shor
 
   std::memset(event, 0, sizeof(*event));
   event->seq = g_rpc_probe.object_event_seq;
+  event->object_generation = object_id_valid(object_id) ? g_rpc_probe.object_generations[object_id] : 0U;
   event->action = action;
   event->object_id = object_id;
   g_rpc_probe.saw_object_event = 1;
+  return event;
+}
+
+unsigned int bump_object_material_counter(unsigned int *counter) {
+  if (counter == nullptr) {
+    return 0U;
+  }
+  ++(*counter);
+  if (*counter == 0U) {
+    *counter = 1U;
+  }
+  return *counter;
+}
+
+void copy_object_material_name(char *out, std::size_t out_size, const char *value) {
+  if (out == nullptr || out_size == 0U) {
+    return;
+  }
+  out[0] = '\0';
+  if (value == nullptr) {
+    return;
+  }
+  std::strncpy(out, value, out_size - 1U);
+  out[out_size - 1U] = '\0';
+}
+
+unsigned int object_material_text_size(const char *text_value) {
+  unsigned int length = 0U;
+
+  if (text_value == nullptr) {
+    return 1U;
+  }
+  while (length + 1U < SAMP_RAKNET_OBJECT_MATERIAL_TEXT_BYTES && text_value[length] != '\0') {
+    ++length;
+  }
+  return length + 1U;
+}
+
+void free_object_material_state(ObjectMaterialSlotState *state) {
+  if (state == nullptr) {
+    return;
+  }
+  std::free(state->text);
+  state->text = nullptr;
+  state->textBytes = 0U;
+  std::free(state);
+}
+
+void release_object_material_slot_state(unsigned short object_id, unsigned int material_slot) {
+  ObjectMaterialSlotState *state = nullptr;
+
+  if (!object_id_valid(object_id) || material_slot >= SAMP_RAKNET_OBJECT_MATERIAL_SLOTS) {
+    return;
+  }
+  state = g_rpc_probe.object_material_slots[object_id][material_slot];
+  if (state == nullptr) {
+    return;
+  }
+  g_rpc_probe.object_material_slots[object_id][material_slot] = nullptr;
+  if (state->textBytes <= g_rpc_probe.object_material_text_bytes) {
+    g_rpc_probe.object_material_text_bytes -= state->textBytes;
+  } else {
+    g_rpc_probe.object_material_text_bytes = 0U;
+  }
+  free_object_material_state(state);
+}
+
+void release_object_material_states(unsigned short object_id, const char *reason) {
+  unsigned int released = 0U;
+  unsigned int released_text_bytes = 0U;
+
+  if (!object_id_valid(object_id)) {
+    return;
+  }
+  for (unsigned int i = 0U; i < SAMP_RAKNET_OBJECT_MATERIAL_SLOTS; ++i) {
+    ObjectMaterialSlotState *state = g_rpc_probe.object_material_slots[object_id][i];
+    if (state == nullptr) {
+      continue;
+    }
+    released_text_bytes += state->textBytes;
+    release_object_material_slot_state(object_id, i);
+    ++released;
+  }
+  if (released != 0U) {
+    trace_netf("object-material-state: release id=%u generation=%u slots=%u text_bytes=%u total_text_bytes=%u "
+               "reason=%s",
+               static_cast<unsigned int>(object_id), g_rpc_probe.object_generations[object_id], released,
+               released_text_bytes, g_rpc_probe.object_material_text_bytes, reason != nullptr ? reason : "unknown");
+  }
+}
+
+void release_all_object_material_states(const char *reason) {
+  for (unsigned int object_id = 0U; object_id < SAMP_RAKNET_MAX_OBJECTS; ++object_id) {
+    release_object_material_states(static_cast<unsigned short>(object_id), reason);
+  }
+  g_rpc_probe.object_material_text_bytes = 0U;
+  std::memset(g_rpc_probe.object_material_slots, 0, sizeof(g_rpc_probe.object_material_slots));
+}
+
+ObjectMaterialSlotState *create_object_material_state(const samp_raknet_object_material *material,
+                                                      unsigned int generation, unsigned int revision) {
+  ObjectMaterialSlotState *state = nullptr;
+
+  if (material == nullptr || generation == 0U || revision == 0U ||
+      material->slot >= SAMP_RAKNET_OBJECT_MATERIAL_SLOTS ||
+      (material->type != SAMP_RAKNET_OBJECT_MATERIAL_TYPE_DEFAULT &&
+       material->type != SAMP_RAKNET_OBJECT_MATERIAL_TYPE_TEXT)) {
+    return nullptr;
+  }
+  state = static_cast<ObjectMaterialSlotState *>(std::calloc(1U, sizeof(*state)));
+  if (state == nullptr) {
+    return nullptr;
+  }
+  state->generation = generation;
+  state->revision = revision;
+  state->materialColor = material->material_color;
+  state->backgroundColor = material->background_color;
+  state->model = material->model;
+  state->type = material->type;
+  state->slot = material->slot;
+  state->source = material->source;
+  state->materialSize = material->material_size;
+  state->fontSize = material->font_size;
+  state->bold = material->bold;
+  state->alignment = material->alignment;
+
+  if (material->type == SAMP_RAKNET_OBJECT_MATERIAL_TYPE_DEFAULT) {
+    copy_object_material_name(state->nameA, sizeof(state->nameA), material->txd);
+    copy_object_material_name(state->nameB, sizeof(state->nameB), material->texture);
+  } else {
+    state->textBytes = object_material_text_size(material->text);
+    state->text = static_cast<char *>(std::malloc(state->textBytes));
+    if (state->text == nullptr) {
+      free_object_material_state(state);
+      return nullptr;
+    }
+    copy_object_material_name(state->nameA, sizeof(state->nameA), material->font);
+    std::memcpy(state->text, material->text, state->textBytes - 1U);
+    state->text[state->textBytes - 1U] = '\0';
+  }
+  return state;
+}
+
+unsigned int object_material_text_bytes_for_object(unsigned short object_id) {
+  unsigned int bytes = 0U;
+
+  if (!object_id_valid(object_id)) {
+    return 0U;
+  }
+  for (unsigned int i = 0U; i < SAMP_RAKNET_OBJECT_MATERIAL_SLOTS; ++i) {
+    const ObjectMaterialSlotState *state = g_rpc_probe.object_material_slots[object_id][i];
+    if (state != nullptr) {
+      bytes += state->textBytes;
+    }
+  }
+  return bytes;
+}
+
+void trace_object_material_state_persisted(unsigned short object_id, const ObjectMaterialSlotState *state) {
+  if (state == nullptr) {
+    return;
+  }
+  trace_netf("object-material-state: persist id=%u generation=%u revision=%u source=%s type=%u slot=%u "
+             "model=%d name_a='%s' name_b='%s' color_wire=0x%08x text_bytes=%u total_text_bytes=%u "
+             "evidence=STATIC_037,OPENMP_REF,PROBE_TRACE",
+             static_cast<unsigned int>(object_id), state->generation, state->revision,
+             state->source == SAMP_RAKNET_OBJECT_MATERIAL_SOURCE_CREATE ? "create" : "rpc84",
+             static_cast<unsigned int>(state->type), static_cast<unsigned int>(state->slot),
+             static_cast<int>(state->model), state->nameA, state->nameB, state->materialColor, state->textBytes,
+             g_rpc_probe.object_material_text_bytes);
+}
+
+bool replace_create_object_material_states(unsigned short object_id, unsigned int generation,
+                                           const samp_raknet_object_material *materials,
+                                           unsigned int materials_count) {
+  ObjectMaterialSlotState *replacement[SAMP_RAKNET_OBJECT_MATERIAL_SLOTS] = {};
+  unsigned int retained_text_bytes = g_rpc_probe.object_material_text_bytes;
+  unsigned int replacement_text_bytes = 0U;
+  unsigned int old_text_bytes = object_material_text_bytes_for_object(object_id);
+  bool ok = false;
+
+  if (!object_id_valid(object_id) || generation == 0U ||
+      materials_count > SAMP_RAKNET_OBJECT_MATERIAL_SLOTS ||
+      (materials_count != 0U && materials == nullptr)) {
+    return false;
+  }
+  if (old_text_bytes <= retained_text_bytes) {
+    retained_text_bytes -= old_text_bytes;
+  } else {
+    retained_text_bytes = 0U;
+  }
+
+  for (unsigned int i = 0U; i < materials_count; ++i) {
+    const unsigned int revision = bump_object_material_counter(&g_rpc_probe.object_material_revision_seq);
+    ObjectMaterialSlotState *state = create_object_material_state(&materials[i], generation, revision);
+    const unsigned int slot = materials[i].slot;
+
+    if (state == nullptr || slot >= SAMP_RAKNET_OBJECT_MATERIAL_SLOTS) {
+      free_object_material_state(state);
+      trace_netf("object-material-state: create_store_failed id=%u generation=%u index=%u count=%u "
+                 "reason=allocation_or_invalid",
+                 static_cast<unsigned int>(object_id), generation, i, materials_count);
+      goto cleanup;
+    }
+    if (replacement[slot] != nullptr) {
+      replacement_text_bytes -= replacement[slot]->textBytes;
+      free_object_material_state(replacement[slot]);
+      replacement[slot] = nullptr;
+    }
+    if (retained_text_bytes > kObjectMaterialTextBudgetBytes ||
+        replacement_text_bytes + state->textBytes > kObjectMaterialTextBudgetBytes - retained_text_bytes) {
+      trace_netf("object-material-state: create_store_failed id=%u generation=%u index=%u count=%u "
+                 "reason=text_budget retained=%u replacement=%u candidate=%u budget=%u",
+                 static_cast<unsigned int>(object_id), generation, i, materials_count, retained_text_bytes,
+                 replacement_text_bytes, state->textBytes, kObjectMaterialTextBudgetBytes);
+      free_object_material_state(state);
+      goto cleanup;
+    }
+    replacement_text_bytes += state->textBytes;
+    replacement[slot] = state;
+  }
+
+  release_object_material_states(object_id, "create_replace");
+  g_rpc_probe.object_material_text_bytes = retained_text_bytes;
+  for (unsigned int i = 0U; i < SAMP_RAKNET_OBJECT_MATERIAL_SLOTS; ++i) {
+    if (replacement[i] == nullptr) {
+      continue;
+    }
+    g_rpc_probe.object_material_slots[object_id][i] = replacement[i];
+    replacement[i] = nullptr;
+    g_rpc_probe.object_material_text_bytes += g_rpc_probe.object_material_slots[object_id][i]->textBytes;
+    trace_object_material_state_persisted(object_id, g_rpc_probe.object_material_slots[object_id][i]);
+  }
+  ok = true;
+
+cleanup:
+  for (unsigned int i = 0U; i < SAMP_RAKNET_OBJECT_MATERIAL_SLOTS; ++i) {
+    free_object_material_state(replacement[i]);
+  }
+  return ok;
+}
+
+bool store_object_material_state(unsigned short object_id, const samp_raknet_object_material *material,
+                                 unsigned int *out_revision) {
+  ObjectMaterialSlotState *state = nullptr;
+  ObjectMaterialSlotState *previous = nullptr;
+  unsigned int retained_text_bytes = g_rpc_probe.object_material_text_bytes;
+  unsigned int generation = 0U;
+  unsigned int revision = 0U;
+
+  if (out_revision != nullptr) {
+    *out_revision = 0U;
+  }
+  if (!object_id_valid(object_id) || material == nullptr ||
+      material->slot >= SAMP_RAKNET_OBJECT_MATERIAL_SLOTS) {
+    return false;
+  }
+  generation = g_rpc_probe.object_generations[object_id];
+  if (generation == 0U) {
+    trace_netf("object-material-state: orphan id=%u source=rpc84 type=%u slot=%u dropped=1",
+               static_cast<unsigned int>(object_id), static_cast<unsigned int>(material->type),
+               static_cast<unsigned int>(material->slot));
+    return false;
+  }
+  previous = g_rpc_probe.object_material_slots[object_id][material->slot];
+  if (previous != nullptr) {
+    if (previous->textBytes <= retained_text_bytes) {
+      retained_text_bytes -= previous->textBytes;
+    } else {
+      retained_text_bytes = 0U;
+    }
+  }
+  revision = bump_object_material_counter(&g_rpc_probe.object_material_revision_seq);
+  state = create_object_material_state(material, generation, revision);
+  if (state == nullptr) {
+    trace_netf("object-material-state: update_store_failed id=%u generation=%u slot=%u reason=allocation_or_invalid",
+               static_cast<unsigned int>(object_id), generation, static_cast<unsigned int>(material->slot));
+    return false;
+  }
+  if (retained_text_bytes > kObjectMaterialTextBudgetBytes ||
+      state->textBytes > kObjectMaterialTextBudgetBytes - retained_text_bytes) {
+    trace_netf("object-material-state: update_store_failed id=%u generation=%u slot=%u reason=text_budget "
+               "retained=%u candidate=%u budget=%u",
+               static_cast<unsigned int>(object_id), generation, static_cast<unsigned int>(material->slot),
+               retained_text_bytes, state->textBytes, kObjectMaterialTextBudgetBytes);
+    free_object_material_state(state);
+    return false;
+  }
+
+  release_object_material_slot_state(object_id, material->slot);
+  g_rpc_probe.object_material_text_bytes = retained_text_bytes + state->textBytes;
+  g_rpc_probe.object_material_slots[object_id][material->slot] = state;
+  trace_object_material_state_persisted(object_id, state);
+  if (out_revision != nullptr) {
+    *out_revision = revision;
+  }
+  return true;
+}
+
+bool read_object_material_dynstr8(RakNet::BitStream &bs, char *out, std::size_t out_size) {
+  unsigned char length = 0U;
+  std::size_t copy_length = 0U;
+  char value[256] = {0};
+
+  if (out == nullptr || out_size == 0U || !bs.Read(length)) {
+    return false;
+  }
+  if (length != 0U && !bs.Read(value, static_cast<int>(length))) {
+    return false;
+  }
+  value[length] = '\0';
+  copy_length = static_cast<std::size_t>(length);
+  if (copy_length >= out_size) {
+    copy_length = out_size - 1U;
+  }
+  if (copy_length != 0U) {
+    std::memcpy(out, value, copy_length);
+  }
+  out[copy_length] = '\0';
+  return true;
+}
+
+bool decode_object_material_record(RakNet::BitStream &bs, unsigned char source,
+                                   samp_raknet_object_material *out_material) {
+  unsigned char type = 0U;
+  unsigned char slot = 0U;
+  unsigned short wire_model = 0U;
+  RakNet::StringCompressor *compressor = RakNet::StringCompressor::Instance();
+
+  if (out_material == nullptr || !bs.Read(type) || !bs.Read(slot) ||
+      slot >= SAMP_RAKNET_OBJECT_MATERIAL_SLOTS ||
+      (type != SAMP_RAKNET_OBJECT_MATERIAL_TYPE_DEFAULT && type != SAMP_RAKNET_OBJECT_MATERIAL_TYPE_TEXT)) {
+    return false;
+  }
+
+  std::memset(out_material, 0, sizeof(*out_material));
+  out_material->type = type;
+  out_material->slot = slot;
+  out_material->source = source;
+
+  if (type == SAMP_RAKNET_OBJECT_MATERIAL_TYPE_DEFAULT) {
+    if (!bs.Read(wire_model) ||
+        !read_object_material_dynstr8(bs, out_material->txd, sizeof(out_material->txd)) ||
+        !read_object_material_dynstr8(bs, out_material->texture, sizeof(out_material->texture)) ||
+        !bs.Read(out_material->material_color)) {
+      return false;
+    }
+    /* STATIC_037:
+     * samp.dll+0x1B6A0 maps standalone 0xFFFF to -1. The embedded helper at
+     * samp.dll+0x1B070 additionally rejects out-of-range (>20000) source IDs.
+     */
+    if (wire_model == 0xFFFFU ||
+        (source == SAMP_RAKNET_OBJECT_MATERIAL_SOURCE_CREATE && wire_model > kGtaModelInfoCount)) {
+      out_material->model = -1;
+    } else {
+      out_material->model = static_cast<std::int32_t>(wire_model);
+    }
+    return true;
+  }
+
+  if (compressor == nullptr || !bs.Read(out_material->material_size) ||
+      !read_object_material_dynstr8(bs, out_material->font, sizeof(out_material->font)) ||
+      !bs.Read(out_material->font_size) || !bs.Read(out_material->bold) ||
+      !bs.Read(out_material->material_color) || !bs.Read(out_material->background_color) ||
+      !bs.Read(out_material->alignment) ||
+      !compressor->DecodeString(out_material->text, static_cast<int>(sizeof(out_material->text)), &bs)) {
+    return false;
+  }
+  return true;
+}
+
+samp_raknet_object_event *queue_object_material_event(unsigned short object_id,
+                                                       const samp_raknet_object_material *material,
+                                                       unsigned int material_revision) {
+  samp_raknet_object_event *event = nullptr;
+
+  if (material == nullptr || !object_id_valid(object_id) ||
+      material->slot >= SAMP_RAKNET_OBJECT_MATERIAL_SLOTS || material_revision == 0U) {
+    return nullptr;
+  }
+  event = queue_object_event(SAMP_RAKNET_OBJECT_ACTION_SET_MATERIAL, object_id);
+  event->material_revision = material_revision;
+  event->material_type = material->type;
+  event->material_slot = material->slot;
+  event->material_source = material->source;
+  event->materials_count = 1U;
+  trace_netf("object-material-decode: queue_compact seq=%u generation=%u revision=%u id=%u source=%s "
+             "type=%u slot=%u evidence=STATIC_037,OPENMP_REF,PROBE_TRACE",
+             event->seq, event->object_generation, event->material_revision,
+             static_cast<unsigned int>(object_id),
+             material->source == SAMP_RAKNET_OBJECT_MATERIAL_SOURCE_CREATE ? "create" : "rpc84",
+             static_cast<unsigned int>(material->type), static_cast<unsigned int>(material->slot));
   return event;
 }
 
@@ -1243,6 +1674,9 @@ bool decode_object_create_payload(const unsigned char *data, unsigned int bytes)
   unsigned char attachment_sync_rotation = 1U;
   unsigned int material_count_offset = kOpenMpObjectCreateMaterialCountOffset;
   unsigned int materials_count = 0U;
+  unsigned int object_generation = 0U;
+  samp_raknet_object_material *materials = nullptr;
+  bool material_scratch_available = true;
   std::int32_t model = 0;
   float draw_distance = 0.0f;
   float pos[3] = {0.0f, 0.0f, 0.0f};
@@ -1293,6 +1727,36 @@ bool decode_object_create_payload(const unsigned char *data, unsigned int bytes)
     }
   }
   materials_count = static_cast<unsigned int>(data[material_count_offset]);
+  if (materials_count > SAMP_RAKNET_OBJECT_MATERIAL_SLOTS) {
+    trace_netf("object-decode: create invalid_material_count id=%u bytes=%u count=%u max=%u",
+               static_cast<unsigned int>(object_id), bytes, materials_count,
+               static_cast<unsigned int>(SAMP_RAKNET_OBJECT_MATERIAL_SLOTS));
+    return false;
+  }
+  if (materials_count != 0U) {
+    const unsigned int material_data_offset = material_count_offset + 1U;
+    materials = static_cast<samp_raknet_object_material *>(
+        std::calloc(materials_count, sizeof(samp_raknet_object_material)));
+    if (materials == nullptr) {
+      trace_netf("object-decode: create material_allocation_failed id=%u bytes=%u count=%u bytes_requested=%u",
+                 static_cast<unsigned int>(object_id), bytes, materials_count,
+                 materials_count * static_cast<unsigned int>(sizeof(samp_raknet_object_material)));
+      material_scratch_available = false;
+    } else {
+      RakNet::BitStream material_bs(const_cast<unsigned char *>(data + material_data_offset),
+                                    bytes - material_data_offset, false);
+      for (unsigned int i = 0U; i < materials_count; ++i) {
+        if (!decode_object_material_record(material_bs, SAMP_RAKNET_OBJECT_MATERIAL_SOURCE_CREATE,
+                                           &materials[i])) {
+          trace_netf("object-decode: create invalid_material id=%u bytes=%u index=%u count=%u tail_bytes=%u",
+                     static_cast<unsigned int>(object_id), bytes, i, materials_count,
+                     bytes - material_data_offset);
+          std::free(materials);
+          return false;
+        }
+      }
+    }
+  }
   if (!object_id_valid(object_id) || !object_model_plausible(model) || !object_vec_plausible(pos) ||
       !object_rot_plausible(rot) || !std::isfinite(draw_distance) || draw_distance < 0.0f ||
       draw_distance > 10000.0f) {
@@ -1301,10 +1765,25 @@ bool decode_object_create_payload(const unsigned char *data, unsigned int bytes)
                static_cast<double>(draw_distance), static_cast<double>(pos[0]), static_cast<double>(pos[1]),
                static_cast<double>(pos[2]),
                static_cast<double>(rot[0]), static_cast<double>(rot[1]), static_cast<double>(rot[2]));
+    std::free(materials);
     return false;
   }
 
+  object_generation = bump_object_material_counter(&g_rpc_probe.object_generation_seq);
+  if (!material_scratch_available ||
+      !replace_create_object_material_states(object_id, object_generation, materials, materials_count)) {
+    /* Network object lifetime is authoritative even if optional material state
+     * cannot be retained. Never turn a bounded material allocation failure into
+     * a missing object or a stale previous generation.
+     */
+    release_object_material_states(object_id, "create_material_fail_soft");
+    trace_netf("object-decode: create material_store_failed id=%u generation=%u count=%u "
+               "object_continues=1 materials_dropped=1",
+               static_cast<unsigned int>(object_id), object_generation, materials_count);
+  }
+  g_rpc_probe.object_generations[object_id] = object_generation;
   event = queue_object_event(SAMP_RAKNET_OBJECT_ACTION_CREATE, object_id);
+  event->object_generation = object_generation;
   event->model = model;
   std::memcpy(event->pos, pos, sizeof(event->pos));
   std::memcpy(event->rot, rot, sizeof(event->rot));
@@ -1316,6 +1795,9 @@ bool decode_object_create_payload(const unsigned char *data, unsigned int bytes)
   std::memcpy(event->attachment_offset, attachment_offset, sizeof(event->attachment_offset));
   std::memcpy(event->attachment_rot, attachment_rot, sizeof(event->attachment_rot));
   event->materials_count = static_cast<unsigned char>(materials_count);
+  event->draw_distance = draw_distance;
+  g_rpc_probe.object_alive[object_id] = 1U;
+  g_rpc_probe.object_create_states[object_id] = *event;
   trace_netf("object-decode: create seq=%u id=%u model=%d draw=%.3f attach=%u type=%u parent=%u sync=%u materials=%u pos=%.3f %.3f %.3f rot=%.3f %.3f %.3f attach_offset=%.3f %.3f %.3f attach_rot=%.3f %.3f %.3f",
              event->seq, static_cast<unsigned int>(object_id), static_cast<int>(model),
              static_cast<double>(draw_distance), has_attachment ? 1U : 0U, attachment_type,
@@ -1326,6 +1808,7 @@ bool decode_object_create_payload(const unsigned char *data, unsigned int bytes)
              static_cast<double>(attachment_offset[0]), static_cast<double>(attachment_offset[1]),
              static_cast<double>(attachment_offset[2]), static_cast<double>(attachment_rot[0]),
              static_cast<double>(attachment_rot[1]), static_cast<double>(attachment_rot[2]));
+  std::free(materials);
   return true;
 }
 
@@ -1430,7 +1913,13 @@ bool decode_object_destroy_payload(const unsigned char *data, unsigned int bytes
   }
 
   event = queue_object_event(SAMP_RAKNET_OBJECT_ACTION_DESTROY, object_id);
-  trace_netf("object-decode: destroy seq=%u id=%u", event->seq, static_cast<unsigned int>(object_id));
+  trace_netf("object-decode: destroy seq=%u generation=%u id=%u", event->seq, event->object_generation,
+             static_cast<unsigned int>(object_id));
+  release_object_material_states(object_id, "destroy_rpc");
+  g_rpc_probe.object_generations[object_id] = 0U;
+  g_rpc_probe.object_alive[object_id] = 0U;
+  std::memset(&g_rpc_probe.object_create_states[object_id], 0,
+              sizeof(g_rpc_probe.object_create_states[object_id]));
   return true;
 }
 
@@ -2256,27 +2745,24 @@ bool decode_death_message_payload(const unsigned char *data, unsigned int bytes)
   unsigned char action = SAMP_RAKNET_DEATH_WINDOW_ACTION_ADD;
   samp_raknet_death_window_event *event = nullptr;
 
-  if (data == nullptr || bytes < 5U) {
+  if (data == nullptr || bytes < 3U) {
     return false;
   }
 
   /*
-   * STATIC_037 + OPENMP_REF + TODO_VERIFY:
-   * ScrDeathMessage carries killer id, killee id and a byte weapon/reason. The original DeathWindow
-   * renderer consumes these into the right-side kill feed; sprite/icon parity is still TODO_VERIFY.
+   * STATIC_037 + TODO_VERIFY:
+   * 0.3.x ScrDeathMessage reads three bytes: killer, killee, weapon/reason. INVALID_PLAYER_ID is byte 255
+   * on this RPC and is widened to the runtime invalid marker before the overlay consumes it.
    */
-  killer_id = read_le16(data);
-  killee_id = read_le16(data + 2U);
-  reason = data[4U];
-  if (killer_id == 0xFFFFU && killee_id == 0xFFFFU) {
-    action = SAMP_RAKNET_DEATH_WINDOW_ACTION_CLEAR;
-  }
+  killer_id = data[0U] == 0xFFU ? 0xFFFFU : static_cast<unsigned short>(data[0U]);
+  killee_id = data[1U] == 0xFFU ? 0xFFFFU : static_cast<unsigned short>(data[1U]);
+  reason = data[2U];
   event = queue_death_window_event(action, killer_id, killee_id, reason);
-  trace_netf("rpc-state id=55 death_window seq=%u action=%s killer=%u killee=%u reason=%u "
-             "evidence=STATIC_037,OPENMP_REF,TODO_VERIFY",
+  trace_netf("rpc-state id=55 death_window seq=%u action=%s killer=%u killee=%u reason=%u bytes=%u "
+             "evidence=STATIC_037,TODO_VERIFY",
              event->seq, action == SAMP_RAKNET_DEATH_WINDOW_ACTION_CLEAR ? "clear" : "add",
              static_cast<unsigned int>(killer_id), static_cast<unsigned int>(killee_id),
-             static_cast<unsigned int>(reason));
+             static_cast<unsigned int>(reason), bytes);
   return true;
 }
 
@@ -2480,34 +2966,63 @@ void set_world_visual_event(unsigned char type, unsigned short id, std::int32_t 
              static_cast<double>(g_rpc_probe.world_visual_pos[3]), g_rpc_probe.world_visual_text);
 }
 
-void set_object_material_event(unsigned short object_id, unsigned char material_type, unsigned char material_slot,
-                               std::int32_t model, unsigned int color, unsigned int background,
-                               unsigned char material_size, unsigned char font_size, unsigned char bold,
-                               unsigned char alignment, const char *txd, const char *texture, const char *summary) {
-  float pos[4] = {static_cast<float>(material_type), static_cast<float>(material_slot),
-                  static_cast<float>(font_size), static_cast<float>(alignment)};
+bool set_object_material_event(unsigned short object_id, const samp_raknet_object_material *material) {
+  char summary[SAMP_RAKNET_WORLD_VISUAL_TEXT_BYTES] = {0};
+  float pos[4] = {0.0f, 0.0f, 0.0f, 0.0f};
+  unsigned int material_revision = 0U;
+
+  if (material == nullptr) {
+    return false;
+  }
+  if (!store_object_material_state(object_id, material, &material_revision)) {
+    return false;
+  }
+  pos[0] = static_cast<float>(material->type);
+  pos[1] = static_cast<float>(material->slot);
+  pos[2] = static_cast<float>(material->font_size);
+  pos[3] = static_cast<float>(material->alignment);
+  if (material->type == SAMP_RAKNET_OBJECT_MATERIAL_TYPE_DEFAULT) {
+    std::snprintf(summary, sizeof(summary), "type=default slot=%u txd='%s' texture='%s'",
+                  static_cast<unsigned int>(material->slot), material->txd, material->texture);
+  } else {
+    std::snprintf(summary, sizeof(summary), "type=text slot=%u size=%u font='%s' bold=%u text='%.96s'",
+                  static_cast<unsigned int>(material->slot), static_cast<unsigned int>(material->material_size),
+                  material->font, static_cast<unsigned int>(material->bold), material->text);
+  }
+
   const unsigned int seq = bump_seq(&g_rpc_probe.world_visual_event_seq);
   g_rpc_probe.world_visual_event_type = SAMP_RAKNET_WORLD_VISUAL_SET_OBJECT_MATERIAL;
   g_rpc_probe.world_visual_id = object_id;
-  g_rpc_probe.world_visual_model = model;
-  g_rpc_probe.world_visual_color = color;
-  g_rpc_probe.world_visual_material_background = background;
+  g_rpc_probe.world_visual_model = material->model;
+  g_rpc_probe.world_visual_color = material->material_color;
+  g_rpc_probe.world_visual_material_background = material->background_color;
   std::memcpy(g_rpc_probe.world_visual_pos, pos, sizeof(g_rpc_probe.world_visual_pos));
-  g_rpc_probe.world_visual_material_type = material_type;
-  g_rpc_probe.world_visual_material_slot = material_slot;
-  g_rpc_probe.world_visual_material_size = material_size;
-  g_rpc_probe.world_visual_material_font_size = font_size;
-  g_rpc_probe.world_visual_material_bold = bold;
-  g_rpc_probe.world_visual_material_alignment = alignment;
+  g_rpc_probe.world_visual_material_type = material->type;
+  g_rpc_probe.world_visual_material_slot = material->slot;
+  g_rpc_probe.world_visual_material_size = material->material_size;
+  g_rpc_probe.world_visual_material_font_size = material->font_size;
+  g_rpc_probe.world_visual_material_bold = material->bold;
+  g_rpc_probe.world_visual_material_alignment = material->alignment;
   copy_text(g_rpc_probe.world_visual_text, sizeof(g_rpc_probe.world_visual_text), summary);
-  copy_text(g_rpc_probe.world_visual_material_txd, sizeof(g_rpc_probe.world_visual_material_txd), txd);
-  copy_text(g_rpc_probe.world_visual_material_texture, sizeof(g_rpc_probe.world_visual_material_texture), texture);
-  trace_netf("rpc-world-visual: seq=%u type=set_object_material id=%u mat_type=%u slot=%u model=%d color=0x%08x "
-             "bg=0x%08x txd='%s' texture='%s' summary='%s' apply_pending=1 evidence=OPENMP_REF,PROBE_TRACE,TODO_VERIFY",
-             seq, static_cast<unsigned int>(object_id), static_cast<unsigned int>(material_type),
-             static_cast<unsigned int>(material_slot), static_cast<int>(model), color, background,
+  copy_text(g_rpc_probe.world_visual_material_txd, sizeof(g_rpc_probe.world_visual_material_txd), material->txd);
+  copy_text(g_rpc_probe.world_visual_material_texture, sizeof(g_rpc_probe.world_visual_material_texture),
+            material->texture);
+  if (queue_object_material_event(object_id, material, material_revision) == nullptr) {
+    trace_netf("object-material-state: compact_event_failed id=%u generation=%u revision=%u slot=%u",
+               static_cast<unsigned int>(object_id), g_rpc_probe.object_generations[object_id], material_revision,
+               static_cast<unsigned int>(material->slot));
+    return false;
+  }
+  trace_netf("rpc-world-visual: seq=%u type=set_object_material id=%u revision=%u mat_type=%u slot=%u model=%d "
+             "color=0x%08x "
+             "bg=0x%08x txd='%s' texture='%s' summary='%s' persistent_object_event=1 "
+             "evidence=STATIC_037,OPENMP_REF,PROBE_TRACE",
+             seq, static_cast<unsigned int>(object_id), material_revision, static_cast<unsigned int>(material->type),
+             static_cast<unsigned int>(material->slot), static_cast<int>(material->model), material->material_color,
+             material->background_color,
              g_rpc_probe.world_visual_material_txd, g_rpc_probe.world_visual_material_texture,
              g_rpc_probe.world_visual_text);
+  return true;
 }
 
 bool decode_player_armour_payload(const unsigned char *data, unsigned int bytes) {
@@ -2664,66 +3179,25 @@ bool decode_apply_animation_payload(const unsigned char *data, unsigned int byte
 }
 
 bool decode_set_object_material_payload(const unsigned char *data, unsigned int bytes) {
-  unsigned int offset = 0U;
   unsigned short object_id = 0U;
-  unsigned char material_type = 0U;
-  unsigned char material_id = 0U;
-  std::int32_t model = 0;
-  unsigned int color = 0U;
-  unsigned int background = 0U;
-  unsigned char material_size = 0U;
-  unsigned char font_size = 0U;
-  unsigned char bold = 0U;
-  unsigned char alignment = 0U;
-  char left[SAMP_RAKNET_WORLD_VISUAL_TEXT_BYTES] = {0};
-  char right[SAMP_RAKNET_WORLD_VISUAL_TEXT_BYTES] = {0};
-  char text[SAMP_RAKNET_WORLD_VISUAL_TEXT_BYTES] = {0};
+  samp_raknet_object_material material;
 
   if (data == nullptr || bytes < 4U) {
     return false;
   }
-  object_id = read_le16(data + offset);
-  offset += 2U;
-  material_type = data[offset++];
-  material_id = data[offset++];
-  if (material_type == 1U) {
-    if (bytes - offset < 2U) {
-      return false;
-    }
-    model = static_cast<std::int32_t>(read_le16(data + offset));
-    offset += 2U;
-    if (!read_dynstr8_plain(data, bytes, &offset, left, sizeof(left)) ||
-        !read_dynstr8_plain(data, bytes, &offset, right, sizeof(right)) || bytes - offset < 4U) {
-      return false;
-    }
-    color = read_le32(data + offset);
-    std::snprintf(text, sizeof(text), "type=default slot=%u txd='%s' texture='%s'", static_cast<unsigned int>(material_id),
-                  left, right);
-  } else if (material_type == 2U) {
-    if (bytes - offset < 12U) {
-      return false;
-    }
-    material_size = data[offset++];
-    if (!read_dynstr8_plain(data, bytes, &offset, right, sizeof(right)) || bytes - offset < 11U) {
-      return false;
-    }
-    font_size = data[offset++];
-    bold = data[offset++];
-    color = read_le32(data + offset);
-    offset += 4U;
-    background = read_le32(data + offset);
-    offset += 4U;
-    alignment = data[offset++];
-    std::snprintf(text, sizeof(text), "type=text slot=%u size=%u font='%s' bold=%u bg=0x%08x compressed_text=1",
-                  static_cast<unsigned int>(material_id), material_size, right, bold, background);
-  } else {
-    std::snprintf(text, sizeof(text), "type=%u slot=%u unsupported", static_cast<unsigned int>(material_type),
-                  static_cast<unsigned int>(material_id));
+  object_id = read_le16(data);
+  if (!object_id_valid(object_id)) {
+    return false;
   }
 
-  set_object_material_event(object_id, material_type, material_id, model, color, background, material_size,
-                            font_size, bold, alignment, left, right, text);
-  return true;
+  std::memset(&material, 0, sizeof(material));
+  RakNet::BitStream material_bs(const_cast<unsigned char *>(data + 2U), bytes - 2U, false);
+  if (!decode_object_material_record(material_bs, SAMP_RAKNET_OBJECT_MATERIAL_SOURCE_RPC, &material)) {
+    trace_netf("object-material-decode: rpc84 invalid id=%u bytes=%u generation=%u",
+               static_cast<unsigned int>(object_id), bytes, g_rpc_probe.object_generations[object_id]);
+    return false;
+  }
+  return set_object_material_event(object_id, &material);
 }
 
 bool decode_create_3d_text_label_payload(const unsigned char *data, unsigned int bytes) {
@@ -5039,6 +5513,13 @@ int samp_raknet_client_destroy(void *client) {
     return 0;
   }
 
+  if (client == g_rpc_probe.client) {
+    release_all_object_material_states("client_destroy");
+    std::memset(g_rpc_probe.object_generations, 0, sizeof(g_rpc_probe.object_generations));
+    g_rpc_probe.object_generation_seq = 0U;
+    g_rpc_probe.object_material_revision_seq = 0U;
+    g_rpc_probe.client = nullptr;
+  }
   RakNet::RakNetworkFactory::DestroyRakClientInterface(static_cast<RakNet::RakClientInterface *>(client));
   return 0;
 }
@@ -5737,6 +6218,82 @@ int samp_raknet_client_get_rpc_probe_snapshot(void *client, samp_raknet_rpc_prob
   return 0;
 }
 
+int samp_raknet_client_get_object_material(void *client, uint16_t object_id, uint32_t object_generation,
+                                           uint8_t material_slot, uint32_t minimum_revision,
+                                           samp_raknet_object_material *out_material,
+                                           uint32_t *out_revision) {
+  const ObjectMaterialSlotState *state = nullptr;
+
+  if (out_material != nullptr) {
+    std::memset(out_material, 0, sizeof(*out_material));
+  }
+  if (out_revision != nullptr) {
+    *out_revision = 0U;
+  }
+  if (client == nullptr || client != g_rpc_probe.client || out_material == nullptr ||
+      !object_id_valid(object_id) || material_slot >= SAMP_RAKNET_OBJECT_MATERIAL_SLOTS) {
+    return -1;
+  }
+  state = g_rpc_probe.object_material_slots[object_id][material_slot];
+  if (state == nullptr || object_generation == 0U || state->generation != object_generation) {
+    return -2;
+  }
+  if (out_revision != nullptr) {
+    *out_revision = state->revision;
+  }
+  /* A descriptor may lag behind the authoritative slot when several RPC 84 updates
+   * arrive in one RakNet pump. minimum_revision==0 is an explicit full-state resync;
+   * otherwise any state at least as new as the compact descriptor is valid.
+   */
+  if (minimum_revision != 0U && state->revision < minimum_revision) {
+    return -3;
+  }
+
+  out_material->type = state->type;
+  out_material->slot = state->slot;
+  out_material->source = state->source;
+  out_material->material_size = state->materialSize;
+  out_material->font_size = state->fontSize;
+  out_material->bold = state->bold;
+  out_material->alignment = state->alignment;
+  out_material->model = state->model;
+  out_material->material_color = state->materialColor;
+  out_material->background_color = state->backgroundColor;
+  if (state->type == SAMP_RAKNET_OBJECT_MATERIAL_TYPE_DEFAULT) {
+    copy_text(out_material->txd, sizeof(out_material->txd), state->nameA);
+    copy_text(out_material->texture, sizeof(out_material->texture), state->nameB);
+  } else if (state->type == SAMP_RAKNET_OBJECT_MATERIAL_TYPE_TEXT) {
+    copy_text(out_material->font, sizeof(out_material->font), state->nameA);
+    copy_text(out_material->text, sizeof(out_material->text), state->text);
+  }
+  return 0;
+}
+
+int samp_raknet_client_get_object_lifecycle(void *client, uint16_t object_id, uint8_t *out_alive,
+                                            samp_raknet_object_event *out_create_event) {
+  if (out_alive != nullptr) {
+    *out_alive = 0U;
+  }
+  if (out_create_event != nullptr) {
+    std::memset(out_create_event, 0, sizeof(*out_create_event));
+  }
+  if (client == nullptr || client != g_rpc_probe.client || !object_id_valid(object_id) ||
+      out_alive == nullptr || out_create_event == nullptr) {
+    return -1;
+  }
+  *out_alive = g_rpc_probe.object_alive[object_id] != 0U ? 1U : 0U;
+  if (*out_alive != 0U) {
+    *out_create_event = g_rpc_probe.object_create_states[object_id];
+    if (out_create_event->action != SAMP_RAKNET_OBJECT_ACTION_CREATE ||
+        out_create_event->object_id != object_id || out_create_event->object_generation == 0U) {
+      std::memset(out_create_event, 0, sizeof(*out_create_event));
+      *out_alive = 0U;
+      return -2;
+    }
+  }
+  return 0;
+}
+
 int samp_raknet_client_send_spawn_notification(void *client) {
   if (client == nullptr || client != g_rpc_probe.client) {
     return -1;
@@ -5752,6 +6309,31 @@ int samp_raknet_client_send_spawn_notification_for_seq(void *client, uint32_t sp
 
   return send_spawn_notification_with_seq(static_cast<RakNet::RakClientInterface *>(client),
                                           static_cast<unsigned int>(spawn_info_seq));
+}
+
+int samp_raknet_client_send_death_notification(void *client, uint8_t death_reason, uint8_t responsible_player) {
+  RakNet::BitStream bs_send;
+  int sent = 0;
+
+  if (client == nullptr || client != g_rpc_probe.client) {
+    return -1;
+  }
+
+  /*
+   * STATIC_037 + TODO_VERIFY:
+   * 0.3.x localplayer writes byte death reason then byte responsible player to RPC_Death. The exact GTA-side
+   * reason discovery is still pending, so callers may pass 255 as a conservative unknown/world value.
+   */
+  bs_send.Write(static_cast<unsigned char>(death_reason));
+  bs_send.Write(static_cast<unsigned char>(responsible_player));
+  sent = static_cast<RakNet::RakClientInterface *>(client)
+             ->RPC(kRpcDeath, &bs_send, RakNet::HIGH_PRIORITY, RakNet::RELIABLE_SEQUENCED, 0, false,
+                   RakNet::UNASSIGNED_NETWORK_ID, nullptr)
+             ? 1
+             : 0;
+  trace_netf("rpc-auto-out id=53 name=Death reason=%u responsible=%u sent=%d evidence=STATIC_037,TODO_VERIFY",
+             static_cast<unsigned int>(death_reason), static_cast<unsigned int>(responsible_player), sent);
+  return sent ? 0 : -2;
 }
 
 int samp_raknet_client_mark_class_selection_after_death(void *client) {

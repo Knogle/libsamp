@@ -112,6 +112,37 @@ int samp_raknet_client_get_rpc_probe_snapshot(void *client, samp_raknet_rpc_prob
   return -1;
 }
 
+int samp_raknet_client_get_object_material(void *client, uint16_t object_id, uint32_t object_generation,
+                                           uint8_t material_slot, uint32_t minimum_revision,
+                                           samp_raknet_object_material *out_material,
+                                           uint32_t *out_revision) {
+  (void)client;
+  (void)object_id;
+  (void)object_generation;
+  (void)material_slot;
+  (void)minimum_revision;
+  if (out_material != 0) {
+    memset(out_material, 0, sizeof(*out_material));
+  }
+  if (out_revision != 0) {
+    *out_revision = 0u;
+  }
+  return -1;
+}
+
+int samp_raknet_client_get_object_lifecycle(void *client, uint16_t object_id, uint8_t *out_alive,
+                                            samp_raknet_object_event *out_create_event) {
+  (void)client;
+  (void)object_id;
+  if (out_alive != 0) {
+    *out_alive = 0u;
+  }
+  if (out_create_event != 0) {
+    memset(out_create_event, 0, sizeof(*out_create_event));
+  }
+  return -1;
+}
+
 int samp_raknet_client_send_spawn_notification(void *client) {
   (void)client;
   return -1;
@@ -120,6 +151,13 @@ int samp_raknet_client_send_spawn_notification(void *client) {
 int samp_raknet_client_send_spawn_notification_for_seq(void *client, uint32_t spawn_info_seq) {
   (void)client;
   (void)spawn_info_seq;
+  return -1;
+}
+
+int samp_raknet_client_send_death_notification(void *client, uint8_t death_reason, uint8_t responsible_player) {
+  (void)client;
+  (void)death_reason;
+  (void)responsible_player;
   return -1;
 }
 

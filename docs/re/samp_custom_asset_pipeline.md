@@ -243,6 +243,79 @@
   targeted `CModelInfo` entries from IDE metadata after the local index confirms the
   required DFF/TXD inputs; `CStreaming::LoadCdDirectory` remains responsible for binding DFF/TXD data.
 
+## Object material pipeline
+
+Original static reference: SA-MP 0.3.7-R5 `samp.dll`, SHA256
+`b72b5dbe725f81864ca3f78bc7063bda56cc05fc7188af822fa7a754432553a2`.
+The claims below tagged `STATIC_037` come from the existing Ghidra analysis plus direct disassembly of exactly
+that binary; no material-specific original runtime hook has corroborated them yet.
+
+- `STATIC_037`: RPC 44 at `samp.dll+0x1B340` dispatches its trailing material list through
+  `samp.dll+0x1B070`; RPC 84 enters at `samp.dll+0x1B6A0`. Both populate the same 16 persistent
+  per-object slots. Type-1 records contain source model, TXD, texture and wire-ABGR colour. Type-2 records
+  contain font/text parameters and up to `0x800` bytes of RakNet-compressed text.
+- `STATIC_037`: `CObject::SetMaterial` at `samp.dll+0xA8530` resolves the source texture. Positive source
+  models are requested with flag `2`, polled up to 250 times with `Sleep(2)`, and released afterward only when
+  they had no prior model reference and are resident. Model `-1` is colour-only. Model `0` uses the separately
+  loaded `SAMP\\blanktex.txd` path through
+  `samp.dll+0xB2B90`, with the cached texture pointer at `samp.dll+0x1A2600`.
+- `STATIC_037`: callbacks at `samp.dll+0xA8AD0`, `+0xA8840`, and `+0xA8B50` capture, apply, and restore
+  materials around every object draw (`+0xA8C00` / `+0xA9E70`). The material index restarts for every Atomic.
+  The original therefore never leaves a replacement texture or colour on GTA's shared `RpGeometry`.
+- `STATIC_037 + GTA_REVERSED_REF + TODO_VERIFY`: GTA `CAtomicModelInfo::CreateInstance` clones the Atomic but shares its
+  Geometry. The replacement consequently patches only the validated `CObject::Render` vtable entry
+  `0x866FA8` (index 18, original pointer `0x59F180`) and restores that pointer on shutdown. Immediately before
+  the original render it swaps resolved slot textures/colours and the `rpGEOMETRYMODULATEMATERIALCOLOR` flag;
+  immediately afterward it restores texture, colour, surface properties, and geometry flags. Runtime validation
+  must still prove the hook target and restoration path in Wine.
+- `PROBE_TRACE + GTA_REVERSED_REF + INFERRED + TODO_VERIFY`: the 2026-07-10 SuperFreeroam `/ls` teleport run
+  completed 17 first material draws and then faulted at GTA `0x757D6E`, where the D3D9 All-In-One instancing path
+  dereferenced a null stream-0 vertex buffer immediately before `IDirect3DVertexBuffer9::Lock`. Unlike R5's own
+  pre/post-draw lifecycle, the replacement vtable hook can enter before a Geometry has its first `RwResEntry`.
+  The replacement therefore applies a resolved texture immediately but defers material-colour/surface-property and
+  Geometry-flag mutation until `geometry->repEntry` contains a readable D3D9 header with a non-null stream-0 vertex
+  buffer. `object_material: render_begin` records Geometry flags, resource entry, header, serial, mesh count, both
+  vertex streams, and readiness before calling GTA; `render_apply` records the post-render stream state.
+- `PROBE_TRACE`: the 2026-07-10 SuperFreeroam run received 216 standalone type-1 material RPCs, but the former
+  singleton `world_visual` transport exposed only 92 to the runtime. Those 92 all ended as `object_not_ready`
+  (49) or `no_rw_object` (43), and all 80 inline CreateObject material lists were explicitly ignored. No material
+  reached rendering. A transport snapshot or one-shot apply attempt is therefore not authoritative material state.
+- `STATIC_037 + OPENMP_REF + INFERRED + TODO_VERIFY`: the replacement now keeps an authoritative, lazy material
+  store in the network adapter, keyed by object ID, object generation, and material slot. Only slots actually
+  received are allocated; a slot owns the complete normalized type-1/type-2 definition and its monotonically
+  increasing material revision. Long text remains outside the frequently copied RPC snapshot. Destroy, generation
+  replacement, disconnect, and adapter reset release the corresponding slot state. Material allocation/budget failure
+  is fail-soft for object lifetime: the new Create generation still replaces the old object with an empty material
+  state. The large diagnostic snapshot itself lives in static bridge storage rather than GTA's game-thread stack.
+- `INFERRED + TODO_VERIFY`: ordered `SET_MATERIAL` object-ring entries are compact invalidation descriptors, not
+  copies of the full material payload. They carry object ID, object generation, slot, source/type, and material
+  revision. The runtime uses `samp_raknet_client_get_object_material` to fetch the latest complete definition from
+  the authoritative slot, ignores duplicate/older revisions, and keeps unresolved revisions pending while the GTA
+  object, RW object, source model, TXD, or texture is not resident.
+- `INFERRED + TODO_VERIFY`: a Create event establishes a new generation and triggers a 16-slot authoritative
+  resync after the local object slot exists; this recovers inline CreateObject materials without emitting one large
+  event per material. RakPeer may dispatch more RPC handlers than the outer packet budget in one `Receive()`, so the
+  compact 1024-entry ring is not authoritative. The adapter also retains the latest alive/Create state per object ID.
+  If the object-event consumer detects a sequence gap/ring overwrite, it first reconciles missing Create/Destroy
+  generations and then
+  rescans the authoritative slots for every active or pending object generation instead of assuming the missing
+  descriptors were non-material events. Generation equality prevents a late material revision from an earlier
+  occupant of the same object ID from reaching the replacement object.
+- `STATIC_037 + OPENMP_REF`: default material colour is ABGR on the wire and is copied as a raw DWORD into
+  RenderWare's RGBA bytes. Zero means no colour override; alpha zero is not rewritten to opaque. Colour is applied
+  independently of texture resolution. The transient draw path clears geometry flag `0x08`, sets `0x40`, and restores
+  both afterward. Text foreground and background colours remain ARGB fields.
+- `STATIC_037 + TODO_VERIFY`: type-2 definitions enter `CObject::SetMaterialText` at `samp.dll+0xA86B0` and are
+  constructed lazily by `+0xA9EE0` through the text-texture manager at `+0x708B0`; `+0xA8ED0` releases generated
+  textures for device loss. The replacement decodes and persists these definitions, but rendering still needs the
+  original `samp.dll+0x74B50` D3D `SetTexture` substitution and a verified lost/reset-device lifecycle.
+- `STATIC_037 + TODO_VERIFY`: model-zero material handling is still open. It must reproduce the dedicated cached
+  `SAMP\\blanktex.txd` lifetime and must not be collapsed into either the colour-only `model < 0` case or the
+  now-active positive-source-model streaming path.
+
+Render-hook validation target: GTA SA 1.0 US `gta_sa.exe`, SHA256
+`a559aa772fd136379155efa71f00c47aad34bbfeae6196b0fe1047d0645cbd26`.
+
 ## Implementation Path
 
 1. `PROBE_TRACE`: capture path-only original run with `samp_probe_asset_paths.flag`.
@@ -277,12 +350,22 @@
    especially vehicle/object parent ordering and player attachments sent through RPC 75.
 9. `OPENMP_REF + PROBE_TRACE + TODO_VERIFY`: implement `RemoveBuildingForPlayer` beyond decode-only,
    since the Area51 script sends RPC 43 before the custom objects.
+10. `PROBE_TRACE + STATIC_037`: rerun SuperFreeroam and require matching `object-material-decode: queue` /
+    authoritative-revision / `object_material: persist` totals, successful `object_material: resolved`, and at
+    least one `object_material: render_apply`. Exercise both an inline-material Create resync and a forced object-ring
+    gap; both must converge to the latest authoritative slot revisions without applying an older generation. Visually
+    compare the glass, coloured-light, decking, wallpaper, and `cauldron1/alienliquid1` replacements seen in the prior
+    RPC 84 payloads.
 
 ## Guardrails
 
 - Do not pass a custom model to `RequestModel` until model info is present.
 - Keep `SAMPCOL.IMG` reads out of the ASI trace unless explicitly enabled.
 - Prefer archive/IDE registration before any Direct3D mesh fallback; the original behaves like a GTA asset integration layer, not just an immediate-mode renderer.
+- Do not treat the compact material-event ring as authoritative. On Create or an event gap, recover complete slots
+  from the adapter store and require an exact object-generation match.
+- Do not consume a material revision merely because its GTA entity, RW object, TXD, or texture is temporarily absent;
+  keep it pending and retry without permanently modifying shared `RpGeometry`.
 
 ## Source Links
 
