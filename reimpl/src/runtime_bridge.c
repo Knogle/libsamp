@@ -71,6 +71,7 @@
 #define SAMP_ADDR_SCRIPT_PROCESS_CALL_DISP 0x53BFC8u
 #define SAMP_ADDR_RE_GRAPHICS_CALL_DISP 0x53EB13u
 #define SAMP_ADDR_TIME_PASSING_PATCH 0x52CF10u
+#define SAMP_ADDR_CLOCK_FORMAT 0x859A6Cu
 #define SAMP_ADDR_PROC_GEOMETRY_PATCH 0x53C159u
 #define SAMP_ADDR_REPLAY_PROCESS_PATCH 0x53C090u
 #define SAMP_ADDR_INTERIOR_PEDS_PATCH 0x440833u
@@ -1506,8 +1507,12 @@ typedef struct samp_vehicle_slot_compat {
   float health;
   uint32_t door_damage;
   uint32_t panel_damage;
+  uint16_t trailer_vehicle_id;
+  uint8_t trailer_attached;
+  uint8_t params[SAMP_RAKNET_VEHICLE_PARAM_BYTES];
   int32_t body_color1;
   int32_t body_color2;
+  char number_plate[SAMP_RAKNET_VEHICLE_NUMBER_PLATE_BYTES];
 } samp_vehicle_slot_compat;
 
 typedef struct samp_3d_text_label_slot_compat {
@@ -1750,6 +1755,7 @@ typedef struct samp_runtime_state {
   uint8_t raknet_world_minute;
   uint8_t raknet_world_time_valid;
   uint8_t raknet_clock_enabled;
+  LONG raknet_clock_applied_state;
   uint8_t raknet_hold_time;
   uint8_t raknet_interior;
   uint8_t raknet_spawn_team;
@@ -2012,6 +2018,7 @@ typedef struct samp_runtime_state {
   samp_object_material_set_compat *object_material_sets[SAMP_RAKNET_MAX_OBJECTS];
   samp_object_material_entity_map_entry_compat object_material_entity_map[SAMP_OBJECT_MATERIAL_ENTITY_MAP_SIZE];
   samp_vehicle_slot_compat vehicle_slots[SAMP_RAKNET_MAX_VEHICLES];
+  char vehicle_number_plates[SAMP_RAKNET_MAX_VEHICLES][SAMP_RAKNET_VEHICLE_NUMBER_PLATE_BYTES];
   char gtaweap3_font_path[MAX_PATH];
   char sampaux3_font_path[MAX_PATH];
   samp_endpoint endpoint;
@@ -5440,6 +5447,9 @@ static int vehicle_compat_create_slot(const samp_raknet_vehicle_event *event) {
   slot->panel_damage = event->panel_damage;
   slot->body_color1 = event->body_color1;
   slot->body_color2 = event->body_color2;
+  strncpy(slot->number_plate, g_runtime.vehicle_number_plates[event->vehicle_id],
+          sizeof(slot->number_plate) - 1u);
+  slot->number_plate[sizeof(slot->number_plate) - 1u] = '\0';
   InterlockedExchange(&slot->pending, 1);
   InterlockedIncrement(&g_runtime.vehicle_pending_count);
 
@@ -5692,6 +5702,14 @@ static int vehicle_compat_apply_pending_slot(uint16_t vehicle_id, samp_vehicle_s
                  (double)slot->pos[1], (double)slot->pos[2], (double)create_z, (double)slot->rotation);
   gta_streaming_request_model_compat(slot->model, SAMP_VEHICLE_COMPAT_MODEL_LOAD_FLAGS);
   gta_streaming_load_all_requested_compat(0);
+  if (slot->number_plate[0] != '\0') {
+    /* STATIC_037 + TODO_VERIFY:
+     * RPC 123 stores the plate on the legacy CVehicle wrapper. GTA opcode
+     * 0674 selects a plate string for the next vehicle of this model, so it
+     * must run immediately before create_car in the replacement path.
+     */
+    (void)gta_script_command_compat(0x0674u, "is", (int)slot->model, slot->number_plate);
+  }
   if (!gta_script_command_compat(0x00A5u, "ifffv", (int)slot->model, slot->pos[0], slot->pos[1],
                                  create_z, &gta_id)) {
     runtime_tracef("vehicle: create failed id=%u model=%ld opcode=create_car", (unsigned)vehicle_id,
@@ -5898,6 +5916,125 @@ static void vehicle_compat_put_local_player(uint16_t vehicle_id, uint32_t seq, u
                  (unsigned long)occupant_after, (double)vehicle_health);
 }
 
+static int vehicle_compat_ensure_active(uint16_t vehicle_id) {
+  samp_vehicle_slot_compat *slot = NULL;
+
+  if (!vehicle_compat_id_valid(vehicle_id)) {
+    return 0;
+  }
+  slot = &g_runtime.vehicle_slots[vehicle_id];
+  if (InterlockedCompareExchange(&slot->active, 0, 0) != 0 && slot->gta_id != 0u) {
+    return 1;
+  }
+  if (InterlockedCompareExchange(&slot->pending, 0, 0) != 0) {
+    /* INFERRED + PROBE_TRACE:
+     * Dependent RPCs may follow StreamInVehicle in the same snapshot. Create
+     * that specific dependency now instead of consuming the later RPC first.
+     */
+    (void)vehicle_compat_apply_pending_slot(vehicle_id, slot);
+  }
+  return InterlockedCompareExchange(&slot->active, 0, 0) != 0 && slot->gta_id != 0u;
+}
+
+static int vehicle_compat_apply_script_event(const samp_raknet_vehicle_event *event) {
+  samp_vehicle_slot_compat *slot = NULL;
+  samp_vehicle_slot_compat *related = NULL;
+
+  if (event == NULL || !vehicle_compat_id_valid(event->vehicle_id)) {
+    return 0;
+  }
+  if (!vehicle_compat_ensure_active(event->vehicle_id)) {
+    return 0;
+  }
+  slot = &g_runtime.vehicle_slots[event->vehicle_id];
+  if (event->action == SAMP_RAKNET_VEHICLE_ACTION_SET_POS) {
+    int applied = gta_script_command_compat(0x00ABu, "ifff", (int)slot->gta_id, event->pos[0], event->pos[1],
+                                            event->pos[2]);
+    if (applied) {
+      memcpy(slot->pos, event->pos, sizeof(slot->pos));
+    }
+    return applied;
+  }
+  if (event->action == SAMP_RAKNET_VEHICLE_ACTION_SET_Z_ANGLE) {
+    int applied = gta_script_command_compat(0x0175u, "if", (int)slot->gta_id, event->rotation);
+    if (applied) {
+      slot->rotation = event->rotation;
+    }
+    return applied;
+  }
+  if (event->action == SAMP_RAKNET_VEHICLE_ACTION_ATTACH_TRAILER) {
+    if (!vehicle_compat_id_valid(event->related_vehicle_id)) {
+      return 0;
+    }
+    if (!vehicle_compat_ensure_active(event->related_vehicle_id)) {
+      return 0;
+    }
+    related = &g_runtime.vehicle_slots[event->related_vehicle_id];
+    if (gta_script_command_compat(0x0893u, "ii", (int)related->gta_id, (int)slot->gta_id)) {
+      slot->trailer_vehicle_id = event->related_vehicle_id;
+      slot->trailer_attached = 1u;
+      return 1;
+    }
+    return 0;
+  }
+  if (event->action == SAMP_RAKNET_VEHICLE_ACTION_DETACH_TRAILER) {
+    int applied = 1;
+    if (slot->trailer_attached != 0u && vehicle_compat_id_valid(slot->trailer_vehicle_id)) {
+      related = &g_runtime.vehicle_slots[slot->trailer_vehicle_id];
+      if (InterlockedCompareExchange(&related->active, 0, 0) != 0 && related->gta_id != 0u) {
+        applied = gta_script_command_compat(0x07ACu, "ii", (int)related->gta_id, (int)slot->gta_id);
+      }
+    }
+    slot->trailer_vehicle_id = 0u;
+    slot->trailer_attached = 0u;
+    return applied;
+  }
+  if (event->action == SAMP_RAKNET_VEHICLE_ACTION_SET_PARAMS_EX) {
+    int applied = 1;
+    memcpy(slot->params, event->params, sizeof(slot->params));
+    if (event->params[0] <= 1u) {
+      applied &= gta_script_command_compat(0x0918u, "ii", (int)slot->gta_id, (int)event->params[0]);
+    }
+    if (event->params[1] <= 1u) {
+      applied &= gta_script_command_compat(0x067Fu, "ii", (int)slot->gta_id, (int)event->params[1]);
+    }
+    if (event->params[3] <= 1u) {
+      applied &= gta_script_command_compat(0x0519u, "ii", (int)slot->gta_id, (int)event->params[3]);
+    }
+    return applied;
+  }
+  if (event->action == SAMP_RAKNET_VEHICLE_ACTION_REMOVE_COMPONENT) {
+    return gta_script_command_compat(0x06E8u, "ii", (int)slot->gta_id, (int)event->component);
+  }
+  if (event->action == SAMP_RAKNET_VEHICLE_ACTION_LINK_INTERIOR) {
+    int applied = gta_script_command_compat(0x0840u, "ii", (int)slot->gta_id, (int)event->interior);
+    if (applied) {
+      slot->interior = event->interior;
+    }
+    return applied;
+  }
+  if (event->action == SAMP_RAKNET_VEHICLE_ACTION_SET_NUMBER_PLATE) {
+    strncpy(g_runtime.vehicle_number_plates[event->vehicle_id], event->number_plate,
+            SAMP_RAKNET_VEHICLE_NUMBER_PLATE_BYTES - 1u);
+    g_runtime.vehicle_number_plates[event->vehicle_id][SAMP_RAKNET_VEHICLE_NUMBER_PLATE_BYTES - 1u] = '\0';
+    strncpy(slot->number_plate, event->number_plate, sizeof(slot->number_plate) - 1u);
+    slot->number_plate[sizeof(slot->number_plate) - 1u] = '\0';
+    return gta_script_command_compat(0x0674u, "is", (int)slot->model, slot->number_plate);
+  }
+  if (event->action == SAMP_RAKNET_VEHICLE_ACTION_SET_PARAMS_FOR_PLAYER) {
+    int applied = 1;
+    if (event->params[0] <= 1u) {
+      slot->params[6] = event->params[0];
+    }
+    if (event->params[1] <= 1u) {
+      slot->params[3] = event->params[1];
+      applied = gta_script_command_compat(0x0519u, "ii", (int)slot->gta_id, (int)event->params[1]);
+    }
+    return applied;
+  }
+  return 0;
+}
+
 static void vehicle_compat_apply_event(const samp_raknet_vehicle_event *event) {
   if (event == NULL || event->seq == 0u || !vehicle_compat_id_valid(event->vehicle_id)) {
     return;
@@ -5920,6 +6057,17 @@ static void vehicle_compat_apply_event(const samp_raknet_vehicle_event *event) {
 
   if (event->action == SAMP_RAKNET_VEHICLE_ACTION_PUT_LOCAL_PLAYER) {
     vehicle_compat_put_local_player(event->vehicle_id, event->seq, event->seat_id);
+    return;
+  }
+
+  if (event->action >= SAMP_RAKNET_VEHICLE_ACTION_SET_POS &&
+      event->action <= SAMP_RAKNET_VEHICLE_ACTION_SET_PARAMS_FOR_PLAYER) {
+    int applied = vehicle_compat_apply_script_event(event);
+    runtime_tracef("vehicle: script_event action=%u seq=%lu id=%u related=%u pos=(%.3f,%.3f,%.3f) "
+                   "rotation=%.3f applied=%d evidence=STATIC_037",
+                   (unsigned)event->action, (unsigned long)event->seq, (unsigned)event->vehicle_id,
+                   (unsigned)event->related_vehicle_id, (double)event->pos[0], (double)event->pos[1],
+                   (double)event->pos[2], (double)event->rotation, applied);
     return;
   }
 
@@ -6221,7 +6369,12 @@ static void vehicle_compat_update_scanner_marker(uint16_t vehicle_id, samp_vehic
    * coordinate blip path. The entity-attached marker path rendered black on the
    * current GTA/Wine target, so color/alpha work must be traced separately.
    */
-  should_show = (vehicle_compat_near_local_ped(slot, vehicle, ped, marker_pos) && !vehicle_compat_is_occupied(vehicle));
+  if (slot->params[6] == 1u) {
+    should_show = vehicle_compat_read_marker_position(slot, vehicle, marker_pos);
+  } else {
+    should_show =
+        (vehicle_compat_near_local_ped(slot, vehicle, ped, marker_pos) && !vehicle_compat_is_occupied(vehicle));
+  }
   if (should_show) {
     if (vehicle_compat_marker_position_changed(slot, marker_pos)) {
       vehicle_compat_disable_marker(slot);
@@ -6319,6 +6472,7 @@ static void vehicle_compat_reset_pool(const char *reason) {
   g_runtime.vehicle_create_last_tick = 0u;
   g_runtime.vehicle_create_hold_until_tick = 0u;
   memset(g_runtime.vehicle_slots, 0, sizeof(g_runtime.vehicle_slots));
+  memset(g_runtime.vehicle_number_plates, 0, sizeof(g_runtime.vehicle_number_plates));
 }
 
 static void chat_input_uninstall_wndproc_compat(void) {
@@ -18018,6 +18172,30 @@ static int valid_world_time_compat(uint8_t hour, uint8_t minute) {
   return hour < 24u && minute < 60u;
 }
 
+static void apply_network_clock_compat(void) {
+  static const uint8_t enabled_format[12] = {'%', '0', '2', 'd', ':', '%', '0', '2', 'd', 0, 0, 0};
+  static const uint8_t disabled_format[12] = {0};
+  const LONG desired_state = g_runtime.raknet_clock_enabled != 0u ? 2 : 1;
+  const uint8_t time_opcode = g_runtime.raknet_clock_enabled != 0u ? 0x56u : 0xC3u;
+  const uint8_t *format = g_runtime.raknet_clock_enabled != 0u ? enabled_format : disabled_format;
+  LONG previous_state = InterlockedCompareExchange(&g_runtime.raknet_clock_applied_state, 0, 0);
+
+  if (previous_state == desired_state) {
+    return;
+  }
+  if (!patch_copy(SAMP_ADDR_TIME_PASSING_PATCH, &time_opcode, sizeof(time_opcode)) ||
+      !patch_copy(SAMP_ADDR_CLOCK_FORMAT, format, sizeof(enabled_format))) {
+    runtime_tracef("clock_apply: enabled=%u previous=%ld applied=0 evidence=STATIC_037",
+                   (unsigned)g_runtime.raknet_clock_enabled, (long)previous_state);
+    return;
+  }
+  InterlockedExchange(&g_runtime.raknet_clock_applied_state, desired_state);
+  runtime_tracef("clock_apply: enabled=%u previous=%ld time_opcode=0x%02x format='%s' applied=1 "
+                 "evidence=STATIC_037",
+                 (unsigned)g_runtime.raknet_clock_enabled, (long)previous_state, (unsigned)time_opcode,
+                 g_runtime.raknet_clock_enabled != 0u ? "%02d:%02d" : "");
+}
+
 static void apply_network_time_weather_compat(const char *reason) {
   DWORD weather_value = (DWORD)g_runtime.raknet_weather;
   int time_valid = valid_world_time_compat(g_runtime.raknet_world_hour, g_runtime.raknet_world_minute) &&
@@ -18035,6 +18213,7 @@ static void apply_network_time_weather_compat(const char *reason) {
   }
   *(volatile DWORD *)(uintptr_t)SAMP_ADDR_WEATHER_A = weather_value;
   *(volatile DWORD *)(uintptr_t)SAMP_ADDR_WEATHER_B = weather_value;
+  apply_network_clock_compat();
 
   if (InterlockedCompareExchange(&g_runtime.raknet_time_apply_logged, 1, 0) == 0) {
     runtime_tracef("time_weather_apply: reason=%s time_valid=%d time=%u:%02u clock=%u hold=%u weather=%u",
@@ -24172,6 +24351,7 @@ static void launch_prepare_network_compat(void) {
     g_runtime.raknet_world_minute = 0u;
     g_runtime.raknet_world_time_valid = 0u;
     g_runtime.raknet_clock_enabled = 0u;
+    InterlockedExchange(&g_runtime.raknet_clock_applied_state, 0);
     g_runtime.raknet_hold_time = 1u;
     g_runtime.raknet_interior = 0u;
     g_runtime.raknet_camera_look_at_type = 0u;

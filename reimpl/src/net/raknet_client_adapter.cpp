@@ -592,7 +592,7 @@ const RpcMeta kRpcMeta[] = {
     {21U, "ScrResetPlayerWeapons", kRpcLocalImplemented, "STATIC_037"},
     {22U, "ScrGivePlayerWeapon", kRpcLocalImplemented, "STATIC_037,OPENMP_REF,TODO_VERIFY"},
     {23U, "OnPlayerClickPlayer", kRpcLocalOutgoing, "OPENMP_REF"},
-    {24U, "ScrSetVehicleParamsEx", kRpcLocalDummy, "SAMPFUNCS_037"},
+    {24U, "ScrSetVehicleParamsEx", kRpcLocalImplemented, "STATIC_037:samp.dll+0x112F0"},
     {25U, "ClientJoin", kRpcLocalOutgoing, "OPENMP_REF"},
     {26U, "EnterVehicle", kRpcLocalOutgoing, "OPENMP_REF"},
     {27U, "EnterEditObject", kRpcLocalOutgoing, "OPENMP_REF"},
@@ -622,7 +622,7 @@ const RpcMeta kRpcMeta[] = {
     {54U, "NPCJoin", kRpcLocalOutgoing, "OPENMP_REF"},
     {55U, "ScrDeathMessage", kRpcLocalImplemented, "STATIC_037,OPENMP_REF,TODO_VERIFY"},
     {56U, "ScrSetPlayerMapIcon", kRpcLocalImplemented, "INFERRED,TODO_VERIFY"},
-    {57U, "ScrRemoveVehicleComponent", kRpcLocalDummy, "STATIC_037"},
+    {57U, "ScrRemoveVehicleComponent", kRpcLocalImplemented, "STATIC_037:samp.dll+0x1C5C0"},
     {58U, "ScrUpdate3DTextLabel", kRpcLocalImplemented, "SAMPFUNCS_037,TODO_VERIFY"},
     {59U, "ScrChatBubble", kRpcLocalDummy, "SAMPFUNCS_037"},
     {60U, "ScrSomeUpdate", kRpcLocalDummy, "SAMPFUNCS_037"},
@@ -630,7 +630,7 @@ const RpcMeta kRpcMeta[] = {
     {62U, "DialogResponse", kRpcLocalOutgoing, "OPENMP_REF"},
     {63U, "ScrDestroyPickup", kRpcLocalImplemented, "STATIC_037:samp.dll+0xF140"},
     {64U, "ScrDelete3DTextLabel", kRpcLocalImplemented, "SAMPFUNCS_037,TODO_VERIFY"},
-    {65U, "ScrLinkVehicleToInterior", kRpcLocalDummy, "STATIC_037"},
+    {65U, "ScrLinkVehicleToInterior", kRpcLocalImplemented, "STATIC_037:samp.dll+0x19F30"},
     {66U, "ScrSetPlayerArmour", kRpcLocalImplemented, "OPENMP_REF"},
     {67U, "ScrSetPlayerArmedWeapon", kRpcLocalImplemented, "OPENMP_REF"},
     {68U, "ScrSetSpawnInfo", kRpcLocalImplemented, "PROBE_TRACE"},
@@ -681,7 +681,7 @@ const RpcMeta kRpcMeta[] = {
     {120U, "ScrGangZoneDestroy", kRpcLocalDummy, "STATIC_037"},
     {121U, "ScrGangZoneFlash", kRpcLocalDummy, "STATIC_037"},
     {122U, "ScrStopObject", kRpcLocalImplemented, "PROBE_TRACE"},
-    {123U, "ScrSetNumberPlate", kRpcLocalDummy, "STATIC_037"},
+    {123U, "ScrSetNumberPlate", kRpcLocalImplemented, "STATIC_037:samp.dll+0x1C230"},
     {124U, "ScrTogglePlayerSpectating", kRpcLocalDummy, "STATIC_037"},
     {126U, "ScrPlayerSpectatePlayer", kRpcLocalDummy, "STATIC_037"},
     {127U, "ScrPlayerSpectateVehicle", kRpcLocalDummy, "STATIC_037"},
@@ -701,8 +701,8 @@ const RpcMeta kRpcMeta[] = {
     {145U, "ScrSetPlayerAmmo", kRpcLocalImplemented, "STATIC_037:samp.dll+0x1AC10"},
     {146U, "ScrSetGravity", kRpcLocalImplemented, "STATIC_037:samp.dll+0x1ACD0"},
     {147U, "ScrSetVehicleHealth", kRpcLocalImplemented, "PROBE_TRACE"},
-    {148U, "ScrAttachTrailerToVehicle", kRpcLocalDummy, "STATIC_037"},
-    {149U, "ScrDetachTrailerFromVehicle", kRpcLocalDummy, "STATIC_037"},
+    {148U, "ScrAttachTrailerToVehicle", kRpcLocalImplemented, "STATIC_037:samp.dll+0x1AE50"},
+    {149U, "ScrDetachTrailerFromVehicle", kRpcLocalImplemented, "STATIC_037:samp.dll+0x1AF90"},
     {152U, "ScrSetWeather", kRpcLocalImplemented, "PROBE_TRACE"},
     {153U, "ScrSetPlayerSkin", kRpcLocalImplemented, "STATIC_037:samp.dll+0x19190"},
     {154U, "ExitVehicle", kRpcLocalOutgoing, "OPENMP_REF"},
@@ -710,9 +710,9 @@ const RpcMeta kRpcMeta[] = {
     {156U, "ScrSetPlayerInterior", kRpcLocalImplemented, "PROBE_TRACE"},
     {157U, "ScrSetPlayerCameraPos", kRpcLocalImplemented, "PROBE_TRACE"},
     {158U, "ScrSetPlayerCameraLookAt", kRpcLocalImplemented, "PROBE_TRACE"},
-    {159U, "ScrSetVehiclePos", kRpcLocalDummy, "STATIC_037"},
-    {160U, "ScrSetVehicleZAngle", kRpcLocalDummy, "STATIC_037"},
-    {161U, "ScrSetVehicleParamsForPlayer", kRpcLocalDummy, "STATIC_037"},
+    {159U, "ScrSetVehiclePos", kRpcLocalImplemented, "STATIC_037:samp.dll+0x19C70"},
+    {160U, "ScrSetVehicleZAngle", kRpcLocalImplemented, "STATIC_037:samp.dll+0x19D80"},
+    {161U, "ScrSetVehicleParamsForPlayer", kRpcLocalImplemented, "STATIC_037:samp.dll+0x19E60"},
     {162U, "ScrSetCameraBehindPlayer", kRpcLocalImplemented, "STATIC_037"},
     {163U, "ScrWorldPlayerRemove", kRpcLocalImplemented, "SAMPFUNCS_037,PROBE_TRACE"},
     {164U, "ScrWorldVehicleAdd", kRpcLocalImplemented, "PROBE_TRACE"},
@@ -786,6 +786,8 @@ unsigned int rpc_min_payload_bytes(unsigned int rpc_id) {
       return 16U;
     case 19U:
       return 4U;
+    case 24U:
+      return 18U;
     case 36U:
       return 27U;
     case 37U:
@@ -801,6 +803,8 @@ unsigned int rpc_min_payload_bytes(unsigned int rpc_id) {
       return 20U;
     case 55U:
       return 5U;
+    case 57U:
+      return 6U;
     case 29U:
       return 2U;
     case 30U:
@@ -817,6 +821,8 @@ unsigned int rpc_min_payload_bytes(unsigned int rpc_id) {
       return kOpenMpObjectDestroyMinBytes;
     case 61U:
       return 2U;
+    case 65U:
+      return 3U;
     case 63U:
       return 4U;
     case 66U:
@@ -860,8 +866,18 @@ unsigned int rpc_min_payload_bytes(unsigned int rpc_id) {
       return 1U;
     case 146U:
       return 4U;
+    case 148U:
+      return 4U;
+    case 149U:
+      return 2U;
     case 145U:
       return 3U;
+    case 159U:
+      return 14U;
+    case 160U:
+      return 6U;
+    case 161U:
+      return 4U;
     case 99U:
       return kOpenMpObjectMoveMinBytes;
     case 103U:
@@ -876,6 +892,8 @@ unsigned int rpc_min_payload_bytes(unsigned int rpc_id) {
     case 165U:
     case 166U:
       return 2U;
+    case 123U:
+      return 3U;
     case 134U:
       return kTextDrawShowMinBytes;
     case 139U:
@@ -2271,6 +2289,165 @@ bool decode_vehicle_health_payload(const unsigned char *data, unsigned int bytes
   event->health = health;
   trace_netf("vehicle-decode: health seq=%u id=%u health=%.3f", event->seq,
              static_cast<unsigned int>(vehicle_id), static_cast<double>(health));
+  return true;
+}
+
+bool decode_vehicle_position_payload(const unsigned char *data, unsigned int bytes) {
+  if (data == nullptr || bytes < 14U) {
+    return false;
+  }
+  const unsigned short vehicle_id = read_le16(data);
+  float pos[3];
+  read_vec3(data + 2U, pos);
+  if (!vehicle_id_valid(vehicle_id) || !vehicle_vec_plausible(pos)) {
+    return false;
+  }
+  samp_raknet_vehicle_event *event = queue_vehicle_event(SAMP_RAKNET_VEHICLE_ACTION_SET_POS, vehicle_id);
+  std::memcpy(event->pos, pos, sizeof(pos));
+  trace_netf("vehicle-decode: set_pos seq=%u id=%u pos=%.3f %.3f %.3f evidence=STATIC_037",
+             event->seq, static_cast<unsigned int>(vehicle_id), static_cast<double>(pos[0]),
+             static_cast<double>(pos[1]), static_cast<double>(pos[2]));
+  return true;
+}
+
+bool decode_vehicle_z_angle_payload(const unsigned char *data, unsigned int bytes) {
+  if (data == nullptr || bytes < 6U) {
+    return false;
+  }
+  const unsigned short vehicle_id = read_le16(data);
+  const float angle = read_le_float(data + 2U);
+  if (!vehicle_id_valid(vehicle_id) || !vehicle_rotation_plausible(angle)) {
+    return false;
+  }
+  samp_raknet_vehicle_event *event =
+      queue_vehicle_event(SAMP_RAKNET_VEHICLE_ACTION_SET_Z_ANGLE, vehicle_id);
+  event->rotation = angle;
+  trace_netf("vehicle-decode: set_z_angle seq=%u id=%u angle=%.3f evidence=STATIC_037",
+             event->seq, static_cast<unsigned int>(vehicle_id), static_cast<double>(angle));
+  return true;
+}
+
+bool decode_attach_trailer_payload(const unsigned char *data, unsigned int bytes) {
+  if (data == nullptr || bytes < 4U) {
+    return false;
+  }
+  const unsigned short trailer_id = read_le16(data);
+  const unsigned short vehicle_id = read_le16(data + 2U);
+  if (!vehicle_id_valid(trailer_id) || !vehicle_id_valid(vehicle_id) || trailer_id == vehicle_id) {
+    return false;
+  }
+  samp_raknet_vehicle_event *event =
+      queue_vehicle_event(SAMP_RAKNET_VEHICLE_ACTION_ATTACH_TRAILER, vehicle_id);
+  event->related_vehicle_id = trailer_id;
+  trace_netf("vehicle-decode: attach_trailer seq=%u vehicle=%u trailer=%u evidence=STATIC_037",
+             event->seq, static_cast<unsigned int>(vehicle_id), static_cast<unsigned int>(trailer_id));
+  return true;
+}
+
+bool decode_detach_trailer_payload(const unsigned char *data, unsigned int bytes) {
+  if (data == nullptr || bytes < 2U) {
+    return false;
+  }
+  const unsigned short vehicle_id = read_le16(data);
+  if (!vehicle_id_valid(vehicle_id)) {
+    return false;
+  }
+  samp_raknet_vehicle_event *event =
+      queue_vehicle_event(SAMP_RAKNET_VEHICLE_ACTION_DETACH_TRAILER, vehicle_id);
+  trace_netf("vehicle-decode: detach_trailer seq=%u vehicle=%u evidence=STATIC_037",
+             event->seq, static_cast<unsigned int>(vehicle_id));
+  return true;
+}
+
+bool decode_vehicle_params_ex_payload(const unsigned char *data, unsigned int bytes) {
+  if (data == nullptr || bytes < 18U) {
+    return false;
+  }
+  const unsigned short vehicle_id = read_le16(data);
+  if (!vehicle_id_valid(vehicle_id)) {
+    return false;
+  }
+  samp_raknet_vehicle_event *event =
+      queue_vehicle_event(SAMP_RAKNET_VEHICLE_ACTION_SET_PARAMS_EX, vehicle_id);
+  std::memcpy(event->params, data + 2U, SAMP_RAKNET_VEHICLE_PARAM_BYTES);
+  trace_netf("vehicle-decode: params_ex seq=%u id=%u engine=%u lights=%u alarm=%u doors=%u "
+             "bonnet=%u boot=%u objective=%u siren=%u evidence=STATIC_037",
+             event->seq, static_cast<unsigned int>(vehicle_id), static_cast<unsigned int>(event->params[0]),
+             static_cast<unsigned int>(event->params[1]), static_cast<unsigned int>(event->params[2]),
+             static_cast<unsigned int>(event->params[3]), static_cast<unsigned int>(event->params[4]),
+             static_cast<unsigned int>(event->params[5]), static_cast<unsigned int>(event->params[6]),
+             static_cast<unsigned int>(event->params[7]));
+  return true;
+}
+
+bool decode_remove_vehicle_component_payload(const unsigned char *data, unsigned int bytes) {
+  if (data == nullptr || bytes < 6U) {
+    return false;
+  }
+  const unsigned short vehicle_id = read_le16(data);
+  const std::int32_t component = read_le_i32(data + 2U);
+  if (!vehicle_id_valid(vehicle_id) || component < 1000 || component > 1193) {
+    return false;
+  }
+  samp_raknet_vehicle_event *event =
+      queue_vehicle_event(SAMP_RAKNET_VEHICLE_ACTION_REMOVE_COMPONENT, vehicle_id);
+  event->component = component;
+  trace_netf("vehicle-decode: remove_component seq=%u id=%u component=%d evidence=STATIC_037", event->seq,
+             static_cast<unsigned int>(vehicle_id), static_cast<int>(component));
+  return true;
+}
+
+bool decode_link_vehicle_interior_payload(const unsigned char *data, unsigned int bytes) {
+  if (data == nullptr || bytes < 3U) {
+    return false;
+  }
+  const unsigned short vehicle_id = read_le16(data);
+  if (!vehicle_id_valid(vehicle_id)) {
+    return false;
+  }
+  samp_raknet_vehicle_event *event =
+      queue_vehicle_event(SAMP_RAKNET_VEHICLE_ACTION_LINK_INTERIOR, vehicle_id);
+  event->interior = data[2U];
+  trace_netf("vehicle-decode: link_interior seq=%u id=%u interior=%u evidence=STATIC_037", event->seq,
+             static_cast<unsigned int>(vehicle_id), static_cast<unsigned int>(event->interior));
+  return true;
+}
+
+bool decode_vehicle_number_plate_payload(const unsigned char *data, unsigned int bytes) {
+  if (data == nullptr || bytes < 3U) {
+    return false;
+  }
+  const unsigned short vehicle_id = read_le16(data);
+  const unsigned int length = data[2U];
+  if (!vehicle_id_valid(vehicle_id) || length > 32U || bytes < 3U + length) {
+    return false;
+  }
+  samp_raknet_vehicle_event *event =
+      queue_vehicle_event(SAMP_RAKNET_VEHICLE_ACTION_SET_NUMBER_PLATE, vehicle_id);
+  if (length != 0U) {
+    std::memcpy(event->number_plate, data + 3U, length);
+  }
+  event->number_plate[length] = '\0';
+  trace_netf("vehicle-decode: number_plate seq=%u id=%u length=%u text=%s evidence=STATIC_037", event->seq,
+             static_cast<unsigned int>(vehicle_id), length, event->number_plate);
+  return true;
+}
+
+bool decode_vehicle_params_for_player_payload(const unsigned char *data, unsigned int bytes) {
+  if (data == nullptr || bytes < 4U) {
+    return false;
+  }
+  const unsigned short vehicle_id = read_le16(data);
+  if (!vehicle_id_valid(vehicle_id)) {
+    return false;
+  }
+  samp_raknet_vehicle_event *event =
+      queue_vehicle_event(SAMP_RAKNET_VEHICLE_ACTION_SET_PARAMS_FOR_PLAYER, vehicle_id);
+  event->params[0] = data[2U];
+  event->params[1] = data[3U];
+  trace_netf("vehicle-decode: params_for_player seq=%u id=%u objective=%u doors=%u evidence=STATIC_037",
+             event->seq, static_cast<unsigned int>(vehicle_id), static_cast<unsigned int>(event->params[0]),
+             static_cast<unsigned int>(event->params[1]));
   return true;
 }
 
@@ -5394,6 +5571,42 @@ void rpc_observer(RakNet::RPCParameters *rpc_params, void *extra) {
   } else if (rpc_id == 147U) {
     if (rpc_params == nullptr || !decode_vehicle_health_payload(rpc_params->input, bytes)) {
       trace_netf("rpc-state id=147 vehicle_health decode_failed bytes=%u", bytes);
+    }
+  } else if (rpc_id == 148U) {
+    if (rpc_params == nullptr || !decode_attach_trailer_payload(rpc_params->input, bytes)) {
+      trace_netf("rpc-state id=148 attach_trailer decode_failed bytes=%u", bytes);
+    }
+  } else if (rpc_id == 149U) {
+    if (rpc_params == nullptr || !decode_detach_trailer_payload(rpc_params->input, bytes)) {
+      trace_netf("rpc-state id=149 detach_trailer decode_failed bytes=%u", bytes);
+    }
+  } else if (rpc_id == 24U) {
+    if (rpc_params == nullptr || !decode_vehicle_params_ex_payload(rpc_params->input, bytes)) {
+      trace_netf("rpc-state id=24 vehicle_params_ex decode_failed bytes=%u", bytes);
+    }
+  } else if (rpc_id == 57U) {
+    if (rpc_params == nullptr || !decode_remove_vehicle_component_payload(rpc_params->input, bytes)) {
+      trace_netf("rpc-state id=57 remove_vehicle_component decode_failed bytes=%u", bytes);
+    }
+  } else if (rpc_id == 65U) {
+    if (rpc_params == nullptr || !decode_link_vehicle_interior_payload(rpc_params->input, bytes)) {
+      trace_netf("rpc-state id=65 link_vehicle_interior decode_failed bytes=%u", bytes);
+    }
+  } else if (rpc_id == 123U) {
+    if (rpc_params == nullptr || !decode_vehicle_number_plate_payload(rpc_params->input, bytes)) {
+      trace_netf("rpc-state id=123 vehicle_number_plate decode_failed bytes=%u", bytes);
+    }
+  } else if (rpc_id == 161U) {
+    if (rpc_params == nullptr || !decode_vehicle_params_for_player_payload(rpc_params->input, bytes)) {
+      trace_netf("rpc-state id=161 vehicle_params_for_player decode_failed bytes=%u", bytes);
+    }
+  } else if (rpc_id == 159U) {
+    if (rpc_params == nullptr || !decode_vehicle_position_payload(rpc_params->input, bytes)) {
+      trace_netf("rpc-state id=159 vehicle_position decode_failed bytes=%u", bytes);
+    }
+  } else if (rpc_id == 160U) {
+    if (rpc_params == nullptr || !decode_vehicle_z_angle_payload(rpc_params->input, bytes)) {
+      trace_netf("rpc-state id=160 vehicle_z_angle decode_failed bytes=%u", bytes);
     }
   } else if (rpc_id == 70U) {
     if (rpc_params == nullptr || !decode_put_player_in_vehicle_payload(rpc_params->input, bytes)) {

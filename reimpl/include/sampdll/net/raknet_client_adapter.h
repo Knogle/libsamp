@@ -212,6 +212,17 @@ typedef struct samp_raknet_join_profile {
 #define SAMP_RAKNET_VEHICLE_ACTION_DESTROY 2u
 #define SAMP_RAKNET_VEHICLE_ACTION_SET_HEALTH 3u
 #define SAMP_RAKNET_VEHICLE_ACTION_PUT_LOCAL_PLAYER 4u
+#define SAMP_RAKNET_VEHICLE_ACTION_SET_POS 5u
+#define SAMP_RAKNET_VEHICLE_ACTION_SET_Z_ANGLE 6u
+#define SAMP_RAKNET_VEHICLE_ACTION_ATTACH_TRAILER 7u
+#define SAMP_RAKNET_VEHICLE_ACTION_DETACH_TRAILER 8u
+#define SAMP_RAKNET_VEHICLE_ACTION_SET_PARAMS_EX 9u
+#define SAMP_RAKNET_VEHICLE_ACTION_REMOVE_COMPONENT 10u
+#define SAMP_RAKNET_VEHICLE_ACTION_LINK_INTERIOR 11u
+#define SAMP_RAKNET_VEHICLE_ACTION_SET_NUMBER_PLATE 12u
+#define SAMP_RAKNET_VEHICLE_ACTION_SET_PARAMS_FOR_PLAYER 13u
+#define SAMP_RAKNET_VEHICLE_PARAM_BYTES 16u
+#define SAMP_RAKNET_VEHICLE_NUMBER_PLATE_BYTES 33u
 #define SAMP_RAKNET_ANIM_LIB_BYTES 64u
 #define SAMP_RAKNET_ANIM_NAME_BYTES 64u
 #define SAMP_RAKNET_WORLD_VISUAL_TEXT_BYTES 256u
@@ -410,6 +421,7 @@ typedef struct samp_raknet_vehicle_event {
   uint8_t siren;
   uint8_t seat_id;
   uint16_t vehicle_id;
+  uint16_t related_vehicle_id;
   int32_t model;
   float pos[3];
   float rotation;
@@ -417,8 +429,11 @@ typedef struct samp_raknet_vehicle_event {
   uint32_t door_damage;
   uint32_t panel_damage;
   uint8_t mods[SAMP_RAKNET_VEHICLE_MOD_SLOTS];
+  uint8_t params[SAMP_RAKNET_VEHICLE_PARAM_BYTES];
+  int32_t component;
   int32_t body_color1;
   int32_t body_color2;
+  char number_plate[SAMP_RAKNET_VEHICLE_NUMBER_PLATE_BYTES];
 } samp_raknet_vehicle_event;
 
 typedef struct samp_raknet_given_weapon_event {

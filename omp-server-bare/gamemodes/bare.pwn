@@ -75,6 +75,11 @@ static gSampObjectScanHoldMs = SAMP_OBJECT_SCAN_DEFAULT_HOLD_MS;
 static gSampObjectScanGapMs = SAMP_OBJECT_SCAN_DEFAULT_GAP_MS;
 static gSampObjectScanPhase = SAMP_OBJECT_SCAN_PHASE_HOLD;
 static gRpcTestPickup = -1;
+static gRpcTestCab = INVALID_VEHICLE_ID;
+static gRpcTestTrailer = INVALID_VEHICLE_ID;
+static gRpcTestModVehicle = INVALID_VEHICLE_ID;
+static bool:gRpcVehicleParamsEnabled = false;
+static bool:gRpcVehicleObjectiveEnabled = false;
 
 static const gVehicleModels[TEST_VEHICLE_COUNT] = {
 	411, // Infernus
@@ -1056,6 +1061,153 @@ public OnPlayerCommandText(playerid, cmdtext[])
 		TogglePlayerClock(playerid, enabled);
 		SendClientMessage(playerid, 0x66FF66FF,
 			enabled ? "[bare-rpctest] Player clock enabled." : "[bare-rpctest] Player clock disabled.");
+		return 1;
+	}
+
+	if (!strcmp(cmdtext, "/vpos", true))
+	{
+		if (!IsPlayerInAnyVehicle(playerid))
+		{
+			SendClientMessage(playerid, 0xFFCC66FF, "[bare-rpctest] Enter a vehicle first.");
+			return 1;
+		}
+		new Float:x, Float:y, Float:z;
+		new vehicleid = GetPlayerVehicleID(playerid);
+		GetVehiclePos(vehicleid, x, y, z);
+		SetVehiclePos(vehicleid, x + 10.0, y, z);
+		SendClientMessage(playerid, 0x66FF66FF, "[bare-rpctest] Vehicle moved ten metres east.");
+		return 1;
+	}
+
+	if (!strcmp(cmdtext, "/vzangle", true))
+	{
+		if (!IsPlayerInAnyVehicle(playerid))
+		{
+			SendClientMessage(playerid, 0xFFCC66FF, "[bare-rpctest] Enter a vehicle first.");
+			return 1;
+		}
+		new vehicleid = GetPlayerVehicleID(playerid);
+		new Float:angle;
+		GetVehicleZAngle(vehicleid, angle);
+		SetVehicleZAngle(vehicleid, angle + 90.0);
+		SendClientMessage(playerid, 0x66FF66FF, "[bare-rpctest] Vehicle rotated 90 degrees.");
+		return 1;
+	}
+
+	if (!strcmp(cmdtext, "/trailer", true))
+	{
+		new Float:x, Float:y, Float:z;
+		GetPlayerPos(playerid, x, y, z);
+		if (gRpcTestCab == INVALID_VEHICLE_ID)
+		{
+			gRpcTestCab = CreateVehicle(515, x + 5.0, y, z, 0.0, 1, 1, 600);
+		}
+		if (gRpcTestTrailer == INVALID_VEHICLE_ID)
+		{
+			gRpcTestTrailer = CreateVehicle(435, x + 5.0, y - 8.0, z, 0.0, 1, 1, 600);
+		}
+		AttachTrailerToVehicle(gRpcTestTrailer, gRpcTestCab);
+		SendClientMessage(playerid, 0x66FF66FF, "[bare-rpctest] Trailer attached to the nearby Roadtrain.");
+		return 1;
+	}
+
+	if (!strcmp(cmdtext, "/traileroff", true))
+	{
+		if (gRpcTestCab != INVALID_VEHICLE_ID && gRpcTestTrailer != INVALID_VEHICLE_ID)
+		{
+			if (!IsTrailerAttachedToVehicle(gRpcTestCab))
+			{
+				AttachTrailerToVehicle(gRpcTestTrailer, gRpcTestCab);
+			}
+			DetachTrailerFromVehicle(gRpcTestCab);
+		}
+		SendClientMessage(playerid, 0x66FF66FF, "[bare-rpctest] Trailer detached.");
+		return 1;
+	}
+
+	if (!strcmp(cmdtext, "/vparams", true))
+	{
+		if (!IsPlayerInAnyVehicle(playerid))
+		{
+			SendClientMessage(playerid, 0xFFCC66FF, "[bare-rpctest] Enter a vehicle first.");
+			return 1;
+		}
+		gRpcVehicleParamsEnabled = !gRpcVehicleParamsEnabled;
+		new vehicleid = GetPlayerVehicleID(playerid);
+		SetVehicleParamsEx(vehicleid, gRpcVehicleParamsEnabled, gRpcVehicleParamsEnabled, false,
+			gRpcVehicleParamsEnabled, false, false, false);
+		SendClientMessage(playerid, 0x66FF66FF, gRpcVehicleParamsEnabled ?
+			"[bare-rpctest] Engine/lights/doors enabled and locked." :
+			"[bare-rpctest] Engine/lights/doors disabled and unlocked.");
+		return 1;
+	}
+
+	if (!strcmp(cmdtext, "/vcomponent", true))
+	{
+		new Float:x, Float:y, Float:z;
+		GetPlayerPos(playerid, x, y, z);
+		if (gRpcTestModVehicle == INVALID_VEHICLE_ID)
+		{
+			gRpcTestModVehicle = CreateVehicle(560, x + 5.0, y, z, 0.0, 1, 1, 600);
+		}
+		AddVehicleComponent(gRpcTestModVehicle, 1138);
+		SendClientMessage(playerid, 0x66FF66FF, "[bare-rpctest] Sultan spoiler added; use /vcomponentoff.");
+		return 1;
+	}
+
+	if (!strcmp(cmdtext, "/vcomponentoff", true))
+	{
+		if (gRpcTestModVehicle != INVALID_VEHICLE_ID)
+		{
+			RemoveVehicleComponent(gRpcTestModVehicle, 1138);
+		}
+		SendClientMessage(playerid, 0x66FF66FF, "[bare-rpctest] Sultan spoiler removal sent.");
+		return 1;
+	}
+
+	if (!strcmp(cmdtext, "/vinterior", true))
+	{
+		if (!IsPlayerInAnyVehicle(playerid))
+		{
+			SendClientMessage(playerid, 0xFFCC66FF, "[bare-rpctest] Enter a vehicle first.");
+			return 1;
+		}
+		new vehicleid = GetPlayerVehicleID(playerid);
+		new interior = GetVehicleInterior(vehicleid) == 0 ? 1 : 0;
+		LinkVehicleToInterior(vehicleid, interior);
+		SendClientMessage(playerid, 0x66FF66FF, interior ?
+			"[bare-rpctest] Vehicle linked to interior 1." :
+			"[bare-rpctest] Vehicle linked back to interior 0.");
+		return 1;
+	}
+
+	if (!strcmp(cmdtext, "/vplate", true))
+	{
+		if (!IsPlayerInAnyVehicle(playerid))
+		{
+			SendClientMessage(playerid, 0xFFCC66FF, "[bare-rpctest] Enter a vehicle first.");
+			return 1;
+		}
+		new vehicleid = GetPlayerVehicleID(playerid);
+		SetVehicleNumberPlate(vehicleid, "RPC123");
+		SetVehicleToRespawn(vehicleid);
+		SendClientMessage(playerid, 0x66FF66FF, "[bare-rpctest] Plate RPC123 set; vehicle respawning.");
+		return 1;
+	}
+
+	if (!strcmp(cmdtext, "/vlock", true))
+	{
+		if (!IsPlayerInAnyVehicle(playerid))
+		{
+			SendClientMessage(playerid, 0xFFCC66FF, "[bare-rpctest] Enter a vehicle first.");
+			return 1;
+		}
+		gRpcVehicleObjectiveEnabled = !gRpcVehicleObjectiveEnabled;
+		SetVehicleParamsForPlayer(GetPlayerVehicleID(playerid), playerid,
+			gRpcVehicleObjectiveEnabled, gRpcVehicleObjectiveEnabled);
+		SendClientMessage(playerid, 0x66FF66FF, gRpcVehicleObjectiveEnabled ?
+			"[bare-rpctest] Objective marker and player-specific lock enabled." :
+			"[bare-rpctest] Objective marker and player-specific lock disabled.");
 		return 1;
 	}
 
