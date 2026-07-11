@@ -237,6 +237,18 @@ struct RpcProbeState {
   unsigned int player_pos_find_z_seq;
   unsigned int player_velocity_seq;
   unsigned int remove_player_from_vehicle_seq;
+  unsigned int clear_animations_seq;
+  unsigned int vehicle_velocity_seq;
+  unsigned int stunt_bonus_seq;
+  unsigned int checkpoint_seq;
+  unsigned int disable_checkpoint_seq;
+  unsigned int race_checkpoint_seq;
+  unsigned int disable_race_checkpoint_seq;
+  unsigned int checkpoint_event_seq;
+  unsigned int pickup_event_seq;
+  samp_raknet_pickup_event pickup_events[SAMP_RAKNET_PICKUP_EVENT_RING];
+  unsigned int explosion_event_seq;
+  samp_raknet_explosion_event explosion_events[SAMP_RAKNET_EXPLOSION_EVENT_RING];
   unsigned int play_sound_seq;
   unsigned int stop_audio_stream_seq;
   unsigned int player_color_seq;
@@ -265,6 +277,17 @@ struct RpcProbeState {
   unsigned char player_fighting_style;
   float player_pos_find_z[3];
   float player_velocity[3];
+  unsigned short clear_animations_player_id;
+  unsigned char vehicle_velocity_turn;
+  float vehicle_velocity[3];
+  unsigned char stunt_bonus_enabled;
+  float checkpoint_pos[3];
+  float checkpoint_size;
+  unsigned char race_checkpoint_type;
+  float race_checkpoint_pos[3];
+  float race_checkpoint_next[3];
+  float race_checkpoint_size;
+  unsigned char checkpoint_event_type;
   samp_raknet_given_weapon_event player_given_weapon_events[SAMP_RAKNET_GIVE_WEAPON_EVENT_RING];
   unsigned int play_sound_id;
   float play_sound_pos[3];
@@ -575,16 +598,16 @@ const RpcMeta kRpcMeta[] = {
     {27U, "EnterEditObject", kRpcLocalOutgoing, "OPENMP_REF"},
     {28U, "ScrCancelEdit", kRpcLocalDummy, "SAMPFUNCS_037"},
     {29U, "ScrSetPlayerTime/SetTimeEx", kRpcLocalImplemented, "PROBE_TRACE"},
-    {30U, "ScrToggleClock", kRpcLocalDummy, "SAMPFUNCS_037"},
+    {30U, "ScrToggleClock", kRpcLocalImplemented, "STATIC_037:samp.dll+0xF500"},
     {31U, "ScriptCash", kRpcLocalOutgoing, "OPENMP_REF"},
     {32U, "ScrWorldPlayerAdd", kRpcLocalImplemented, "STATIC_037,PROBE_TRACE"},
     {33U, "ScrSetPlayerShopName", kRpcLocalDummy, "SAMPFUNCS_037"},
     {34U, "ScrSetPlayerSkillLevel", kRpcLocalImplemented, "STATIC_037:samp.dll+0xF5E0"},
     {35U, "ScrSetPlayerDrunkLevel", kRpcLocalImplemented, "STATIC_037:samp.dll+0x18DB0"},
     {36U, "ScrCreate3DTextLabel", kRpcLocalImplemented, "OPENMP_REF,TODO_VERIFY"},
-    {37U, "ScrDisableCheckpoint", kRpcLocalDummy, "STATIC_037"},
-    {38U, "ScrSetRaceCheckpoint", kRpcLocalDummy, "STATIC_037"},
-    {39U, "ScrDisableRaceCheckpoint", kRpcLocalDummy, "STATIC_037"},
+    {37U, "ScrDisableCheckpoint", kRpcLocalImplemented, "STATIC_037:samp.dll+0xF080"},
+    {38U, "ScrSetRaceCheckpoint", kRpcLocalImplemented, "STATIC_037:samp.dll+0xF140"},
+    {39U, "ScrDisableRaceCheckpoint", kRpcLocalImplemented, "STATIC_037:samp.dll+0xF1E0"},
     {40U, "ScrGameModeRestart", kRpcLocalDummy, "STATIC_037"},
     {41U, "ScrPlayAudioStream", kRpcLocalDummy, "SAMPFUNCS_037"},
     {42U, "ScrStopAudioStream", kRpcLocalDecoded, "OPENMP_REF"},
@@ -605,7 +628,7 @@ const RpcMeta kRpcMeta[] = {
     {60U, "ScrSomeUpdate", kRpcLocalDummy, "SAMPFUNCS_037"},
     {61U, "ScrShowDialog", kRpcLocalImplemented, "PROBE_TRACE"},
     {62U, "DialogResponse", kRpcLocalOutgoing, "OPENMP_REF"},
-    {63U, "ScrDestroyPickup", kRpcLocalDummy, "STATIC_037"},
+    {63U, "ScrDestroyPickup", kRpcLocalImplemented, "STATIC_037:samp.dll+0xF140"},
     {64U, "ScrDelete3DTextLabel", kRpcLocalImplemented, "SAMPFUNCS_037,TODO_VERIFY"},
     {65U, "ScrLinkVehicleToInterior", kRpcLocalDummy, "STATIC_037"},
     {66U, "ScrSetPlayerArmour", kRpcLocalImplemented, "OPENMP_REF"},
@@ -621,32 +644,32 @@ const RpcMeta kRpcMeta[] = {
     {76U, "ScrInitMenu", kRpcLocalDummy, "STATIC_037"},
     {77U, "ScrShowMenu", kRpcLocalDummy, "STATIC_037"},
     {78U, "ScrHideMenu", kRpcLocalDummy, "STATIC_037"},
-    {79U, "ScrCreateExplosion", kRpcLocalDummy, "STATIC_037"},
+    {79U, "ScrCreateExplosion", kRpcLocalImplemented, "STATIC_037:samp.dll+0x1BD10"},
     {80U, "ScrShowPlayerNameTagForPlayer", kRpcLocalImplemented, "INFERRED,TODO_VERIFY"},
     {81U, "ScrAttachCameraToObject", kRpcLocalDummy, "SAMPFUNCS_037"},
     {82U, "ScrInterpolateCamera", kRpcLocalDummy, "SAMPFUNCS_037"},
     {83U, "ClickTextDraw/SelectTextDraw", kRpcLocalImplemented, "PROBE_TRACE"},
     {84U, "ScrSetObjectMaterial", kRpcLocalImplemented, "STATIC_037,OPENMP_REF,PROBE_TRACE"},
     {85U, "ScrGangZoneStopFlash", kRpcLocalDummy, "SAMPFUNCS_037"},
-    {86U, "ScrApplyAnimation", kRpcLocalDecoded, "STATIC_037"},
-    {87U, "ScrClearAnimations", kRpcLocalDummy, "STATIC_037"},
+    {86U, "ScrApplyAnimation", kRpcLocalImplemented, "STATIC_037:samp.dll+0x1A950"},
+    {87U, "ScrClearAnimations", kRpcLocalImplemented, "STATIC_037:samp.dll+0x18580"},
     {88U, "ScrSetPlayerSpecialAction", kRpcLocalDummy, "STATIC_037"},
     {89U, "ScrSetPlayerFightingStyle", kRpcLocalImplemented, "STATIC_037:samp.dll+0x18740"},
     {90U, "ScrSetPlayerVelocity", kRpcLocalImplemented, "STATIC_037:samp.dll+0x18850"},
-    {91U, "ScrSetVehicleVelocity", kRpcLocalDummy, "SAMPFUNCS_037"},
+    {91U, "ScrSetVehicleVelocity", kRpcLocalImplemented, "STATIC_037:samp.dll+0x18950"},
     {93U, "ScrClientMessage", kRpcLocalImplemented, "PROBE_TRACE"},
     {94U, "ScrSetWorldTime", kRpcLocalImplemented, "PROBE_TRACE"},
-    {95U, "ScrCreatePickup", kRpcLocalDummy, "STATIC_037"},
+    {95U, "ScrCreatePickup", kRpcLocalImplemented, "STATIC_037:samp.dll+0xF080"},
     {96U, "ScmEvent", kRpcLocalOutgoing, "OPENMP_REF"},
     {97U, "WeaponPickupDestroy", kRpcLocalOutgoing, "OPENMP_REF"},
     {99U, "ScrMoveObject", kRpcLocalImplemented, "PROBE_TRACE"},
     {101U, "Chat", kRpcLocalImplemented, "INFERRED,OPENMP_REF,TODO_VERIFY"},
     {102U, "ServerNetStats", kRpcLocalOutgoing, "OPENMP_REF"},
     {103U, "ClientCheck", kRpcLocalImplemented, "OPENMP_REF"},
-    {104U, "ScrEnableStuntBonusForPlayer", kRpcLocalDummy, "STATIC_037"},
+    {104U, "ScrEnableStuntBonusForPlayer", kRpcLocalImplemented, "STATIC_037:samp.dll+0x17D50"},
     {105U, "ScrTextDrawSetString", kRpcLocalImplemented, "PROBE_TRACE"},
     {106U, "DamageVehicle", kRpcLocalOutgoing, "OPENMP_REF"},
-    {107U, "ScrSetCheckpoint", kRpcLocalDummy, "STATIC_037"},
+    {107U, "ScrSetCheckpoint", kRpcLocalImplemented, "STATIC_037:samp.dll+0xEEF0"},
     {108U, "ScrGangZoneCreate", kRpcLocalDecoded, "OPENMP_REF"},
     {112U, "ScrPlayCrimeReport", kRpcLocalDummy, "SAMPFUNCS_037"},
     {113U, "ScrSetPlayerAttachedObject", kRpcLocalDummy, "SAMPFUNCS_037"},
@@ -765,6 +788,11 @@ unsigned int rpc_min_payload_bytes(unsigned int rpc_id) {
       return 4U;
     case 36U:
       return 27U;
+    case 37U:
+    case 39U:
+      return 0U;
+    case 38U:
+      return 29U;
     case 58U:
       return 6U;
     case 64U:
@@ -775,6 +803,8 @@ unsigned int rpc_min_payload_bytes(unsigned int rpc_id) {
       return 5U;
     case 29U:
       return 2U;
+    case 30U:
+      return 1U;
     case 32U:
       return 28U;
     case 44U:
@@ -787,6 +817,8 @@ unsigned int rpc_min_payload_bytes(unsigned int rpc_id) {
       return kOpenMpObjectDestroyMinBytes;
     case 61U:
       return 2U;
+    case 63U:
+      return 4U;
     case 66U:
     case 67U:
       return 4U;
@@ -800,14 +832,26 @@ unsigned int rpc_min_payload_bytes(unsigned int rpc_id) {
       return 0U;
     case 72U:
       return 6U;
+    case 79U:
+      return 20U;
     case 83U:
       return 0U;
     case 84U:
       return 4U;
     case 86U:
       return 16U;
+    case 87U:
+      return 2U;
+    case 91U:
+      return 13U;
     case 93U:
       return 8U;
+    case 95U:
+      return 24U;
+    case 104U:
+      return 1U;
+    case 107U:
+      return 16U;
     case 94U:
     case 133U:
     case 144U:
@@ -1024,6 +1068,16 @@ void reset_rpc_probe_runtime(RakNet::RakClientInterface *client) {
   g_rpc_probe.player_pos_find_z_seq = 0U;
   g_rpc_probe.player_velocity_seq = 0U;
   g_rpc_probe.remove_player_from_vehicle_seq = 0U;
+  g_rpc_probe.clear_animations_seq = 0U;
+  g_rpc_probe.vehicle_velocity_seq = 0U;
+  g_rpc_probe.stunt_bonus_seq = 0U;
+  g_rpc_probe.checkpoint_seq = 0U;
+  g_rpc_probe.disable_checkpoint_seq = 0U;
+  g_rpc_probe.race_checkpoint_seq = 0U;
+  g_rpc_probe.disable_race_checkpoint_seq = 0U;
+  g_rpc_probe.checkpoint_event_seq = 0U;
+  g_rpc_probe.pickup_event_seq = 0U;
+  g_rpc_probe.explosion_event_seq = 0U;
   g_rpc_probe.play_sound_seq = 0U;
   g_rpc_probe.stop_audio_stream_seq = 0U;
   g_rpc_probe.player_color_seq = 0U;
@@ -1057,8 +1111,21 @@ void reset_rpc_probe_runtime(RakNet::RakClientInterface *client) {
   g_rpc_probe.player_fighting_style = 0U;
   std::memset(g_rpc_probe.player_pos_find_z, 0, sizeof(g_rpc_probe.player_pos_find_z));
   std::memset(g_rpc_probe.player_velocity, 0, sizeof(g_rpc_probe.player_velocity));
+  g_rpc_probe.clear_animations_player_id = 0U;
+  g_rpc_probe.vehicle_velocity_turn = 0U;
+  std::memset(g_rpc_probe.vehicle_velocity, 0, sizeof(g_rpc_probe.vehicle_velocity));
+  g_rpc_probe.stunt_bonus_enabled = 0U;
+  std::memset(g_rpc_probe.checkpoint_pos, 0, sizeof(g_rpc_probe.checkpoint_pos));
+  g_rpc_probe.checkpoint_size = 0.0f;
+  g_rpc_probe.race_checkpoint_type = 0U;
+  std::memset(g_rpc_probe.race_checkpoint_pos, 0, sizeof(g_rpc_probe.race_checkpoint_pos));
+  std::memset(g_rpc_probe.race_checkpoint_next, 0, sizeof(g_rpc_probe.race_checkpoint_next));
+  g_rpc_probe.race_checkpoint_size = 0.0f;
+  g_rpc_probe.checkpoint_event_type = 0U;
   std::memset(g_rpc_probe.player_given_weapon_events, 0, sizeof(g_rpc_probe.player_given_weapon_events));
   std::memset(g_rpc_probe.give_money_events, 0, sizeof(g_rpc_probe.give_money_events));
+  std::memset(g_rpc_probe.pickup_events, 0, sizeof(g_rpc_probe.pickup_events));
+  std::memset(g_rpc_probe.explosion_events, 0, sizeof(g_rpc_probe.explosion_events));
   g_rpc_probe.play_sound_id = 0U;
   std::memset(g_rpc_probe.play_sound_pos, 0, sizeof(g_rpc_probe.play_sound_pos));
   g_rpc_probe.player_color_player_id = 0U;
@@ -3398,47 +3465,42 @@ bool decode_player_color_payload(const unsigned char *data, unsigned int bytes) 
 }
 
 bool decode_apply_animation_payload(const unsigned char *data, unsigned int bytes) {
-  unsigned int offset = 0U;
-  unsigned int lib_len = 0U;
-  unsigned int name_len = 0U;
+  unsigned short player_id = 0U;
+  unsigned char lib_len = 0U;
+  unsigned char name_len = 0U;
+  char lib[SAMP_RAKNET_ANIM_LIB_BYTES];
+  char name[SAMP_RAKNET_ANIM_NAME_BYTES];
+  float delta = 0.0f;
+  bool loop = false;
+  bool lock_x = false;
+  bool lock_y = false;
+  bool freeze = false;
+  std::int32_t time = 0;
 
   if (data == nullptr || bytes < 16U) {
     return false;
   }
-  g_rpc_probe.apply_animation_player_id = read_le16(data + offset);
-  offset += 2U;
-  lib_len = data[offset++];
-  if (lib_len > bytes - offset) {
+  std::memset(lib, 0, sizeof(lib));
+  std::memset(name, 0, sizeof(name));
+  RakNet::BitStream bs(const_cast<unsigned char *>(data), bytes, false);
+  if (!bs.Read(player_id) || !bs.Read(lib_len) || lib_len == 0U || lib_len >= sizeof(lib) ||
+      !bs.Read(lib, static_cast<int>(lib_len)) || !bs.Read(name_len) || name_len == 0U ||
+      name_len >= sizeof(name) || !bs.Read(name, static_cast<int>(name_len)) || !bs.Read(delta) ||
+      !bs.Read(loop) || !bs.Read(lock_x) || !bs.Read(lock_y) || !bs.Read(freeze) || !bs.Read(time) ||
+      !std::isfinite(delta) || delta <= 0.0f || delta > 100.0f) {
     return false;
   }
-  (void)copy_bounded_bytes(g_rpc_probe.apply_animation_lib, sizeof(g_rpc_probe.apply_animation_lib), data + offset,
-                           lib_len);
-  offset += lib_len;
-  if (offset >= bytes) {
-    return false;
-  }
-  name_len = data[offset++];
-  if (name_len > bytes - offset) {
-    return false;
-  }
-  (void)copy_bounded_bytes(g_rpc_probe.apply_animation_name, sizeof(g_rpc_probe.apply_animation_name), data + offset,
-                           name_len);
-  offset += name_len;
-  if (bytes - offset < 8U) {
-    return false;
-  }
-  g_rpc_probe.apply_animation_delta = read_le_float(data + offset);
-  offset += 4U;
-  g_rpc_probe.apply_animation_loop = data[offset++] != 0U ? 1U : 0U;
-  g_rpc_probe.apply_animation_lock_x = data[offset++] != 0U ? 1U : 0U;
-  g_rpc_probe.apply_animation_lock_y = data[offset++] != 0U ? 1U : 0U;
-  g_rpc_probe.apply_animation_freeze = data[offset++] != 0U ? 1U : 0U;
-  if (bytes - offset < 4U) {
-    return false;
-  }
-  g_rpc_probe.apply_animation_time = read_le_i32(data + offset);
+  g_rpc_probe.apply_animation_player_id = player_id;
+  std::memcpy(g_rpc_probe.apply_animation_lib, lib, sizeof(g_rpc_probe.apply_animation_lib));
+  std::memcpy(g_rpc_probe.apply_animation_name, name, sizeof(g_rpc_probe.apply_animation_name));
+  g_rpc_probe.apply_animation_delta = delta;
+  g_rpc_probe.apply_animation_loop = loop ? 1U : 0U;
+  g_rpc_probe.apply_animation_lock_x = lock_x ? 1U : 0U;
+  g_rpc_probe.apply_animation_lock_y = lock_y ? 1U : 0U;
+  g_rpc_probe.apply_animation_freeze = freeze ? 1U : 0U;
+  g_rpc_probe.apply_animation_time = time;
   const unsigned int seq = bump_seq(&g_rpc_probe.apply_animation_seq);
-  trace_netf("rpc-state id=86 apply_animation_seq=%u player=%u lib='%s' name='%s' delta=%.3f flags=%u/%u/%u/%u time=%d decoded_only=1 TODO_VERIFY=1",
+  trace_netf("rpc-state id=86 apply_animation_seq=%u player=%u lib='%s' name='%s' delta=%.3f flags=%u/%u/%u/%u time=%d apply_pending=1 evidence=STATIC_037",
              seq, static_cast<unsigned int>(g_rpc_probe.apply_animation_player_id),
              g_rpc_probe.apply_animation_lib, g_rpc_probe.apply_animation_name,
              static_cast<double>(g_rpc_probe.apply_animation_delta),
@@ -5134,6 +5196,74 @@ void rpc_observer(RakNet::RPCParameters *rpc_params, void *extra) {
       g_rpc_probe.textdraw_select_color = 0U;
       trace_netf("rpc-state id=83 select_textdraw decode_failed bits=%u bytes=%u active=0", bits, bytes);
     }
+  } else if (rpc_id == 30U) {
+    if (rpc_params != nullptr && bytes >= 1U) {
+      g_rpc_probe.saw_toggle_clock = 1;
+      g_rpc_probe.clock_enabled = rpc_params->input[0] != 0U ? 1U : 0U;
+      trace_netf("rpc-state id=30 toggle_clock=%u apply_pending=1 evidence=STATIC_037",
+                 static_cast<unsigned int>(g_rpc_probe.clock_enabled));
+    }
+  } else if (rpc_id == 63U) {
+    if (rpc_params != nullptr && bytes >= 4U) {
+      const std::int32_t pickup_id = static_cast<std::int32_t>(read_le32(rpc_params->input));
+      if (pickup_id >= 0 && pickup_id < 4096) {
+        const unsigned int seq = bump_seq(&g_rpc_probe.pickup_event_seq);
+        samp_raknet_pickup_event &event =
+            g_rpc_probe.pickup_events[(seq - 1U) % SAMP_RAKNET_PICKUP_EVENT_RING];
+        std::memset(&event, 0, sizeof(event));
+        event.seq = seq;
+        event.action = SAMP_RAKNET_PICKUP_ACTION_DESTROY;
+        event.pickup_id = pickup_id;
+        trace_netf("rpc-state id=63 pickup_destroy seq=%u pickup=%d apply_pending=1 evidence=STATIC_037",
+                   seq, static_cast<int>(pickup_id));
+      }
+    }
+  } else if (rpc_id == 79U) {
+    if (rpc_params != nullptr && bytes >= 20U) {
+      float pos[3];
+      read_vec3(rpc_params->input, pos);
+      const std::int32_t type = static_cast<std::int32_t>(read_le32(rpc_params->input + 12U));
+      const float radius = read_le_float(rpc_params->input + 16U);
+      if (std::isfinite(pos[0]) && std::isfinite(pos[1]) && std::isfinite(pos[2]) &&
+          std::isfinite(radius) && radius >= 0.0f && radius <= 1000.0f && type >= 0 && type <= 255) {
+        const unsigned int seq = bump_seq(&g_rpc_probe.explosion_event_seq);
+        samp_raknet_explosion_event &event =
+            g_rpc_probe.explosion_events[(seq - 1U) % SAMP_RAKNET_EXPLOSION_EVENT_RING];
+        event.seq = seq;
+        event.type = type;
+        std::memcpy(event.pos, pos, sizeof(pos));
+        event.radius = radius;
+        trace_netf("rpc-state id=79 explosion seq=%u type=%d pos=%.3f %.3f %.3f radius=%.3f "
+                   "apply_pending=1 evidence=STATIC_037",
+                   seq, static_cast<int>(type), static_cast<double>(pos[0]), static_cast<double>(pos[1]),
+                   static_cast<double>(pos[2]), static_cast<double>(radius));
+      }
+    }
+  } else if (rpc_id == 95U) {
+    if (rpc_params != nullptr && bytes >= 24U) {
+      const std::int32_t pickup_id = static_cast<std::int32_t>(read_le32(rpc_params->input));
+      const std::int32_t model = static_cast<std::int32_t>(read_le32(rpc_params->input + 4U));
+      const std::int32_t type = static_cast<std::int32_t>(read_le32(rpc_params->input + 8U));
+      float pos[3];
+      read_vec3(rpc_params->input + 12U, pos);
+      if (pickup_id >= 0 && pickup_id < 4096 && model > 0 && model <= 20000 && type >= 0 && type <= 255 &&
+          std::isfinite(pos[0]) && std::isfinite(pos[1]) && std::isfinite(pos[2])) {
+        const unsigned int seq = bump_seq(&g_rpc_probe.pickup_event_seq);
+        samp_raknet_pickup_event &event =
+            g_rpc_probe.pickup_events[(seq - 1U) % SAMP_RAKNET_PICKUP_EVENT_RING];
+        std::memset(&event, 0, sizeof(event));
+        event.seq = seq;
+        event.action = SAMP_RAKNET_PICKUP_ACTION_CREATE;
+        event.pickup_id = pickup_id;
+        event.model = model;
+        event.type = type;
+        std::memcpy(event.pos, pos, sizeof(pos));
+        trace_netf("rpc-state id=95 pickup_create seq=%u pickup=%d model=%d type=%d pos=%.3f %.3f %.3f "
+                   "apply_pending=1 evidence=STATIC_037",
+                   seq, static_cast<int>(pickup_id), static_cast<int>(model), static_cast<int>(type),
+                   static_cast<double>(pos[0]), static_cast<double>(pos[1]), static_cast<double>(pos[2]));
+      }
+    }
   } else if (rpc_id == 134U) {
     if (rpc_params == nullptr || !decode_textdraw_show_payload(rpc_params->input, bytes)) {
       trace_netf("rpc-state id=134 textdraw_show decode_failed bytes=%u", bytes);
@@ -5351,6 +5481,98 @@ void rpc_observer(RakNet::RPCParameters *rpc_params, void *extra) {
                    static_cast<double>(velocity[2]));
       }
     }
+  } else if (rpc_id == 87U) {
+    if (rpc_params != nullptr && bytes >= 2U) {
+      g_rpc_probe.clear_animations_player_id = read_le16(rpc_params->input);
+      const unsigned int seq = bump_seq(&g_rpc_probe.clear_animations_seq);
+      trace_netf("rpc-state id=87 clear_animations_seq=%u player=%u apply_pending=1 evidence=STATIC_037",
+                 seq, static_cast<unsigned int>(g_rpc_probe.clear_animations_player_id));
+    }
+  } else if (rpc_id == 91U) {
+    if (rpc_params != nullptr && bytes >= 13U) {
+      float velocity[3];
+      const unsigned int turn = rpc_params->input[0U];
+      read_vec3(rpc_params->input + 1U, velocity);
+      if (turn <= 1U && std::isfinite(velocity[0]) && std::isfinite(velocity[1]) &&
+          std::isfinite(velocity[2]) && std::fabs(velocity[0]) <= 20.0f &&
+          std::fabs(velocity[1]) <= 20.0f && std::fabs(velocity[2]) <= 20.0f) {
+        g_rpc_probe.vehicle_velocity_turn = static_cast<unsigned char>(turn);
+        std::memcpy(g_rpc_probe.vehicle_velocity, velocity, sizeof(velocity));
+        const unsigned int seq = bump_seq(&g_rpc_probe.vehicle_velocity_seq);
+        trace_netf("rpc-state id=91 vehicle_velocity_seq=%u turn=%u velocity=%.4f %.4f %.4f "
+                   "apply_pending=1 evidence=STATIC_037",
+                   seq, turn, static_cast<double>(velocity[0]), static_cast<double>(velocity[1]),
+                   static_cast<double>(velocity[2]));
+      } else {
+        trace_netf("rpc-state id=91 invalid_vehicle_velocity turn=%u velocity=%.4f %.4f %.4f ignored=1",
+                   turn, static_cast<double>(velocity[0]), static_cast<double>(velocity[1]),
+                   static_cast<double>(velocity[2]));
+      }
+    }
+  } else if (rpc_id == 104U) {
+    if (rpc_params != nullptr && bytes >= 1U) {
+      bool enabled = false;
+      RakNet::BitStream bs(rpc_params->input, bytes, false);
+      if (bs.Read(enabled)) {
+        g_rpc_probe.stunt_bonus_enabled = enabled ? 1U : 0U;
+        const unsigned int seq = bump_seq(&g_rpc_probe.stunt_bonus_seq);
+        trace_netf("rpc-state id=104 stunt_bonus_seq=%u enabled=%u apply_pending=1 evidence=STATIC_037",
+                   seq, enabled ? 1U : 0U);
+      }
+    }
+  } else if (rpc_id == 107U) {
+    if (rpc_params != nullptr && bytes >= 16U) {
+      float pos[3];
+      read_vec3(rpc_params->input, pos);
+      const float size = read_le_float(rpc_params->input + 12U);
+      if (std::isfinite(pos[0]) && std::isfinite(pos[1]) && std::isfinite(pos[2]) &&
+          std::isfinite(size) && size > 0.0f && size <= 1000.0f) {
+        std::memcpy(g_rpc_probe.checkpoint_pos, pos, sizeof(pos));
+        g_rpc_probe.checkpoint_size = size;
+        const unsigned int seq = bump_seq(&g_rpc_probe.checkpoint_seq);
+        g_rpc_probe.checkpoint_event_type = 1U;
+        (void)bump_seq(&g_rpc_probe.checkpoint_event_seq);
+        trace_netf("rpc-state id=107 checkpoint_seq=%u pos=%.3f %.3f %.3f size=%.3f apply_pending=1 "
+                   "evidence=STATIC_037",
+                   seq, static_cast<double>(pos[0]), static_cast<double>(pos[1]),
+                   static_cast<double>(pos[2]), static_cast<double>(size));
+      }
+    }
+  } else if (rpc_id == 37U) {
+    const unsigned int seq = bump_seq(&g_rpc_probe.disable_checkpoint_seq);
+    g_rpc_probe.checkpoint_event_type = 2U;
+    (void)bump_seq(&g_rpc_probe.checkpoint_event_seq);
+    trace_netf("rpc-state id=37 disable_checkpoint_seq=%u apply_pending=1 evidence=STATIC_037", seq);
+  } else if (rpc_id == 38U) {
+    if (rpc_params != nullptr && bytes >= 29U) {
+      float pos[3];
+      float next[3];
+      const unsigned int type = rpc_params->input[0U];
+      read_vec3(rpc_params->input + 1U, pos);
+      read_vec3(rpc_params->input + 13U, next);
+      const float size = read_le_float(rpc_params->input + 25U);
+      if (type <= 4U && std::isfinite(pos[0]) && std::isfinite(pos[1]) && std::isfinite(pos[2]) &&
+          std::isfinite(next[0]) && std::isfinite(next[1]) && std::isfinite(next[2]) &&
+          std::isfinite(size) && size > 0.0f && size <= 1000.0f) {
+        g_rpc_probe.race_checkpoint_type = static_cast<unsigned char>(type);
+        std::memcpy(g_rpc_probe.race_checkpoint_pos, pos, sizeof(pos));
+        std::memcpy(g_rpc_probe.race_checkpoint_next, next, sizeof(next));
+        g_rpc_probe.race_checkpoint_size = size;
+        const unsigned int seq = bump_seq(&g_rpc_probe.race_checkpoint_seq);
+        g_rpc_probe.checkpoint_event_type = 3U;
+        (void)bump_seq(&g_rpc_probe.checkpoint_event_seq);
+        trace_netf("rpc-state id=38 race_checkpoint_seq=%u type=%u pos=%.3f %.3f %.3f "
+                   "next=%.3f %.3f %.3f size=%.3f apply_pending=1 evidence=STATIC_037",
+                   seq, type, static_cast<double>(pos[0]), static_cast<double>(pos[1]),
+                   static_cast<double>(pos[2]), static_cast<double>(next[0]),
+                   static_cast<double>(next[1]), static_cast<double>(next[2]), static_cast<double>(size));
+      }
+    }
+  } else if (rpc_id == 39U) {
+    const unsigned int seq = bump_seq(&g_rpc_probe.disable_race_checkpoint_seq);
+    g_rpc_probe.checkpoint_event_type = 4U;
+    (void)bump_seq(&g_rpc_probe.checkpoint_event_seq);
+    trace_netf("rpc-state id=39 disable_race_checkpoint_seq=%u apply_pending=1 evidence=STATIC_037", seq);
   } else if (rpc_id == 12U) {
     if (rpc_params != nullptr && bytes >= 12U) {
       g_rpc_probe.saw_player_pos = 1;
@@ -6186,7 +6408,11 @@ int samp_raknet_client_get_rpc_probe_snapshot(void *client, samp_raknet_rpc_prob
       g_rpc_probe.player_ammo_seq > 0U || g_rpc_probe.player_skin_seq > 0U || g_rpc_probe.player_skill_seq > 0U ||
       g_rpc_probe.player_drunk_seq > 0U || g_rpc_probe.player_fighting_style_seq > 0U ||
       g_rpc_probe.player_pos_find_z_seq > 0U || g_rpc_probe.player_velocity_seq > 0U ||
-      g_rpc_probe.remove_player_from_vehicle_seq > 0U ||
+      g_rpc_probe.remove_player_from_vehicle_seq > 0U || g_rpc_probe.clear_animations_seq > 0U ||
+      g_rpc_probe.vehicle_velocity_seq > 0U || g_rpc_probe.stunt_bonus_seq > 0U ||
+      g_rpc_probe.checkpoint_seq > 0U || g_rpc_probe.disable_checkpoint_seq > 0U ||
+      g_rpc_probe.race_checkpoint_seq > 0U || g_rpc_probe.disable_race_checkpoint_seq > 0U ||
+      g_rpc_probe.pickup_event_seq > 0U || g_rpc_probe.explosion_event_seq > 0U ||
       g_rpc_probe.play_sound_seq > 0U || g_rpc_probe.stop_audio_stream_seq > 0U ||
       g_rpc_probe.player_color_seq > 0U || g_rpc_probe.player_team_seq > 0U ||
       g_rpc_probe.apply_animation_seq > 0U) {
@@ -6245,6 +6471,9 @@ int samp_raknet_client_get_rpc_probe_snapshot(void *client, samp_raknet_rpc_prob
   out_snapshot->game_text_event_count = 0U;
   out_snapshot->text_label_event_count = 0U;
   out_snapshot->given_weapon_event_count = 0U;
+  out_snapshot->give_money_event_count = 0U;
+  out_snapshot->pickup_event_count = 0U;
+  out_snapshot->explosion_event_count = 0U;
   out_snapshot->player_pool_event_count = 0U;
   out_snapshot->score_ping_count = 0U;
   out_snapshot->textdraw_select_active = g_rpc_probe.textdraw_select_active;
@@ -6305,6 +6534,16 @@ int samp_raknet_client_get_rpc_probe_snapshot(void *client, samp_raknet_rpc_prob
   out_snapshot->player_pos_find_z_seq = g_rpc_probe.player_pos_find_z_seq;
   out_snapshot->player_velocity_seq = g_rpc_probe.player_velocity_seq;
   out_snapshot->remove_player_from_vehicle_seq = g_rpc_probe.remove_player_from_vehicle_seq;
+  out_snapshot->clear_animations_seq = g_rpc_probe.clear_animations_seq;
+  out_snapshot->vehicle_velocity_seq = g_rpc_probe.vehicle_velocity_seq;
+  out_snapshot->stunt_bonus_seq = g_rpc_probe.stunt_bonus_seq;
+  out_snapshot->checkpoint_seq = g_rpc_probe.checkpoint_seq;
+  out_snapshot->disable_checkpoint_seq = g_rpc_probe.disable_checkpoint_seq;
+  out_snapshot->race_checkpoint_seq = g_rpc_probe.race_checkpoint_seq;
+  out_snapshot->disable_race_checkpoint_seq = g_rpc_probe.disable_race_checkpoint_seq;
+  out_snapshot->checkpoint_event_seq = g_rpc_probe.checkpoint_event_seq;
+  out_snapshot->pickup_event_seq = g_rpc_probe.pickup_event_seq;
+  out_snapshot->explosion_event_seq = g_rpc_probe.explosion_event_seq;
   out_snapshot->play_sound_seq = g_rpc_probe.play_sound_seq;
   out_snapshot->stop_audio_stream_seq = g_rpc_probe.stop_audio_stream_seq;
   out_snapshot->player_color_seq = g_rpc_probe.player_color_seq;
@@ -6338,6 +6577,21 @@ int samp_raknet_client_get_rpc_probe_snapshot(void *client, samp_raknet_rpc_prob
               sizeof(out_snapshot->player_pos_find_z));
   std::memcpy(out_snapshot->player_velocity, g_rpc_probe.player_velocity,
               sizeof(out_snapshot->player_velocity));
+  out_snapshot->clear_animations_player_id = g_rpc_probe.clear_animations_player_id;
+  out_snapshot->vehicle_velocity_turn = g_rpc_probe.vehicle_velocity_turn;
+  std::memcpy(out_snapshot->vehicle_velocity, g_rpc_probe.vehicle_velocity,
+              sizeof(out_snapshot->vehicle_velocity));
+  out_snapshot->stunt_bonus_enabled = g_rpc_probe.stunt_bonus_enabled;
+  std::memcpy(out_snapshot->checkpoint_pos, g_rpc_probe.checkpoint_pos,
+              sizeof(out_snapshot->checkpoint_pos));
+  out_snapshot->checkpoint_size = g_rpc_probe.checkpoint_size;
+  out_snapshot->race_checkpoint_type = g_rpc_probe.race_checkpoint_type;
+  std::memcpy(out_snapshot->race_checkpoint_pos, g_rpc_probe.race_checkpoint_pos,
+              sizeof(out_snapshot->race_checkpoint_pos));
+  std::memcpy(out_snapshot->race_checkpoint_next, g_rpc_probe.race_checkpoint_next,
+              sizeof(out_snapshot->race_checkpoint_next));
+  out_snapshot->race_checkpoint_size = g_rpc_probe.race_checkpoint_size;
+  out_snapshot->checkpoint_event_type = g_rpc_probe.checkpoint_event_type;
   std::memcpy(out_snapshot->game_text, g_rpc_probe.game_text, sizeof(out_snapshot->game_text));
   if (g_rpc_probe.player_given_weapon_seq > 0U) {
     const unsigned int available = g_rpc_probe.player_given_weapon_seq < SAMP_RAKNET_GIVE_WEAPON_EVENT_RING
@@ -6362,6 +6616,32 @@ int samp_raknet_client_get_rpc_probe_snapshot(void *client, samp_raknet_rpc_prob
           g_rpc_probe.give_money_events[(seq - 1U) % SAMP_RAKNET_GIVE_MONEY_EVENT_RING];
       if (event.seq == seq && out_snapshot->give_money_event_count < SAMP_RAKNET_GIVE_MONEY_EVENT_RING) {
         out_snapshot->give_money_events[out_snapshot->give_money_event_count++] = event;
+      }
+    }
+  }
+  if (g_rpc_probe.pickup_event_seq > 0U) {
+    const unsigned int available = g_rpc_probe.pickup_event_seq < SAMP_RAKNET_PICKUP_EVENT_RING
+                                       ? g_rpc_probe.pickup_event_seq
+                                       : SAMP_RAKNET_PICKUP_EVENT_RING;
+    const unsigned int first_seq = g_rpc_probe.pickup_event_seq - available + 1U;
+    for (unsigned int seq = first_seq; seq <= g_rpc_probe.pickup_event_seq; ++seq) {
+      const samp_raknet_pickup_event &event =
+          g_rpc_probe.pickup_events[(seq - 1U) % SAMP_RAKNET_PICKUP_EVENT_RING];
+      if (event.seq == seq && out_snapshot->pickup_event_count < SAMP_RAKNET_PICKUP_EVENT_RING) {
+        out_snapshot->pickup_events[out_snapshot->pickup_event_count++] = event;
+      }
+    }
+  }
+  if (g_rpc_probe.explosion_event_seq > 0U) {
+    const unsigned int available = g_rpc_probe.explosion_event_seq < SAMP_RAKNET_EXPLOSION_EVENT_RING
+                                       ? g_rpc_probe.explosion_event_seq
+                                       : SAMP_RAKNET_EXPLOSION_EVENT_RING;
+    const unsigned int first_seq = g_rpc_probe.explosion_event_seq - available + 1U;
+    for (unsigned int seq = first_seq; seq <= g_rpc_probe.explosion_event_seq; ++seq) {
+      const samp_raknet_explosion_event &event =
+          g_rpc_probe.explosion_events[(seq - 1U) % SAMP_RAKNET_EXPLOSION_EVENT_RING];
+      if (event.seq == seq && out_snapshot->explosion_event_count < SAMP_RAKNET_EXPLOSION_EVENT_RING) {
+        out_snapshot->explosion_events[out_snapshot->explosion_event_count++] = event;
       }
     }
   }

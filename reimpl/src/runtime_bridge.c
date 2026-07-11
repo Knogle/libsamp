@@ -382,6 +382,7 @@
 #define SAMP_ENTITY_OFFSET_RW_OBJECT 24u
 #define SAMP_ENTITY_OFFSET_MODEL_INDEX 34u
 #define SAMP_ENTITY_OFFSET_MOVE_SPEED 68u
+#define SAMP_ENTITY_OFFSET_TURN_SPEED 80u
 #define SAMP_RW_TYPE_ATOMIC 1u
 #define SAMP_RW_TYPE_CLUMP 2u
 #define SAMP_MATRIX_OFFSET_RIGHT 0u
@@ -393,6 +394,7 @@
 #define SAMP_POOL_OFFSET_TOP 12u
 #define SAMP_GTA_ACTOR_LOCAL_ID 1
 #define SAMP_GTA_PLAYER_LOCAL_ID 0
+#define SAMP_PICKUP_COMPAT_MAX 4096u
 #define SAMP_DEG_TO_RAD 0.01745329251994329577f
 #define SAMP_CHAT_COMPAT_MAX_LINES 8
 #define SAMP_CHAT_COMPAT_LINE_BYTES 256
@@ -1668,6 +1670,24 @@ typedef struct samp_runtime_state {
   LONG mp_session_applied_player_pos_find_z_seq;
   LONG mp_session_applied_player_velocity_seq;
   LONG mp_session_applied_remove_player_from_vehicle_seq;
+  LONG mp_session_applied_clear_animations_seq;
+  LONG mp_session_applied_vehicle_velocity_seq;
+  LONG mp_session_applied_stunt_bonus_seq;
+  LONG mp_session_applied_checkpoint_event_seq;
+  LONG mp_session_applied_pickup_event_seq;
+  LONG mp_session_applied_explosion_event_seq;
+  uint32_t pickup_handles[SAMP_PICKUP_COMPAT_MAX];
+  LONG checkpoint_enabled;
+  float checkpoint_pos[3];
+  float checkpoint_size;
+  uint32_t checkpoint_marker_id;
+  LONG race_checkpoint_enabled;
+  uint8_t race_checkpoint_type;
+  float race_checkpoint_pos[3];
+  float race_checkpoint_next[3];
+  float race_checkpoint_size;
+  uint32_t race_checkpoint_handle;
+  uint32_t race_checkpoint_marker_id;
   LONG mp_session_applied_play_sound_seq;
   LONG mp_session_applied_stop_audio_stream_seq;
   LONG mp_session_applied_player_color_seq;
@@ -18459,6 +18479,165 @@ static int gta_remove_local_player_from_vehicle_compat(void) {
   return gta_script_command_compat(0x05CDu, "ii", SAMP_GTA_ACTOR_LOCAL_ID, (int)gta_vehicle_id);
 }
 
+static int gta_clear_player_animations_compat(const samp_raknet_rpc_probe_snapshot *snapshot) {
+  uintptr_t ped = 0u;
+  float x = 0.0f;
+  float y = 0.0f;
+  float z = 0.0f;
+
+  if (snapshot == NULL) {
+    return 0;
+  }
+  if (rpc_target_is_local_compat(snapshot, snapshot->clear_animations_player_id)) {
+    ped = gta_find_player_ped_compat();
+  } else if (snapshot->clear_animations_player_id < SAMP_SCOREBOARD_MAX_PLAYERS) {
+    samp_remote_player_slot_compat *slot = &g_runtime.remote_player_slots[snapshot->clear_animations_player_id];
+    if (InterlockedCompareExchange(&slot->active, 0, 0) != 0) {
+      ped = remote_player_compat_resolve_ped(slot);
+    }
+  }
+  if (ped == 0u || !gta_entity_read_position_compat(ped, &x, &y, &z)) {
+    return 0;
+  }
+  /* STATIC_037: samp.dll+0x18580 reads the current matrix position and teleports
+   * the selected ped to that same point, clearing its current GTA task state. */
+  return gta_entity_teleport_compat(ped, x, y, z);
+}
+
+static int gta_apply_current_vehicle_velocity_compat(uint8_t turn, const float velocity[3]) {
+  uintptr_t ped = gta_find_player_ped_compat();
+  uintptr_t vehicle = 0u;
+  uintptr_t target = 0u;
+  uintptr_t offset = turn != 0u ? SAMP_ENTITY_OFFSET_TURN_SPEED : SAMP_ENTITY_OFFSET_MOVE_SPEED;
+  uint32_t i = 0u;
+
+  if (velocity == NULL || turn > 1u || ped == 0u || !gta_ped_read_vehicle_compat(ped, &vehicle) ||
+      !isfinite(velocity[0]) || !isfinite(velocity[1]) || !isfinite(velocity[2])) {
+    return 0;
+  }
+  for (i = 0u; i < SAMP_RAKNET_MAX_VEHICLES; ++i) {
+    samp_vehicle_slot_compat *slot = &g_runtime.vehicle_slots[i];
+    if (InterlockedCompareExchange(&slot->active, 0, 0) != 0 && slot->gta_id != 0u &&
+        vehicle_compat_game_pool_get_at(slot->gta_id) == vehicle) {
+      target = vehicle;
+      break;
+    }
+  }
+  if (target == 0u || !memory_is_writable_compat((void *)(target + offset), sizeof(float) * 3u)) {
+    return 0;
+  }
+  /* STATIC_037: samp.dll+0x18950 dispatches byte 0 to SetMoveSpeedVector
+   * (samp.dll+0x9ED10) and byte 1 to SetTurnSpeedVector (samp.dll+0x9EE60). */
+  memcpy((void *)(target + offset), velocity, sizeof(float) * 3u);
+  return 1;
+}
+
+static void gta_disable_checkpoint_marker_compat(uint32_t *marker_id) {
+  if (marker_id != NULL && *marker_id != 0u) {
+    (void)gta_script_command_compat(0x0164u, "i", (int)*marker_id);
+    *marker_id = 0u;
+  }
+}
+
+static int gta_set_race_checkpoint_compat(const samp_raknet_rpc_probe_snapshot *snapshot) {
+  if (snapshot == NULL || snapshot->race_checkpoint_type > 4u ||
+      snapshot->race_checkpoint_size <= 0.0f) {
+    return 0;
+  }
+  if (g_runtime.race_checkpoint_handle != 0u) {
+    (void)gta_script_command_compat(0x06D6u, "i", (int)g_runtime.race_checkpoint_handle);
+    g_runtime.race_checkpoint_handle = 0u;
+  }
+  gta_disable_checkpoint_marker_compat(&g_runtime.race_checkpoint_marker_id);
+  memcpy(g_runtime.race_checkpoint_pos, snapshot->race_checkpoint_pos,
+         sizeof(g_runtime.race_checkpoint_pos));
+  memcpy(g_runtime.race_checkpoint_next, snapshot->race_checkpoint_next,
+         sizeof(g_runtime.race_checkpoint_next));
+  g_runtime.race_checkpoint_type = snapshot->race_checkpoint_type;
+  g_runtime.race_checkpoint_size = snapshot->race_checkpoint_size;
+  /* STATIC_037: samp.dll+0xF140 stores the type/points/size, then creates GTA
+   * opcode 06D5 through its race-checkpoint helper. */
+  if (!gta_script_command_compat(0x06D5u, "ifffffffv", (int)g_runtime.race_checkpoint_type,
+                                 g_runtime.race_checkpoint_pos[0], g_runtime.race_checkpoint_pos[1],
+                                 g_runtime.race_checkpoint_pos[2], g_runtime.race_checkpoint_next[0],
+                                 g_runtime.race_checkpoint_next[1], g_runtime.race_checkpoint_next[2],
+                                 g_runtime.race_checkpoint_size, &g_runtime.race_checkpoint_handle) ||
+      g_runtime.race_checkpoint_handle == 0u) {
+    return 0;
+  }
+  InterlockedExchange(&g_runtime.race_checkpoint_enabled, 1);
+  return 1;
+}
+
+static void gta_disable_race_checkpoint_compat(void) {
+  InterlockedExchange(&g_runtime.race_checkpoint_enabled, 0);
+  if (g_runtime.race_checkpoint_handle != 0u) {
+    (void)gta_script_command_compat(0x06D6u, "i", (int)g_runtime.race_checkpoint_handle);
+    g_runtime.race_checkpoint_handle = 0u;
+  }
+  gta_disable_checkpoint_marker_compat(&g_runtime.race_checkpoint_marker_id);
+}
+
+static int gta_apply_pickup_event_compat(const samp_raknet_pickup_event *event) {
+  uint32_t *handle = NULL;
+  if (event == NULL || event->pickup_id < 0 || (uint32_t)event->pickup_id >= SAMP_PICKUP_COMPAT_MAX) {
+    return 0;
+  }
+  handle = &g_runtime.pickup_handles[(uint32_t)event->pickup_id];
+  if (*handle != 0u) {
+    (void)gta_script_command_compat(0x0215u, "i", (int)*handle);
+    *handle = 0u;
+  }
+  if (event->action == SAMP_RAKNET_PICKUP_ACTION_DESTROY) {
+    return 1;
+  }
+  if (event->action != SAMP_RAKNET_PICKUP_ACTION_CREATE) {
+    return 0;
+  }
+  if (event->model > 0 && event->model <= 14000) {
+    (void)gta_script_command_compat(0x0247u, "i", (int)event->model);
+    (void)gta_script_command_compat(0x038Bu, "");
+  }
+  return gta_script_command_compat(0x0213u, "iifffv", (int)event->model, (int)event->type,
+                                   event->pos[0], event->pos[1], event->pos[2], handle) && *handle != 0u;
+}
+
+static void gta_destroy_all_pickups_compat(void) {
+  uint32_t i = 0u;
+  for (i = 0u; i < SAMP_PICKUP_COMPAT_MAX; ++i) {
+    if (g_runtime.pickup_handles[i] != 0u) {
+      (void)gta_script_command_compat(0x0215u, "i", (int)g_runtime.pickup_handles[i]);
+      g_runtime.pickup_handles[i] = 0u;
+    }
+  }
+}
+
+static void gta_process_checkpoints_compat(void) {
+  if (InterlockedCompareExchange(&g_runtime.checkpoint_enabled, 0, 0) != 0) {
+    (void)gta_script_command_condition_compat(0x00FEu, "ifffffffi", SAMP_GTA_ACTOR_LOCAL_ID,
+                                              g_runtime.checkpoint_pos[0], g_runtime.checkpoint_pos[1],
+                                              g_runtime.checkpoint_pos[2], g_runtime.checkpoint_size,
+                                              g_runtime.checkpoint_size, g_runtime.checkpoint_size, 1);
+    if (g_runtime.checkpoint_marker_id == 0u) {
+      (void)gta_script_command_compat(0x04CEu, "ifffv", 0, g_runtime.checkpoint_pos[0],
+                                      g_runtime.checkpoint_pos[1], g_runtime.checkpoint_pos[2],
+                                      &g_runtime.checkpoint_marker_id);
+    }
+  } else {
+    gta_disable_checkpoint_marker_compat(&g_runtime.checkpoint_marker_id);
+  }
+
+  if (InterlockedCompareExchange(&g_runtime.race_checkpoint_enabled, 0, 0) != 0) {
+    if (g_runtime.race_checkpoint_marker_id == 0u) {
+      (void)gta_script_command_compat(0x04CEu, "ifffv", 0, g_runtime.race_checkpoint_pos[0],
+                                      g_runtime.race_checkpoint_pos[1], g_runtime.race_checkpoint_pos[2],
+                                      &g_runtime.race_checkpoint_marker_id);
+    }
+  } else {
+    gta_disable_checkpoint_marker_compat(&g_runtime.race_checkpoint_marker_id);
+  }
+}
+
 static uint32_t refresh_raknet_rpc_snapshot_compat(void) {
   /* The compact ring is still large enough to exhaust a meaningful fraction
    * of GTA's 1 MiB game-thread stack. This bridge is single-threaded and
@@ -18489,6 +18668,12 @@ static uint32_t refresh_raknet_rpc_snapshot_compat(void) {
   LONG previous_player_pos_find_z_seq = 0;
   LONG previous_player_velocity_seq = 0;
   LONG previous_remove_player_from_vehicle_seq = 0;
+  LONG previous_clear_animations_seq = 0;
+  LONG previous_vehicle_velocity_seq = 0;
+  LONG previous_stunt_bonus_seq = 0;
+  LONG previous_checkpoint_event_seq = 0;
+  LONG previous_pickup_event_seq = 0;
+  LONG previous_explosion_event_seq = 0;
   LONG previous_play_sound_seq = 0;
   LONG previous_stop_audio_stream_seq = 0;
   LONG previous_player_color_seq = 0;
@@ -18775,6 +18960,123 @@ static uint32_t refresh_raknet_rpc_snapshot_compat(void) {
                    "evidence=STATIC_037,GTA_REVERSED_REF",
                    (unsigned long)snapshot.remove_player_from_vehicle_seq,
                    (long)previous_remove_player_from_vehicle_seq, applied);
+  }
+  previous_clear_animations_seq =
+      InterlockedCompareExchange(&g_runtime.mp_session_applied_clear_animations_seq, 0, 0);
+  if (snapshot.clear_animations_seq != 0u &&
+      snapshot.clear_animations_seq != (uint32_t)previous_clear_animations_seq) {
+    int applied = gta_clear_player_animations_compat(&snapshot);
+    InterlockedExchange(&g_runtime.mp_session_applied_clear_animations_seq,
+                        (LONG)snapshot.clear_animations_seq);
+    runtime_tracef("network_prepare: clear_animations seq=%lu previous=%ld player=%u applied=%d "
+                   "evidence=STATIC_037",
+                   (unsigned long)snapshot.clear_animations_seq, (long)previous_clear_animations_seq,
+                   (unsigned)snapshot.clear_animations_player_id, applied);
+  }
+  previous_vehicle_velocity_seq =
+      InterlockedCompareExchange(&g_runtime.mp_session_applied_vehicle_velocity_seq, 0, 0);
+  if (snapshot.vehicle_velocity_seq != 0u &&
+      snapshot.vehicle_velocity_seq != (uint32_t)previous_vehicle_velocity_seq) {
+    int applied = gta_apply_current_vehicle_velocity_compat(snapshot.vehicle_velocity_turn,
+                                                             snapshot.vehicle_velocity);
+    InterlockedExchange(&g_runtime.mp_session_applied_vehicle_velocity_seq,
+                        (LONG)snapshot.vehicle_velocity_seq);
+    runtime_tracef("network_prepare: vehicle_velocity seq=%lu previous=%ld turn=%u "
+                   "velocity=(%.4f,%.4f,%.4f) applied=%d evidence=STATIC_037",
+                   (unsigned long)snapshot.vehicle_velocity_seq, (long)previous_vehicle_velocity_seq,
+                   (unsigned)snapshot.vehicle_velocity_turn, (double)snapshot.vehicle_velocity[0],
+                   (double)snapshot.vehicle_velocity[1], (double)snapshot.vehicle_velocity[2], applied);
+  }
+  previous_stunt_bonus_seq =
+      InterlockedCompareExchange(&g_runtime.mp_session_applied_stunt_bonus_seq, 0, 0);
+  if (snapshot.stunt_bonus_seq != 0u &&
+      snapshot.stunt_bonus_seq != (uint32_t)previous_stunt_bonus_seq) {
+    DWORD enabled = snapshot.stunt_bonus_enabled != 0u ? 1u : 0u;
+    int applied = patch_copy(SAMP_ADDR_STUNT_BONUS, &enabled, sizeof(enabled));
+    InterlockedExchange(&g_runtime.mp_session_applied_stunt_bonus_seq, (LONG)snapshot.stunt_bonus_seq);
+    runtime_tracef("network_prepare: stunt_bonus seq=%lu previous=%ld enabled=%u applied=%d "
+                   "evidence=STATIC_037",
+                   (unsigned long)snapshot.stunt_bonus_seq, (long)previous_stunt_bonus_seq,
+                   (unsigned)snapshot.stunt_bonus_enabled, applied);
+  }
+  previous_checkpoint_event_seq =
+      InterlockedCompareExchange(&g_runtime.mp_session_applied_checkpoint_event_seq, 0, 0);
+  if (snapshot.checkpoint_event_seq != 0u &&
+      snapshot.checkpoint_event_seq != (uint32_t)previous_checkpoint_event_seq) {
+    int applied = 0;
+    switch (snapshot.checkpoint_event_type) {
+      case 1u:
+        gta_disable_checkpoint_marker_compat(&g_runtime.checkpoint_marker_id);
+        memcpy(g_runtime.checkpoint_pos, snapshot.checkpoint_pos, sizeof(g_runtime.checkpoint_pos));
+        g_runtime.checkpoint_size = snapshot.checkpoint_size;
+        InterlockedExchange(&g_runtime.checkpoint_enabled, 1);
+        applied = 1;
+        break;
+      case 2u:
+        InterlockedExchange(&g_runtime.checkpoint_enabled, 0);
+        gta_disable_checkpoint_marker_compat(&g_runtime.checkpoint_marker_id);
+        applied = 1;
+        break;
+      case 3u:
+        applied = gta_set_race_checkpoint_compat(&snapshot);
+        break;
+      case 4u:
+        gta_disable_race_checkpoint_compat();
+        applied = 1;
+        break;
+      default:
+        break;
+    }
+    InterlockedExchange(&g_runtime.mp_session_applied_checkpoint_event_seq,
+                        (LONG)snapshot.checkpoint_event_seq);
+    runtime_tracef("network_prepare: checkpoint_event seq=%lu previous=%ld type=%u applied=%d "
+                   "evidence=STATIC_037",
+                   (unsigned long)snapshot.checkpoint_event_seq, (long)previous_checkpoint_event_seq,
+                   (unsigned)snapshot.checkpoint_event_type, applied);
+  }
+  previous_pickup_event_seq =
+      InterlockedCompareExchange(&g_runtime.mp_session_applied_pickup_event_seq, 0, 0);
+  if (snapshot.pickup_event_seq != 0u && snapshot.pickup_event_seq != (uint32_t)previous_pickup_event_seq) {
+    uint32_t count = snapshot.pickup_event_count;
+    uint32_t i = 0u;
+    if (count > SAMP_RAKNET_PICKUP_EVENT_RING) {
+      count = SAMP_RAKNET_PICKUP_EVENT_RING;
+    }
+    for (i = 0u; i < count; ++i) {
+      const samp_raknet_pickup_event *event = &snapshot.pickup_events[i];
+      if (event->seq > (uint32_t)previous_pickup_event_seq && event->seq <= snapshot.pickup_event_seq) {
+        int applied = gta_apply_pickup_event_compat(event);
+        runtime_tracef("network_prepare: pickup_event seq=%lu previous=%ld action=%u pickup=%ld model=%ld "
+                       "type=%ld pos=(%.3f,%.3f,%.3f) applied=%d evidence=STATIC_037",
+                       (unsigned long)event->seq, (long)previous_pickup_event_seq, (unsigned)event->action,
+                       (long)event->pickup_id, (long)event->model, (long)event->type, (double)event->pos[0],
+                       (double)event->pos[1], (double)event->pos[2], applied);
+      }
+    }
+    InterlockedExchange(&g_runtime.mp_session_applied_pickup_event_seq, (LONG)snapshot.pickup_event_seq);
+  }
+  previous_explosion_event_seq =
+      InterlockedCompareExchange(&g_runtime.mp_session_applied_explosion_event_seq, 0, 0);
+  if (snapshot.explosion_event_seq != 0u &&
+      snapshot.explosion_event_seq != (uint32_t)previous_explosion_event_seq) {
+    uint32_t count = snapshot.explosion_event_count;
+    uint32_t i = 0u;
+    if (count > SAMP_RAKNET_EXPLOSION_EVENT_RING) {
+      count = SAMP_RAKNET_EXPLOSION_EVENT_RING;
+    }
+    for (i = 0u; i < count; ++i) {
+      const samp_raknet_explosion_event *event = &snapshot.explosion_events[i];
+      if (event->seq > (uint32_t)previous_explosion_event_seq && event->seq <= snapshot.explosion_event_seq) {
+        int applied = gta_script_command_compat(0x0948u, "fffif", event->pos[0], event->pos[1], event->pos[2],
+                                                (int)event->type, event->radius);
+        runtime_tracef("network_prepare: explosion seq=%lu previous=%ld type=%ld pos=(%.3f,%.3f,%.3f) "
+                       "radius=%.3f applied=%d evidence=STATIC_037",
+                       (unsigned long)event->seq, (long)previous_explosion_event_seq, (long)event->type,
+                       (double)event->pos[0], (double)event->pos[1], (double)event->pos[2],
+                       (double)event->radius, applied);
+      }
+    }
+    InterlockedExchange(&g_runtime.mp_session_applied_explosion_event_seq, (LONG)snapshot.explosion_event_seq);
   }
   previous_play_sound_seq = InterlockedCompareExchange(&g_runtime.raknet_play_sound_seq, 0, 0);
   if (snapshot.play_sound_seq != 0u && snapshot.play_sound_seq != (uint32_t)previous_play_sound_seq) {
@@ -23831,6 +24133,16 @@ static void launch_prepare_network_compat(void) {
     InterlockedExchange(&g_runtime.mp_session_applied_player_pos_find_z_seq, 0);
     InterlockedExchange(&g_runtime.mp_session_applied_player_velocity_seq, 0);
     InterlockedExchange(&g_runtime.mp_session_applied_remove_player_from_vehicle_seq, 0);
+    InterlockedExchange(&g_runtime.mp_session_applied_clear_animations_seq, 0);
+    InterlockedExchange(&g_runtime.mp_session_applied_vehicle_velocity_seq, 0);
+    InterlockedExchange(&g_runtime.mp_session_applied_stunt_bonus_seq, 0);
+    InterlockedExchange(&g_runtime.mp_session_applied_checkpoint_event_seq, 0);
+    InterlockedExchange(&g_runtime.mp_session_applied_pickup_event_seq, 0);
+    InterlockedExchange(&g_runtime.mp_session_applied_explosion_event_seq, 0);
+    gta_destroy_all_pickups_compat();
+    InterlockedExchange(&g_runtime.checkpoint_enabled, 0);
+    gta_disable_checkpoint_marker_compat(&g_runtime.checkpoint_marker_id);
+    gta_disable_race_checkpoint_compat();
     InterlockedExchange(&g_runtime.mp_session_applied_play_sound_seq, 0);
     InterlockedExchange(&g_runtime.mp_session_applied_stop_audio_stream_seq, 0);
     InterlockedExchange(&g_runtime.mp_session_applied_player_color_seq, 0);
@@ -24169,6 +24481,7 @@ static void launch_graphics_loop_hook_callback(void) {
   apply_preconnect_frontend_compat();
   launch_do_init_stuff_compat();
   apply_multiplayer_session_bridge_compat();
+  gta_process_checkpoints_compat();
   (void)textdraw_compat_draw_gta_font_graphics_overlay();
   chat_compat_draw_overlay();
 }

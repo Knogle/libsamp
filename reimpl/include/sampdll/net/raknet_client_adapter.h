@@ -131,6 +131,10 @@ typedef struct samp_raknet_join_profile {
 #define SAMP_RAKNET_CLIENT_MESSAGE_RING 8u
 #define SAMP_RAKNET_GIVE_WEAPON_EVENT_RING 16u
 #define SAMP_RAKNET_GIVE_MONEY_EVENT_RING 16u
+#define SAMP_RAKNET_PICKUP_EVENT_RING 64u
+#define SAMP_RAKNET_EXPLOSION_EVENT_RING 16u
+#define SAMP_RAKNET_PICKUP_ACTION_CREATE 1u
+#define SAMP_RAKNET_PICKUP_ACTION_DESTROY 2u
 #define SAMP_RAKNET_CLIENT_MESSAGE_BYTES 256u
 #define SAMP_RAKNET_HOSTNAME_BYTES 256u
 #define SAMP_RAKNET_MAX_PLAYERS 1000u
@@ -428,6 +432,22 @@ typedef struct samp_raknet_give_money_event {
   int32_t amount;
 } samp_raknet_give_money_event;
 
+typedef struct samp_raknet_pickup_event {
+  uint32_t seq;
+  uint8_t action;
+  int32_t pickup_id;
+  int32_t model;
+  int32_t type;
+  float pos[3];
+} samp_raknet_pickup_event;
+
+typedef struct samp_raknet_explosion_event {
+  uint32_t seq;
+  int32_t type;
+  float pos[3];
+  float radius;
+} samp_raknet_explosion_event;
+
 typedef struct samp_raknet_rpc_probe_snapshot {
   uint32_t flags;
   uint32_t client_message_count;
@@ -445,6 +465,8 @@ typedef struct samp_raknet_rpc_probe_snapshot {
   uint32_t text_label_event_count;
   uint32_t given_weapon_event_count;
   uint32_t give_money_event_count;
+  uint32_t pickup_event_count;
+  uint32_t explosion_event_count;
   uint8_t textdraw_select_active;
   uint32_t textdraw_select_color;
   uint16_t init_spawns_available;
@@ -502,6 +524,16 @@ typedef struct samp_raknet_rpc_probe_snapshot {
   uint32_t player_pos_find_z_seq;
   uint32_t player_velocity_seq;
   uint32_t remove_player_from_vehicle_seq;
+  uint32_t clear_animations_seq;
+  uint32_t vehicle_velocity_seq;
+  uint32_t stunt_bonus_seq;
+  uint32_t checkpoint_seq;
+  uint32_t disable_checkpoint_seq;
+  uint32_t race_checkpoint_seq;
+  uint32_t disable_race_checkpoint_seq;
+  uint32_t checkpoint_event_seq;
+  uint32_t pickup_event_seq;
+  uint32_t explosion_event_seq;
   uint32_t play_sound_seq;
   uint32_t stop_audio_stream_seq;
   uint32_t player_color_seq;
@@ -533,6 +565,17 @@ typedef struct samp_raknet_rpc_probe_snapshot {
   uint8_t player_fighting_style;
   float player_pos_find_z[3];
   float player_velocity[3];
+  uint16_t clear_animations_player_id;
+  uint8_t vehicle_velocity_turn;
+  float vehicle_velocity[3];
+  uint8_t stunt_bonus_enabled;
+  float checkpoint_pos[3];
+  float checkpoint_size;
+  uint8_t race_checkpoint_type;
+  float race_checkpoint_pos[3];
+  float race_checkpoint_next[3];
+  float race_checkpoint_size;
+  uint8_t checkpoint_event_type;
   uint32_t play_sound_id;
   float play_sound_pos[3];
   uint16_t player_color_player_id;
@@ -596,6 +639,8 @@ typedef struct samp_raknet_rpc_probe_snapshot {
   samp_raknet_3d_text_label_event text_label_events[SAMP_RAKNET_3D_TEXT_LABEL_EVENT_RING];
   samp_raknet_given_weapon_event given_weapon_events[SAMP_RAKNET_GIVE_WEAPON_EVENT_RING];
   samp_raknet_give_money_event give_money_events[SAMP_RAKNET_GIVE_MONEY_EVENT_RING];
+  samp_raknet_pickup_event pickup_events[SAMP_RAKNET_PICKUP_EVENT_RING];
+  samp_raknet_explosion_event explosion_events[SAMP_RAKNET_EXPLOSION_EVENT_RING];
 } samp_raknet_rpc_probe_snapshot;
 
 /*

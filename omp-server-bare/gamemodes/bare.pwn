@@ -74,6 +74,7 @@ static gSampObjectScanTimer = 0;
 static gSampObjectScanHoldMs = SAMP_OBJECT_SCAN_DEFAULT_HOLD_MS;
 static gSampObjectScanGapMs = SAMP_OBJECT_SCAN_DEFAULT_GAP_MS;
 static gSampObjectScanPhase = SAMP_OBJECT_SCAN_PHASE_HOLD;
+static gRpcTestPickup = -1;
 
 static const gVehicleModels[TEST_VEHICLE_COUNT] = {
 	411, // Infernus
@@ -931,6 +932,130 @@ public OnPlayerCommandText(playerid, cmdtext[])
 		RemovePlayerFromVehicle(playerid);
 		SendClientMessage(playerid, 0x66FF66FF, "[bare-rpctest] RemovePlayerFromVehicle sent.");
 		printf("[bare-rpctest] player=%d remove_from_vehicle=1", playerid);
+		return 1;
+	}
+
+	if (!strcmp(cmdtext, "/animtest", true))
+	{
+		ApplyAnimation(playerid, "DANCING", "DAN_Down_A", 4.1, true, false, false, true, 0);
+		SendClientMessage(playerid, 0x66FF66FF, "[bare-rpctest] Looping animation applied; use /animclear.");
+		return 1;
+	}
+
+	if (!strcmp(cmdtext, "/animclear", true))
+	{
+		ClearAnimations(playerid, SYNC_ALL);
+		SendClientMessage(playerid, 0x66FF66FF, "[bare-rpctest] ClearAnimations sent.");
+		printf("[bare-rpctest] player=%d clear_animations=1", playerid);
+		return 1;
+	}
+
+	if (!strcmp(cmdtext, "/vvelocity", true, 10) &&
+		(cmdtext[10] == '\0' || cmdtext[10] == ' ' || cmdtext[10] == '\t'))
+	{
+		new token = SkipCommandSpaces(cmdtext, 10);
+		new Float:x = floatstr(cmdtext[token]);
+		token = NextCommandToken(cmdtext, token);
+		new Float:y = floatstr(cmdtext[token]);
+		token = NextCommandToken(cmdtext, token);
+		new Float:z = floatstr(cmdtext[token]);
+		new message[128];
+		if (cmdtext[token] == '\0' || !IsPlayerInAnyVehicle(playerid) ||
+			x < -20.0 || x > 20.0 || y < -20.0 || y > 20.0 || z < -20.0 || z > 20.0)
+		{
+			SendClientMessage(playerid, 0xFFCC66FF, "[bare-rpctest] Usage in vehicle: /vvelocity <x -20..20> <y -20..20> <z -20..20>");
+			return 1;
+		}
+		SetVehicleVelocity(GetPlayerVehicleID(playerid), x, y, z);
+		format(message, sizeof(message), "[bare-rpctest] Vehicle velocity set to %.3f %.3f %.3f.", x, y, z);
+		SendClientMessage(playerid, 0x66FF66FF, message);
+		printf("[bare-rpctest] player=%d vehicle_velocity=%.3f,%.3f,%.3f", playerid, x, y, z);
+		return 1;
+	}
+
+	if (!strcmp(cmdtext, "/stunt 0", true) || !strcmp(cmdtext, "/stunt 1", true))
+	{
+		new bool:enabled = cmdtext[7] == '1';
+		EnableStuntBonusForPlayer(playerid, enabled);
+		SendClientMessage(playerid, 0x66FF66FF,
+			enabled ? "[bare-rpctest] Stunt bonus enabled." : "[bare-rpctest] Stunt bonus disabled.");
+		printf("[bare-rpctest] player=%d stunt_bonus=%d", playerid, enabled);
+		return 1;
+	}
+
+	if (!strcmp(cmdtext, "/cp", true))
+	{
+		new Float:x, Float:y, Float:z;
+		GetPlayerPos(playerid, x, y, z);
+		SetPlayerCheckpoint(playerid, x, y + 10.0, z, 3.0);
+		SendClientMessage(playerid, 0x66FF66FF, "[bare-rpctest] Checkpoint set ten metres north.");
+		return 1;
+	}
+
+	if (!strcmp(cmdtext, "/cpoff", true))
+	{
+		DisablePlayerCheckpoint(playerid);
+		SendClientMessage(playerid, 0x66FF66FF, "[bare-rpctest] Checkpoint disabled.");
+		return 1;
+	}
+
+	if (!strcmp(cmdtext, "/racecp", true))
+	{
+		new Float:x, Float:y, Float:z;
+		GetPlayerPos(playerid, x, y, z);
+		SetPlayerRaceCheckpoint(playerid, CP_TYPE_GROUND_NORMAL,
+			x, y + 10.0, z, x, y + 30.0, z, 4.0);
+		SendClientMessage(playerid, 0x66FF66FF, "[bare-rpctest] Race checkpoint set ten metres north.");
+		return 1;
+	}
+
+	if (!strcmp(cmdtext, "/racecpoff", true))
+	{
+		DisablePlayerRaceCheckpoint(playerid);
+		SendClientMessage(playerid, 0x66FF66FF, "[bare-rpctest] Race checkpoint disabled.");
+		return 1;
+	}
+
+	if (!strcmp(cmdtext, "/pickup", true))
+	{
+		new Float:x, Float:y, Float:z;
+		GetPlayerPos(playerid, x, y, z);
+		if (gRpcTestPickup != -1)
+		{
+			DestroyPickup(gRpcTestPickup);
+		}
+		gRpcTestPickup = CreatePickup(1240, 2, x, y + 4.0, z, GetPlayerVirtualWorld(playerid));
+		SendClientMessage(playerid, 0x66FF66FF, "[bare-rpctest] Health pickup created four metres north.");
+		printf("[bare-rpctest] player=%d pickup=%d", playerid, gRpcTestPickup);
+		return 1;
+	}
+
+	if (!strcmp(cmdtext, "/pickupoff", true))
+	{
+		if (gRpcTestPickup != -1)
+		{
+			DestroyPickup(gRpcTestPickup);
+			gRpcTestPickup = -1;
+		}
+		SendClientMessage(playerid, 0x66FF66FF, "[bare-rpctest] Test pickup destroyed.");
+		return 1;
+	}
+
+	if (!strcmp(cmdtext, "/explode", true))
+	{
+		new Float:x, Float:y, Float:z;
+		GetPlayerPos(playerid, x, y, z);
+		CreateExplosionForPlayer(playerid, x, y + 8.0, z, 2, 10.0);
+		SendClientMessage(playerid, 0x66FF66FF, "[bare-rpctest] Explosion created eight metres north.");
+		return 1;
+	}
+
+	if (!strcmp(cmdtext, "/clock 0", true) || !strcmp(cmdtext, "/clock 1", true))
+	{
+		new bool:enabled = cmdtext[7] == '1';
+		TogglePlayerClock(playerid, enabled);
+		SendClientMessage(playerid, 0x66FF66FF,
+			enabled ? "[bare-rpctest] Player clock enabled." : "[bare-rpctest] Player clock disabled.");
 		return 1;
 	}
 
