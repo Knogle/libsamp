@@ -80,6 +80,10 @@ static gRpcTestTrailer = INVALID_VEHICLE_ID;
 static gRpcTestModVehicle = INVALID_VEHICLE_ID;
 static bool:gRpcVehicleParamsEnabled = false;
 static bool:gRpcVehicleObjectiveEnabled = false;
+static bool:gRpcBoundsEnabled = false;
+static bool:gRpcSpecialEnabled = false;
+static bool:gRpcRenameAlternate = false;
+static gRpcCameraObject = INVALID_OBJECT_ID;
 
 static const gVehicleModels[TEST_VEHICLE_COUNT] = {
 	411, // Infernus
@@ -1291,6 +1295,148 @@ public OnPlayerCommandText(playerid, cmdtext[])
 	{
 		new token = SkipCommandSpaces(cmdtext, 7);
 		SetTestVehicleHealth(playerid, strval(cmdtext[token]), 0.0, "kill");
+		return 1;
+	}
+
+	if (!strcmp(cmdtext, "/rpcname", true))
+	{
+		gRpcRenameAlternate = !gRpcRenameAlternate;
+		SetPlayerName(playerid, gRpcRenameAlternate ? "RPC_Name_A" : "RPC_Name_B");
+		SendClientMessage(playerid, 0x66FF66FF, "[bare-rpctest] RPC11 name toggled; check chat/scoreboard/name tag.");
+		return 1;
+	}
+
+	if (!strcmp(cmdtext, "/bounds", true))
+	{
+		new Float:x, Float:y, Float:z;
+		GetPlayerPos(playerid, x, y, z);
+		gRpcBoundsEnabled = !gRpcBoundsEnabled;
+		if (gRpcBoundsEnabled)
+		{
+			SetPlayerWorldBounds(playerid, x + 20.0, x - 20.0, y + 20.0, y - 20.0);
+			SendClientMessage(playerid, 0x66FF66FF, "[bare-rpctest] RPC17 bounds set to 20 metres around current position.");
+		}
+		else
+		{
+			SetPlayerWorldBounds(playerid, 20000.0, -20000.0, 20000.0, -20000.0);
+			SendClientMessage(playerid, 0x66FF66FF, "[bare-rpctest] RPC17 bounds reset.");
+		}
+		return 1;
+	}
+
+	if (!strcmp(cmdtext, "/gmrestart", true))
+	{
+		SendClientMessage(playerid, 0xFFCC66FF, "[bare-rpctest] Triggering GMX/RPC40 now.");
+		SendRconCommand("gmx");
+		return 1;
+	}
+
+	if (!strcmp(cmdtext, "/forceclass", true))
+	{
+		ForceClassSelection(playerid);
+		SetPlayerHealth(playerid, 0.0);
+		SendClientMessage(playerid, 0x66FF66FF, "[bare-rpctest] RPC74 latched and player killed; class selection should follow.");
+		return 1;
+	}
+
+	if (!strcmp(cmdtext, "/camobject", true))
+	{
+		new Float:x, Float:y, Float:z;
+		GetPlayerPos(playerid, x, y, z);
+		if (gRpcCameraObject != INVALID_OBJECT_ID) DestroyObject(gRpcCameraObject);
+		gRpcCameraObject = CreateObject(19300, x + 8.0, y, z + 6.0, 0.0, 0.0, 0.0, 200.0);
+		AttachCameraToObject(playerid, gRpcCameraObject);
+		MoveObject(gRpcCameraObject, x + 8.0, y + 20.0, z + 6.0, 4.0);
+		SendClientMessage(playerid, 0x66FF66FF, "[bare-rpctest] RPC81 camera attached to a moving object; /specoff restores it.");
+		return 1;
+	}
+
+	if (!strcmp(cmdtext, "/caminterp", true))
+	{
+		new Float:x, Float:y, Float:z;
+		GetPlayerPos(playerid, x, y, z);
+		SetPlayerCameraLookAt(playerid, x, y, z + 1.0, CAMERA_CUT);
+		InterpolateCameraPos(playerid, x + 4.0, y - 12.0, z + 5.0, x + 4.0, y + 12.0, z + 8.0, 3000, CAMERA_MOVE);
+		SendClientMessage(playerid, 0x66FF66FF, "[bare-rpctest] RPC82 camera position should interpolate for three seconds.");
+		return 1;
+	}
+
+	if (!strcmp(cmdtext, "/special", true))
+	{
+		gRpcSpecialEnabled = !gRpcSpecialEnabled;
+		SetPlayerSpecialAction(playerid, gRpcSpecialEnabled ? SPECIAL_ACTION_HANDSUP : SPECIAL_ACTION_NONE);
+		SendClientMessage(playerid, 0x66FF66FF, gRpcSpecialEnabled ?
+			"[bare-rpctest] RPC88 hands-up enabled." : "[bare-rpctest] RPC88 special action cleared.");
+		return 1;
+	}
+
+	if (!strcmp(cmdtext, "/specoff", true))
+	{
+		TogglePlayerSpectating(playerid, false);
+		SetCameraBehindPlayer(playerid);
+		SendClientMessage(playerid, 0x66FF66FF, "[bare-rpctest] RPC124 spectating disabled and camera restored.");
+		return 1;
+	}
+
+	if (!strcmp(cmdtext, "/specplayer", true, 11))
+	{
+		new token = SkipCommandSpaces(cmdtext, 11);
+		new targetid = strval(cmdtext[token]);
+		if (cmdtext[token] == '\0' || !IsPlayerConnected(targetid) || targetid == playerid)
+		{
+			SendClientMessage(playerid, 0xFFCC66FF, "[bare-rpctest] Usage: /specplayer <other player id>");
+			return 1;
+		}
+		TogglePlayerSpectating(playerid, true);
+		PlayerSpectatePlayer(playerid, targetid, SPECTATE_MODE_NORMAL);
+		SendClientMessage(playerid, 0x66FF66FF, "[bare-rpctest] RPC126 spectating player; /specoff restores.");
+		return 1;
+	}
+
+	if (!strcmp(cmdtext, "/spectrain", true, 10) &&
+		(cmdtext[10] == '\0' || cmdtext[10] == ' ' || cmdtext[10] == '\t'))
+	{
+		new token = SkipCommandSpaces(cmdtext, 10);
+		new wanted = cmdtext[token] == '\0' ? 0 : strval(cmdtext[token]);
+		new found = 0;
+		new targetid = INVALID_PLAYER_ID;
+		new targetname[MAX_PLAYER_NAME + 1];
+		new message[144];
+
+		if (wanted < 0 || wanted >= 5)
+		{
+			SendClientMessage(playerid, 0xFFCC66FF, "[bare-rpctest] Usage: /spectrain [0-4]");
+			return 1;
+		}
+		for (new candidate = 0; candidate < MAX_PLAYERS; candidate++)
+		{
+			if (!IsPlayerConnected(candidate) || !IsPlayerNPC(candidate)) continue;
+			GetPlayerName(candidate, targetname, sizeof(targetname));
+			if (strcmp(targetname, "TrainDriver", true, 11) != 0) continue;
+			if (found++ == wanted)
+			{
+				targetid = candidate;
+				break;
+			}
+		}
+		if (targetid == INVALID_PLAYER_ID)
+		{
+			SendClientMessage(playerid, 0xFF6666FF, "[bare-rpctest] Train NPC not available yet; check server log/startup.");
+			return 1;
+		}
+		TogglePlayerSpectating(playerid, true);
+		PlayerSpectatePlayer(playerid, targetid, SPECTATE_MODE_NORMAL);
+		format(message, sizeof(message), "[bare-rpctest] RPC126 spectating train NPC %s (player ID %d); /specoff restores.",
+			targetname, targetid);
+		SendClientMessage(playerid, 0x66FF66FF, message);
+		return 1;
+	}
+
+	if (!strcmp(cmdtext, "/specveh", true))
+	{
+		TogglePlayerSpectating(playerid, true);
+		PlayerSpectateVehicle(playerid, gVehicleIds[0], SPECTATE_MODE_NORMAL);
+		SendClientMessage(playerid, 0x66FF66FF, "[bare-rpctest] RPC127 spectating vehicle 0; /specoff restores.");
 		return 1;
 	}
 

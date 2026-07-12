@@ -33,6 +33,7 @@ constexpr unsigned char kPacketVehicleSync = 200u;
 constexpr unsigned char kPacketAimSync = 203u;
 constexpr unsigned char kPacketBulletSync = 206u;
 constexpr unsigned char kPacketPlayerSync = 207u;
+constexpr unsigned char kPacketSpectatorSync = 212u;
 constexpr RakNet::RPCID kRpcClientJoin = static_cast<RakNet::RPCID>(25u);
 constexpr RakNet::RPCID kRpcDialogResponse = static_cast<RakNet::RPCID>(62u);
 constexpr RakNet::RPCID kRpcSpawn = static_cast<RakNet::RPCID>(52u);
@@ -108,6 +109,7 @@ static_assert(sizeof(samp_raknet_onfoot_sync) == 68U, "SA-MP 0.3.7 on-foot sync 
 static_assert(sizeof(samp_raknet_incar_sync) == 63U, "SA-MP 0.3.7 in-car sync payload must be 63 bytes");
 static_assert(sizeof(samp_raknet_aim_sync) == 31U, "SA-MP 0.3.7 aim sync payload must be 31 bytes");
 static_assert(sizeof(samp_raknet_bullet_sync) == 40U, "SA-MP 0.3.7 bullet sync payload must be 40 bytes");
+static_assert(sizeof(samp_raknet_spectator_sync) == 18U, "SA-MP 0.3.7 spectator sync payload must be 18 bytes");
 
 bool packet_resets_session_state(unsigned char packet_id) {
   return packet_id == static_cast<unsigned char>(RakNet::ID_DISCONNECTION_NOTIFICATION) ||
@@ -256,6 +258,15 @@ struct RpcProbeState {
   unsigned int apply_animation_seq;
   unsigned int player_wanted_level_seq;
   unsigned int gravity_seq;
+  unsigned int world_bounds_seq;
+  unsigned int game_mode_restart_seq;
+  unsigned int force_class_selection_seq;
+  unsigned int camera_attach_object_seq;
+  unsigned int camera_interpolate_seq;
+  unsigned int special_action_seq;
+  unsigned int spectate_toggle_seq;
+  unsigned int spectate_player_seq;
+  unsigned int spectate_vehicle_seq;
   unsigned int world_visual_event_seq;
   unsigned int client_check_response_count;
   unsigned char player_controllable;
@@ -306,6 +317,19 @@ struct RpcProbeState {
   std::int32_t apply_animation_time;
   unsigned char player_wanted_level;
   float gravity;
+  float world_bounds[4];
+  unsigned short camera_object_id;
+  unsigned char camera_interpolate_set_pos;
+  unsigned char camera_interpolate_cut;
+  float camera_interpolate_from[3];
+  float camera_interpolate_to[3];
+  std::int32_t camera_interpolate_time_ms;
+  unsigned char special_action;
+  std::int32_t spectate_toggle;
+  unsigned short spectate_player_id;
+  unsigned short spectate_vehicle_id;
+  unsigned char spectate_player_mode;
+  unsigned char spectate_vehicle_mode;
   unsigned char world_visual_event_type;
   unsigned short world_visual_id;
   std::int32_t world_visual_model;
@@ -579,13 +603,13 @@ struct RpcMeta {
 // remaining IDs against focused original 0.3.7-R5 traces before treating them as
 // exact semantics.
 const RpcMeta kRpcMeta[] = {
-    {11U, "ScrSetPlayerName", kRpcLocalDummy, "SAMPFUNCS_037"},
+    {11U, "ScrSetPlayerName", kRpcLocalImplemented, "STATIC_037:samp.dll+0x1DFD0"},
     {12U, "ScrSetPlayerPos", kRpcLocalImplemented, "PROBE_TRACE"},
     {13U, "ScrSetPlayerPosFindZ", kRpcLocalImplemented, "STATIC_037:samp.dll+0x19440"},
     {14U, "ScrSetPlayerHealth", kRpcLocalImplemented, "STATIC_037"},
     {15U, "ScrTogglePlayerControllable", kRpcLocalImplemented, "STATIC_037"},
     {16U, "ScrPlaySound", kRpcLocalImplemented, "STATIC_037"},
-    {17U, "ScrSetWorldBounds", kRpcLocalDummy, "STATIC_037"},
+    {17U, "ScrSetWorldBounds", kRpcLocalImplemented, "STATIC_037:samp.dll+0x1A410"},
     {18U, "ScrGivePlayerMoney", kRpcLocalImplemented, "STATIC_037:samp.dll+0x1A500"},
     {19U, "ScrSetPlayerFacingAngle", kRpcLocalImplemented, "PROBE_TRACE"},
     {20U, "ScrResetPlayerMoney", kRpcLocalImplemented, "STATIC_037"},
@@ -608,7 +632,7 @@ const RpcMeta kRpcMeta[] = {
     {37U, "ScrDisableCheckpoint", kRpcLocalImplemented, "STATIC_037:samp.dll+0xF080"},
     {38U, "ScrSetRaceCheckpoint", kRpcLocalImplemented, "STATIC_037:samp.dll+0xF140"},
     {39U, "ScrDisableRaceCheckpoint", kRpcLocalImplemented, "STATIC_037:samp.dll+0xF1E0"},
-    {40U, "ScrGameModeRestart", kRpcLocalDummy, "STATIC_037"},
+    {40U, "ScrGameModeRestart", kRpcLocalImplemented, "STATIC_037:samp.dll+0xE650"},
     {41U, "ScrPlayAudioStream", kRpcLocalDummy, "SAMPFUNCS_037"},
     {42U, "ScrStopAudioStream", kRpcLocalDecoded, "OPENMP_REF"},
     {43U, "ScrRemoveBuildingForPlayer", kRpcLocalDecoded, "OPENMP_REF"},
@@ -639,21 +663,21 @@ const RpcMeta kRpcMeta[] = {
     {71U, "ScrRemovePlayerFromVehicle", kRpcLocalImplemented, "STATIC_037:samp.dll+0x17FF0"},
     {72U, "ScrSetPlayerColor", kRpcLocalDecoded, "OPENMP_REF"},
     {73U, "ScrDisplayGameText", kRpcLocalImplemented, "STATIC_037,OPENMP_REF,TODO_VERIFY"},
-    {74U, "ScrForceClassSelection", kRpcLocalDummy, "STATIC_037"},
+    {74U, "ScrForceClassSelection", kRpcLocalImplemented, "STATIC_037:samp.dll+0x180D0"},
     {75U, "ScrAttachObjectToPlayer", kRpcLocalDecoded, "PROBE_TRACE"},
     {76U, "ScrInitMenu", kRpcLocalDummy, "STATIC_037"},
     {77U, "ScrShowMenu", kRpcLocalDummy, "STATIC_037"},
     {78U, "ScrHideMenu", kRpcLocalDummy, "STATIC_037"},
     {79U, "ScrCreateExplosion", kRpcLocalImplemented, "STATIC_037:samp.dll+0x1BD10"},
     {80U, "ScrShowPlayerNameTagForPlayer", kRpcLocalImplemented, "INFERRED,TODO_VERIFY"},
-    {81U, "ScrAttachCameraToObject", kRpcLocalDummy, "SAMPFUNCS_037"},
-    {82U, "ScrInterpolateCamera", kRpcLocalDummy, "SAMPFUNCS_037"},
+    {81U, "ScrAttachCameraToObject", kRpcLocalImplemented, "STATIC_037:samp.dll+0x19FF0"},
+    {82U, "ScrInterpolateCamera", kRpcLocalImplemented, "STATIC_037:samp.dll+0x1A0F0"},
     {83U, "ClickTextDraw/SelectTextDraw", kRpcLocalImplemented, "PROBE_TRACE"},
     {84U, "ScrSetObjectMaterial", kRpcLocalImplemented, "STATIC_037,OPENMP_REF,PROBE_TRACE"},
     {85U, "ScrGangZoneStopFlash", kRpcLocalDummy, "SAMPFUNCS_037"},
     {86U, "ScrApplyAnimation", kRpcLocalImplemented, "STATIC_037:samp.dll+0x1A950"},
     {87U, "ScrClearAnimations", kRpcLocalImplemented, "STATIC_037:samp.dll+0x18580"},
-    {88U, "ScrSetPlayerSpecialAction", kRpcLocalDummy, "STATIC_037"},
+    {88U, "ScrSetPlayerSpecialAction", kRpcLocalImplemented, "STATIC_037:samp.dll+0x18690"},
     {89U, "ScrSetPlayerFightingStyle", kRpcLocalImplemented, "STATIC_037:samp.dll+0x18740"},
     {90U, "ScrSetPlayerVelocity", kRpcLocalImplemented, "STATIC_037:samp.dll+0x18850"},
     {91U, "ScrSetVehicleVelocity", kRpcLocalImplemented, "STATIC_037:samp.dll+0x18950"},
@@ -682,9 +706,9 @@ const RpcMeta kRpcMeta[] = {
     {121U, "ScrGangZoneFlash", kRpcLocalDummy, "STATIC_037"},
     {122U, "ScrStopObject", kRpcLocalImplemented, "PROBE_TRACE"},
     {123U, "ScrSetNumberPlate", kRpcLocalImplemented, "STATIC_037:samp.dll+0x1C230"},
-    {124U, "ScrTogglePlayerSpectating", kRpcLocalDummy, "STATIC_037"},
-    {126U, "ScrPlayerSpectatePlayer", kRpcLocalDummy, "STATIC_037"},
-    {127U, "ScrPlayerSpectateVehicle", kRpcLocalDummy, "STATIC_037"},
+    {124U, "ScrTogglePlayerSpectating", kRpcLocalImplemented, "STATIC_037:samp.dll+0x1C350"},
+    {126U, "ScrPlayerSpectatePlayer", kRpcLocalImplemented, "STATIC_037:samp.dll+0x1C400"},
+    {127U, "ScrPlayerSpectateVehicle", kRpcLocalImplemented, "STATIC_037:samp.dll+0x1C4E0"},
     {128U, "RequestClass", kRpcLocalImplemented, "OPENMP_REF"},
     {129U, "RequestSpawn", kRpcLocalImplemented, "OPENMP_REF"},
     {131U, "PickedUpPickup", kRpcLocalOutgoing, "OPENMP_REF"},
@@ -762,6 +786,10 @@ const char *rpc_source(unsigned int rpc_id) {
 
 unsigned int rpc_min_payload_bytes(unsigned int rpc_id) {
   switch (rpc_id) {
+    case 11U:
+      return 4U;
+    case 17U:
+      return 16U;
     case 12U:
     case 13U:
     case 90U:
@@ -792,6 +820,8 @@ unsigned int rpc_min_payload_bytes(unsigned int rpc_id) {
       return 27U;
     case 37U:
     case 39U:
+    case 40U:
+    case 74U:
       return 0U;
     case 38U:
       return 29U;
@@ -840,6 +870,10 @@ unsigned int rpc_min_payload_bytes(unsigned int rpc_id) {
       return 6U;
     case 79U:
       return 20U;
+    case 81U:
+      return 2U;
+    case 82U:
+      return 30U;
     case 83U:
       return 0U;
     case 84U:
@@ -848,6 +882,8 @@ unsigned int rpc_min_payload_bytes(unsigned int rpc_id) {
       return 16U;
     case 87U:
       return 2U;
+    case 88U:
+      return 1U;
     case 91U:
       return 13U;
     case 93U:
@@ -893,6 +929,11 @@ unsigned int rpc_min_payload_bytes(unsigned int rpc_id) {
     case 166U:
       return 2U;
     case 123U:
+      return 3U;
+    case 124U:
+      return 4U;
+    case 126U:
+    case 127U:
       return 3U;
     case 134U:
       return kTextDrawShowMinBytes;
@@ -1103,6 +1144,15 @@ void reset_rpc_probe_runtime(RakNet::RakClientInterface *client) {
   g_rpc_probe.apply_animation_seq = 0U;
   g_rpc_probe.player_wanted_level_seq = 0U;
   g_rpc_probe.gravity_seq = 0U;
+  g_rpc_probe.world_bounds_seq = 0U;
+  g_rpc_probe.game_mode_restart_seq = 0U;
+  g_rpc_probe.force_class_selection_seq = 0U;
+  g_rpc_probe.camera_attach_object_seq = 0U;
+  g_rpc_probe.camera_interpolate_seq = 0U;
+  g_rpc_probe.special_action_seq = 0U;
+  g_rpc_probe.spectate_toggle_seq = 0U;
+  g_rpc_probe.spectate_player_seq = 0U;
+  g_rpc_probe.spectate_vehicle_seq = 0U;
   g_rpc_probe.world_visual_event_seq = 0U;
   g_rpc_probe.client_check_response_count = 0U;
   g_rpc_probe.game_text_event_seq = 0U;
@@ -1161,6 +1211,19 @@ void reset_rpc_probe_runtime(RakNet::RakClientInterface *client) {
   g_rpc_probe.apply_animation_time = 0;
   g_rpc_probe.player_wanted_level = 0U;
   g_rpc_probe.gravity = 0.0f;
+  std::memset(g_rpc_probe.world_bounds, 0, sizeof(g_rpc_probe.world_bounds));
+  g_rpc_probe.camera_object_id = 0U;
+  g_rpc_probe.camera_interpolate_set_pos = 0U;
+  g_rpc_probe.camera_interpolate_cut = 2U;
+  std::memset(g_rpc_probe.camera_interpolate_from, 0, sizeof(g_rpc_probe.camera_interpolate_from));
+  std::memset(g_rpc_probe.camera_interpolate_to, 0, sizeof(g_rpc_probe.camera_interpolate_to));
+  g_rpc_probe.camera_interpolate_time_ms = 0;
+  g_rpc_probe.special_action = 0U;
+  g_rpc_probe.spectate_toggle = 0;
+  g_rpc_probe.spectate_player_id = 0U;
+  g_rpc_probe.spectate_vehicle_id = 0U;
+  g_rpc_probe.spectate_player_mode = 0U;
+  g_rpc_probe.spectate_vehicle_mode = 0U;
   g_rpc_probe.world_visual_event_type = 0U;
   g_rpc_probe.world_visual_id = 0U;
   g_rpc_probe.world_visual_model = 0;
@@ -3573,6 +3636,100 @@ bool decode_gravity_payload(const unsigned char *data, unsigned int bytes) {
   return true;
 }
 
+bool decode_set_player_name_payload(const unsigned char *data, unsigned int bytes) {
+  if (data == nullptr || bytes < 4U) return false;
+  const unsigned short player_id = read_le16(data);
+  const unsigned int length = data[2U];
+  if (player_id >= SAMP_RAKNET_MAX_PLAYERS || length >= SAMP_RAKNET_PLAYER_NAME_BYTES ||
+      4U + length > bytes || data[3U + length] != 1U) return false;
+  char name[SAMP_RAKNET_PLAYER_NAME_BYTES] = {0};
+  if (length != 0U) std::memcpy(name, data + 3U, length);
+  queue_player_pool_event(SAMP_RAKNET_PLAYER_POOL_ACTION_RENAME, player_id, 0U, 0U, 0U, name);
+  trace_netf("rpc-state id=11 rename player=%u name='%s' evidence=STATIC_037", player_id, name);
+  return true;
+}
+
+bool decode_world_bounds_payload(const unsigned char *data, unsigned int bytes) {
+  if (data == nullptr || bytes < 16U) return false;
+  for (unsigned int i = 0U; i < 4U; ++i) {
+    g_rpc_probe.world_bounds[i] = read_le_float(data + i * 4U);
+    if (!std::isfinite(g_rpc_probe.world_bounds[i])) return false;
+  }
+  if (g_rpc_probe.world_bounds[0] < g_rpc_probe.world_bounds[1] ||
+      g_rpc_probe.world_bounds[2] < g_rpc_probe.world_bounds[3]) return false;
+  const unsigned int seq = bump_seq(&g_rpc_probe.world_bounds_seq);
+  trace_netf("rpc-state id=17 world_bounds_seq=%u x=%.3f..%.3f y=%.3f..%.3f evidence=STATIC_037",
+             seq, g_rpc_probe.world_bounds[1], g_rpc_probe.world_bounds[0],
+             g_rpc_probe.world_bounds[3], g_rpc_probe.world_bounds[2]);
+  return true;
+}
+
+bool decode_camera_interpolate_payload(const unsigned char *data, unsigned int bytes) {
+  if (data == nullptr || bytes < 30U) return false;
+  RakNet::BitStream bs(const_cast<unsigned char *>(data), bytes, false);
+  bool set_pos = false;
+  std::int32_t duration = 0;
+  unsigned char cut = 0U;
+  if (!bs.Read(set_pos) || !bs.Read(g_rpc_probe.camera_interpolate_from[0]) ||
+      !bs.Read(g_rpc_probe.camera_interpolate_from[1]) || !bs.Read(g_rpc_probe.camera_interpolate_from[2]) ||
+      !bs.Read(g_rpc_probe.camera_interpolate_to[0]) || !bs.Read(g_rpc_probe.camera_interpolate_to[1]) ||
+      !bs.Read(g_rpc_probe.camera_interpolate_to[2]) || !bs.Read(duration) || !bs.Read(cut) || duration < 0) return false;
+  for (unsigned int i = 0U; i < 3U; ++i) {
+    if (!std::isfinite(g_rpc_probe.camera_interpolate_from[i]) ||
+        !std::isfinite(g_rpc_probe.camera_interpolate_to[i])) return false;
+  }
+  g_rpc_probe.camera_interpolate_set_pos = set_pos ? 1U : 0U;
+  g_rpc_probe.camera_interpolate_time_ms = duration;
+  g_rpc_probe.camera_interpolate_cut = (cut == 1U || cut == 2U) ? cut : 2U;
+  const unsigned int seq = bump_seq(&g_rpc_probe.camera_interpolate_seq);
+  trace_netf("rpc-state id=82 camera_interpolate_seq=%u kind=%s time=%d cut=%u evidence=STATIC_037",
+             seq, set_pos ? "position" : "look_at", duration, g_rpc_probe.camera_interpolate_cut);
+  return true;
+}
+
+bool decode_client_control_payload(unsigned int rpc_id, const unsigned char *data, unsigned int bytes) {
+  switch (rpc_id) {
+    case 40U:
+      bump_seq(&g_rpc_probe.game_mode_restart_seq);
+      return true;
+    case 74U:
+      bump_seq(&g_rpc_probe.force_class_selection_seq);
+      return true;
+    case 81U:
+      if (data == nullptr || bytes < 2U) return false;
+      g_rpc_probe.camera_object_id = read_le16(data);
+      if (g_rpc_probe.camera_object_id >= SAMP_RAKNET_MAX_OBJECTS) return false;
+      bump_seq(&g_rpc_probe.camera_attach_object_seq);
+      return true;
+    case 88U:
+      if (data == nullptr || bytes < 1U) return false;
+      g_rpc_probe.special_action = data[0U];
+      bump_seq(&g_rpc_probe.special_action_seq);
+      return true;
+    case 124U:
+      if (data == nullptr || bytes < 4U) return false;
+      g_rpc_probe.spectate_toggle = static_cast<std::int32_t>(read_le32(data));
+      bump_seq(&g_rpc_probe.spectate_toggle_seq);
+      return true;
+    case 126U:
+      if (data == nullptr || bytes < 3U) return false;
+      g_rpc_probe.spectate_player_id = read_le16(data);
+      g_rpc_probe.spectate_player_mode = data[2U];
+      if (g_rpc_probe.spectate_player_id >= SAMP_RAKNET_MAX_PLAYERS) return false;
+      bump_seq(&g_rpc_probe.spectate_player_seq);
+      return true;
+    case 127U:
+      if (data == nullptr || bytes < 3U) return false;
+      g_rpc_probe.spectate_vehicle_id = read_le16(data);
+      g_rpc_probe.spectate_vehicle_mode = data[2U];
+      if (g_rpc_probe.spectate_vehicle_id >= SAMP_RAKNET_MAX_VEHICLES) return false;
+      bump_seq(&g_rpc_probe.spectate_vehicle_seq);
+      return true;
+    default:
+      return false;
+  }
+}
+
 bool decode_give_player_weapon_payload(const unsigned char *data, unsigned int bytes) {
   if (data == nullptr || bytes < 8U) {
     return false;
@@ -5255,7 +5412,21 @@ void rpc_observer(RakNet::RPCParameters *rpc_params, void *extra) {
 
   observe_rpc_handler_surface(rpc_id, bytes, rpc_params != nullptr ? rpc_params->numberOfBitsOfData : 0U);
 
-  if (rpc_id == 18U) {
+  if (rpc_id == 11U) {
+    if (rpc_params == nullptr || !decode_set_player_name_payload(rpc_params->input, bytes))
+      trace_netf("rpc-state id=11 set_player_name decode_failed bytes=%u", bytes);
+  } else if (rpc_id == 17U) {
+    if (rpc_params == nullptr || !decode_world_bounds_payload(rpc_params->input, bytes))
+      trace_netf("rpc-state id=17 world_bounds decode_failed bytes=%u", bytes);
+  } else if (rpc_id == 82U) {
+    if (rpc_params == nullptr || !decode_camera_interpolate_payload(rpc_params->input, bytes))
+      trace_netf("rpc-state id=82 camera_interpolate decode_failed bytes=%u", bytes);
+  } else if (rpc_id == 40U || rpc_id == 74U || rpc_id == 81U || rpc_id == 88U || rpc_id == 124U ||
+             rpc_id == 126U || rpc_id == 127U) {
+    const unsigned char *input = rpc_params != nullptr ? rpc_params->input : nullptr;
+    if (!decode_client_control_payload(rpc_id, input, bytes))
+      trace_netf("rpc-state id=%u client_control decode_failed bytes=%u", rpc_id, bytes);
+  } else if (rpc_id == 18U) {
     if (rpc_params == nullptr || !decode_give_player_money_payload(rpc_params->input, bytes)) {
       trace_netf("rpc-state id=18 give_money decode_failed bytes=%u", bytes);
     }
@@ -5315,6 +5486,8 @@ void rpc_observer(RakNet::RPCParameters *rpc_params, void *extra) {
                  static_cast<unsigned int>(g_rpc_probe.request_class_outcome), g_rpc_probe.selected_class);
       if (g_rpc_probe.request_class_outcome != 0U && bytes >= (1U + kObservedPlayerSpawnInfoBytes)) {
         read_spawn_info(rpc_params->input + 1, bytes - 1U, "RequestClass");
+        g_rpc_probe.class_selection_after_death_requested = 0;
+        g_rpc_probe.class_selection_after_death_consumed = 0;
         if (g_rpc_probe.class_selection_ready_time == 0U) {
           g_rpc_probe.class_selection_ready_time = RakNet::GetTime() + kClassSelectionManualDelayMs;
         }
@@ -6514,6 +6687,32 @@ int samp_raknet_client_send_bullet_sync(void *client, const samp_raknet_bullet_s
   return sent ? 0 : -2;
 }
 
+int samp_raknet_client_send_spectator_sync(void *client, const samp_raknet_spectator_sync *sync) {
+  RakNet::BitStream bs_send;
+  int sent = 0;
+
+  if (client == nullptr || client != g_rpc_probe.client || sync == nullptr) {
+    return -1;
+  }
+
+  /* STATIC_037 + OPENMP_REF:
+   * CLocalPlayer::ProcessSpectating sends ID_SPECTATOR_SYNC followed by the packed
+   * 18-byte analog/key/camera-position payload every 200 ms.
+   */
+  bs_send.Write(kPacketSpectatorSync);
+  bs_send.Write(reinterpret_cast<const char *>(sync), static_cast<int>(sizeof(*sync)));
+  sent = static_cast<RakNet::RakClientInterface *>(client)
+             ->Send(&bs_send, RakNet::HIGH_PRIORITY, RakNet::UNRELIABLE, 0)
+             ? 1
+             : 0;
+  trace_netf("packet-user-out id=%u name=SpectatorSync sent=%d pos=%.3f %.3f %.3f keys=0x%04x "
+             "evidence=STATIC_037,OPENMP_REF",
+             static_cast<unsigned int>(kPacketSpectatorSync), sent, static_cast<double>(sync->position[0]),
+             static_cast<double>(sync->position[1]), static_cast<double>(sync->position[2]),
+             static_cast<unsigned int>(sync->keys));
+  return sent ? 0 : -2;
+}
+
 int samp_raknet_client_send_incar_sync(void *client, const samp_raknet_incar_sync *sync) {
   RakNet::BitStream bs_send;
   int sent = 0;
@@ -6628,7 +6827,11 @@ int samp_raknet_client_get_rpc_probe_snapshot(void *client, samp_raknet_rpc_prob
       g_rpc_probe.pickup_event_seq > 0U || g_rpc_probe.explosion_event_seq > 0U ||
       g_rpc_probe.play_sound_seq > 0U || g_rpc_probe.stop_audio_stream_seq > 0U ||
       g_rpc_probe.player_color_seq > 0U || g_rpc_probe.player_team_seq > 0U ||
-      g_rpc_probe.apply_animation_seq > 0U) {
+      g_rpc_probe.apply_animation_seq > 0U || g_rpc_probe.world_bounds_seq > 0U ||
+      g_rpc_probe.game_mode_restart_seq > 0U || g_rpc_probe.force_class_selection_seq > 0U ||
+      g_rpc_probe.camera_attach_object_seq > 0U || g_rpc_probe.camera_interpolate_seq > 0U ||
+      g_rpc_probe.special_action_seq > 0U || g_rpc_probe.spectate_toggle_seq > 0U ||
+      g_rpc_probe.spectate_player_seq > 0U || g_rpc_probe.spectate_vehicle_seq > 0U) {
     flags |= SAMP_RAKNET_RPC_FLAG_PLAYER_SCRIPT_EVENT;
   }
   if (g_rpc_probe.world_visual_event_seq > 0U) {
@@ -6764,6 +6967,15 @@ int samp_raknet_client_get_rpc_probe_snapshot(void *client, samp_raknet_rpc_prob
   out_snapshot->apply_animation_seq = g_rpc_probe.apply_animation_seq;
   out_snapshot->player_wanted_level_seq = g_rpc_probe.player_wanted_level_seq;
   out_snapshot->gravity_seq = g_rpc_probe.gravity_seq;
+  out_snapshot->world_bounds_seq = g_rpc_probe.world_bounds_seq;
+  out_snapshot->game_mode_restart_seq = g_rpc_probe.game_mode_restart_seq;
+  out_snapshot->force_class_selection_seq = g_rpc_probe.force_class_selection_seq;
+  out_snapshot->camera_attach_object_seq = g_rpc_probe.camera_attach_object_seq;
+  out_snapshot->camera_interpolate_seq = g_rpc_probe.camera_interpolate_seq;
+  out_snapshot->special_action_seq = g_rpc_probe.special_action_seq;
+  out_snapshot->spectate_toggle_seq = g_rpc_probe.spectate_toggle_seq;
+  out_snapshot->spectate_player_seq = g_rpc_probe.spectate_player_seq;
+  out_snapshot->spectate_vehicle_seq = g_rpc_probe.spectate_vehicle_seq;
   out_snapshot->world_visual_event_seq = g_rpc_probe.world_visual_event_seq;
   out_snapshot->player_pool_event_seq = g_rpc_probe.player_pool_event_seq;
   out_snapshot->score_ping_seq = g_rpc_probe.score_ping_seq;
@@ -6877,6 +7089,21 @@ int samp_raknet_client_get_rpc_probe_snapshot(void *client, samp_raknet_rpc_prob
   out_snapshot->apply_animation_time = g_rpc_probe.apply_animation_time;
   out_snapshot->player_wanted_level = g_rpc_probe.player_wanted_level;
   out_snapshot->gravity = g_rpc_probe.gravity;
+  std::memcpy(out_snapshot->world_bounds, g_rpc_probe.world_bounds, sizeof(out_snapshot->world_bounds));
+  out_snapshot->camera_object_id = g_rpc_probe.camera_object_id;
+  out_snapshot->camera_interpolate_set_pos = g_rpc_probe.camera_interpolate_set_pos;
+  out_snapshot->camera_interpolate_cut = g_rpc_probe.camera_interpolate_cut;
+  std::memcpy(out_snapshot->camera_interpolate_from, g_rpc_probe.camera_interpolate_from,
+              sizeof(out_snapshot->camera_interpolate_from));
+  std::memcpy(out_snapshot->camera_interpolate_to, g_rpc_probe.camera_interpolate_to,
+              sizeof(out_snapshot->camera_interpolate_to));
+  out_snapshot->camera_interpolate_time_ms = g_rpc_probe.camera_interpolate_time_ms;
+  out_snapshot->special_action = g_rpc_probe.special_action;
+  out_snapshot->spectate_toggle = g_rpc_probe.spectate_toggle;
+  out_snapshot->spectate_player_id = g_rpc_probe.spectate_player_id;
+  out_snapshot->spectate_vehicle_id = g_rpc_probe.spectate_vehicle_id;
+  out_snapshot->spectate_player_mode = g_rpc_probe.spectate_player_mode;
+  out_snapshot->spectate_vehicle_mode = g_rpc_probe.spectate_vehicle_mode;
   out_snapshot->world_visual_event_type = g_rpc_probe.world_visual_event_type;
   out_snapshot->world_visual_id = g_rpc_probe.world_visual_id;
   out_snapshot->world_visual_model = g_rpc_probe.world_visual_model;
@@ -7281,7 +7508,8 @@ int samp_raknet_client_request_class_delta(void *client, int delta) {
   if (client == nullptr || client != g_rpc_probe.client) {
     return -1;
   }
-  if (delta == 0 || !class_selection_manual_ready()) {
+  const bool forced_selection = g_rpc_probe.class_selection_after_death_consumed != 0;
+  if (delta == 0 || (!class_selection_manual_ready() && !forced_selection)) {
     return -1;
   }
   now = RakNet::GetTime();
@@ -7297,6 +7525,11 @@ int samp_raknet_client_request_class_delta(void *client, int delta) {
    */
   step = delta < 0 ? -1 : 1;
   next_class = clamp_class_id(g_rpc_probe.selected_class + step);
+  if (forced_selection) {
+    g_rpc_probe.waiting_for_request_class_reply = 0;
+    g_rpc_probe.saw_request_class_reply = 0;
+    g_rpc_probe.request_class_outcome = 0U;
+  }
   schedule_request_class(next_class, step < 0 ? "ui_left" : "ui_right");
   return 0;
 }

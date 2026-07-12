@@ -79,12 +79,20 @@ typedef struct samp_raknet_bullet_sync {
   float offset[3];
   uint8_t weapon_id;
 } samp_raknet_bullet_sync;
+
+typedef struct samp_raknet_spectator_sync {
+  uint16_t left_right_keys;
+  uint16_t up_down_keys;
+  uint16_t keys;
+  float position[3];
+} samp_raknet_spectator_sync;
 #pragma pack(pop)
 
 int samp_raknet_client_send_onfoot_sync(void *client, const samp_raknet_onfoot_sync *sync);
 int samp_raknet_client_send_incar_sync(void *client, const samp_raknet_incar_sync *sync);
 int samp_raknet_client_send_aim_sync(void *client, const samp_raknet_aim_sync *sync);
 int samp_raknet_client_send_bullet_sync(void *client, const samp_raknet_bullet_sync *sync);
+int samp_raknet_client_send_spectator_sync(void *client, const samp_raknet_spectator_sync *sync);
 int samp_raknet_client_send_give_take_damage(void *client, uint8_t taking, uint16_t player_id, float damage,
                                              uint32_t weapon_id, uint32_t bodypart);
 
@@ -143,6 +151,7 @@ typedef struct samp_raknet_join_profile {
 #define SAMP_RAKNET_SCORE_PING_MAX_ENTRIES SAMP_RAKNET_MAX_PLAYERS
 #define SAMP_RAKNET_PLAYER_POOL_ACTION_JOIN 1u
 #define SAMP_RAKNET_PLAYER_POOL_ACTION_QUIT 2u
+#define SAMP_RAKNET_PLAYER_POOL_ACTION_RENAME 3u
 #define SAMP_RAKNET_REMOTE_PLAYER_EVENT_RING 64u
 #define SAMP_RAKNET_REMOTE_PLAYER_SYNC_RING 128u
 #define SAMP_RAKNET_REMOTE_PLAYER_ACTION_ADD 1u
@@ -556,6 +565,15 @@ typedef struct samp_raknet_rpc_probe_snapshot {
   uint32_t apply_animation_seq;
   uint32_t player_wanted_level_seq;
   uint32_t gravity_seq;
+  uint32_t world_bounds_seq;
+  uint32_t game_mode_restart_seq;
+  uint32_t force_class_selection_seq;
+  uint32_t camera_attach_object_seq;
+  uint32_t camera_interpolate_seq;
+  uint32_t special_action_seq;
+  uint32_t spectate_toggle_seq;
+  uint32_t spectate_player_seq;
+  uint32_t spectate_vehicle_seq;
   uint32_t world_visual_event_seq;
   uint32_t player_pool_event_seq;
   uint32_t score_ping_seq;
@@ -608,6 +626,19 @@ typedef struct samp_raknet_rpc_probe_snapshot {
   int32_t apply_animation_time;
   uint8_t player_wanted_level;
   float gravity;
+  float world_bounds[4];
+  uint16_t camera_object_id;
+  uint8_t camera_interpolate_set_pos;
+  uint8_t camera_interpolate_cut;
+  float camera_interpolate_from[3];
+  float camera_interpolate_to[3];
+  int32_t camera_interpolate_time_ms;
+  uint8_t special_action;
+  int32_t spectate_toggle;
+  uint16_t spectate_player_id;
+  uint16_t spectate_vehicle_id;
+  uint8_t spectate_player_mode;
+  uint8_t spectate_vehicle_mode;
   uint8_t world_visual_event_type;
   uint16_t world_visual_id;
   int32_t world_visual_model;
