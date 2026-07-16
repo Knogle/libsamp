@@ -33,8 +33,8 @@
 
 `STATIC_037` + `GTA_REVERSED_REF`:
 
-- `samp.dll+0x000b34a0` dispatches atomic/CObject model-info vtable
-  `0x0085bdc0` to `samp.dll+0x0006c140`, vehicle models `400..611` to
+- `samp.dll+0x000b34a0` dispatches model-info vtable `0x0085bdc0`
+  (`CPedModelInfo` in GTA SA 1.0 US) to `samp.dll+0x0006c140`, vehicle models `400..611` to
   `samp.dll+0x0006c3c0`, and remaining model-info instances to
   `samp.dll+0x0006c9b0`.
 - The renderer creates a 256x256 raster with flags `0x505`, wraps it in an
@@ -43,7 +43,7 @@
 - Camera construction uses far clip `300.0`, near clip `0.01`, view window
   `(0.5, 0.5)`, an ambient white light, and a frame translated to Z `50.0`
   then rotated 90 degrees about X.
-- The atomic/CObject path uses `{0, -2.25 * zoom, 50.05}` for normal models.
+- The special `0x0085bdc0` path uses `{0, -2.25 * zoom, 50.05}`.
 - The normal-vehicle path uses collision radius but not centre:
   `{0, (-1 - 2 * radius) * zoom, 50}`. It applies both transmitted preview
   colours through the vehicle wrapper when neither is `-1`.
@@ -56,7 +56,7 @@
 
 ## Replacement boundary
 
-The replacement implementation follows the verified object/vehicle/generic
+The replacement implementation follows the verified special/vehicle/generic
 placement policies on guarded atomic/clump model-info instances and caches its
 RenderWare texture per active TextDraw. Vehicle instances bracket rendering
 with GTA's editable-material colour substitution. It snapshots and restores

@@ -442,11 +442,14 @@
 #define SAMP_D3D9_SET_VIEWPORT_INDEX 47u
 #define SAMP_D3D9_GET_VIEWPORT_INDEX 48u
 #define SAMP_D3D9_SET_RENDER_STATE_INDEX 57u
+#define SAMP_D3D9_CREATE_STATE_BLOCK_INDEX 59u
 #define SAMP_D3D9_SET_TEXTURE_INDEX 65u
 #define SAMP_D3D9_SET_TEXTURE_STAGE_STATE_INDEX 67u
 #define SAMP_D3D9_SET_SAMPLER_STATE_INDEX 69u
 #define SAMP_D3D9_DRAW_PRIMITIVE_UP_INDEX 83u
 #define SAMP_D3D9_SET_FVF_INDEX 89u
+#define SAMP_D3D9_STATE_BLOCK_APPLY_INDEX 5u
+#define SAMP_D3DSBT_ALL 1u
 #define SAMP_D3DTS_VIEW 2u
 #define SAMP_D3DTS_PROJECTION 3u
 #define SAMP_D3DRS_ZENABLE 7u
@@ -935,6 +938,8 @@ typedef int(WINAPI *samp_show_cursor_fn)(BOOL);
 typedef HRESULT(WINAPI *samp_d3d9_end_scene_fn)(void *);
 typedef HRESULT(WINAPI *samp_d3d9_clear_fn)(void *, DWORD, const void *, DWORD, DWORD, float, DWORD);
 typedef HRESULT(WINAPI *samp_d3d9_set_render_state_fn)(void *, DWORD, DWORD);
+typedef HRESULT(WINAPI *samp_d3d9_create_state_block_fn)(void *, DWORD, void **);
+typedef HRESULT(WINAPI *samp_d3d9_state_block_apply_fn)(void *);
 typedef HRESULT(WINAPI *samp_d3d9_set_texture_fn)(void *, DWORD, void *);
 typedef HRESULT(WINAPI *samp_d3d9_set_texture_stage_state_fn)(void *, DWORD, DWORD, DWORD);
 typedef HRESULT(WINAPI *samp_d3d9_set_sampler_state_fn)(void *, DWORD, DWORD, DWORD);
@@ -2147,6 +2152,7 @@ typedef struct samp_runtime_state {
   LONG samp_asset_img_entry_count;
   LONG samp_asset_col_entry_count;
   LONG samp_asset_register_request_seq;
+  LONG samp_asset_preview_register_request_seq;
   LONG samp_asset_register_applied_seq;
   LONG samp_asset_register_pending_count;
   LONG samp_asset_register_overflow_logged;
@@ -2283,8 +2289,10 @@ static void dialog_compat_normalize_selection(void);
 static void dialog_compat_submit(unsigned char button);
 static void textdraw_compat_update_from_snapshot(const samp_raknet_rpc_probe_snapshot *snapshot);
 static int textdraw_compat_draw_d3dx_overlay(void *device);
+static int textdraw_compat_is_model_preview(const samp_textdraw_slot_compat *slot);
 static int textdraw_compat_is_preview_like(const samp_textdraw_slot_compat *slot);
 static int textdraw_compat_has_box(const samp_textdraw_slot_compat *slot);
+static int object_compat_is_samp_custom_model(int32_t model);
 static void samp_asset_index_build_compat(void);
 static int samp_asset_model_is_indexed_compat(int32_t model);
 static void samp_asset_model_describe_compat(int32_t model, char *out, size_t out_size);
@@ -3907,6 +3915,16 @@ static void textdraw_compat_apply_event(const samp_raknet_textdraw_event *event)
     memcpy(&slot->transmit, &event->transmit, sizeof(slot->transmit));
     strncpy(slot->text, event->text, sizeof(slot->text) - 1u);
     slot->text[sizeof(slot->text) - 1u] = '\0';
+    /* OBSERVED_037 + PROBE_TRACE:
+     * Queue custom Font 5 registration while applying the RPC snapshot. The
+     * following object-bridge update can drain it before HUD rendering; do not
+     * perform ModelInfo/streaming work from CHud::DrawScriptText.
+     */
+    if (textdraw_compat_is_model_preview(slot) &&
+        object_compat_is_samp_custom_model((int32_t)slot->transmit.preview_model)) {
+      samp_asset_request_custom_model_registration_compat((int32_t)slot->transmit.preview_model,
+                                                           "textdraw_preview");
+    }
     runtime_tracef("textdraw: show seq=%lu id=%u pos=(%.2f,%.2f) size=(%.2f,%.2f) style=%u flags=0x%02x "
                    "letter=0x%08lx box=0x%08lx background=0x%08lx selectable=%u model=%u zoom=%.2f text='%s'",
                    (unsigned long)event->seq, (unsigned)event->textdraw_id, (double)slot->transmit.x,
@@ -11989,14 +12007,20 @@ static int textdraw_compat_slot_rect(const samp_textdraw_slot_compat *slot, int 
   if (!preview_like && (center_align || right_align) && w <= SAMP_TEXTDRAW_COMPAT_MIN_WIDTH) {
     w = viewport_w / 2;
   }
-  if (w > viewport_w) {
+  /* OBSERVED_037 + PROBE_TRACE:
+   * Preview quads keep their script-space overscan. The original Font 5
+   * compositor submits x/y/x+w/y+h and lets the D3D viewport clip it; reducing
+   * the rectangle here rescales the whole cached texture and can leave an
+   * uncovered edge for negative origins.
+   */
+  if (!preview_like && w > viewport_w) {
     w = viewport_w;
   }
   if ((!preview_like && line_height_used_as_width) || h < 18 ||
       (!preview_like && slot->transmit.line_height <= 0.0f && slot->transmit.letter_height > 2.0f)) {
     h = textdraw_compat_font_height_for_bucket(textdraw_compat_font_bucket(slot)) + 6;
   }
-  if (h > viewport_h) {
+  if (!preview_like && h > viewport_h) {
     h = viewport_h;
   }
 
@@ -12005,11 +12029,13 @@ static int textdraw_compat_slot_rect(const samp_textdraw_slot_compat *slot, int 
   } else if (right_align) {
     x -= w;
   }
-  if (x < viewport_x) {
-    x = viewport_x;
-  }
-  if (x + w > viewport_x + viewport_w) {
-    w = viewport_x + viewport_w - x;
+  if (!preview_like) {
+    if (x < viewport_x) {
+      x = viewport_x;
+    }
+    if (x + w > viewport_x + viewport_w) {
+      w = viewport_x + viewport_w - x;
+    }
   }
 
   if (out_x != NULL) {
@@ -12990,7 +13016,6 @@ static int textdraw_preview_prepare_compat(void *device, samp_textdraw_slot_comp
   int preview_path = 0;
   int vehicle_materials_applied = 0;
   int i = 0;
-  static LONG transparent_split_background_logged = 0;
 
   memset(&snapshot, 0, sizeof(snapshot));
   memset(&d3d_state, 0, sizeof(d3d_state));
@@ -13051,7 +13076,12 @@ static int textdraw_preview_prepare_compat(void *device, samp_textdraw_slot_comp
     radius = 1.0f;
   }
   zoom = slot->transmit.preview_zoom;
-  if (!isfinite(zoom) || zoom <= 0.001f || zoom > 100.0f) {
+  /* OBSERVED_037 + PROBE_TRACE + STATIC_037:
+   * Zero is a valid transmitted zoom. Original 0.3.7 passes it unchanged to
+   * all preview transforms; model 19129 relies on generic-path Y staying zero.
+   * Retain only the defensive finite/range guard for hostile payloads.
+   */
+  if (!isfinite(zoom) || zoom < 0.0f || zoom > 100.0f) {
     zoom = 1.0f;
   }
   if (slot->transmit.preview_model >= SAMP_TEXTDRAW_COMPAT_VEHICLE_MODEL_MIN &&
@@ -13091,22 +13121,12 @@ static int textdraw_preview_prepare_compat(void *device, samp_textdraw_slot_comp
   camera->frame_buffer = raster;
   camera->z_buffer = g_runtime.textdraw_preview_z_raster;
   memcpy(&background, &slot->transmit.background_color, sizeof(background));
-  /* PROBE_TRACE + INFERRED + TODO_VERIFY:
-   * The register-safe normal TextDraw path is GTA CFont in GameProcess, while
-   * Font 5 model previews are still composited in EndScene. Preserve the GTA
-   * font geometry and keep the later preview clear from dimming those already
-   * rendered foreground pixels. Deferring normal slots to D3DX was attempted
-   * in the 2026-07-16 13:11 run; it collapsed centred labels and the process
-   * ended without a clean detach. This alpha-only phase bridge is restricted
-   * to the split GameProcess mode; the transmitted RGB remains unchanged.
+  /* OBSERVED_037 + PROBE_TRACE:
+   * Clear the 256x256 cache with the transmitted colour, including alpha.
+   * Slot-order composition now places the cached Font 5 quad before normal
+   * foreground slots, so the former transparent-alpha phase workaround is no
+   * longer needed.
    */
-  if (textdraw_compat_gta_font_game_process_enabled() && background.a != 0u) {
-    background.a = 0u;
-    if (InterlockedCompareExchange(&transparent_split_background_logged, 1, 0) == 0) {
-      runtime_tracef("textdraw_layer: transparent_preview_clear phase=game_process+end_scene "
-                     "evidence=PROBE_TRACE,INFERRED,TODO_VERIFY");
-    }
-  }
   ((gta_visibility_set_rw_camera_fn)(uintptr_t)SAMP_ADDR_VISIBILITY_SET_RW_CAMERA)(camera);
   if (((gta_rw_camera_clear_fn)(uintptr_t)SAMP_ADDR_RW_CAMERA_CLEAR)(camera, &background,
                                                                      SAMP_RW_CAMERA_CLEAR_IMAGE_Z) == NULL) {
@@ -13201,14 +13221,19 @@ done:
 static int textdraw_preview_draw_texture_compat(void *device, const samp_textdraw_slot_compat *slot, int x, int y,
                                                 int w, int h) {
   void **vtbl = NULL;
+  void **state_block_vtbl = NULL;
+  void *state_block = NULL;
   samp_d3d9_textured_vertex_compat vertices[4];
   samp_d3d9_set_render_state_fn set_render_state = NULL;
+  samp_d3d9_create_state_block_fn create_state_block = NULL;
+  samp_d3d9_state_block_apply_fn apply_state_block = NULL;
   samp_d3d9_set_texture_fn set_texture = NULL;
   samp_d3d9_set_texture_stage_state_fn set_texture_stage_state = NULL;
   samp_d3d9_set_sampler_state_fn set_sampler_state = NULL;
   samp_d3d9_set_fvf_fn set_fvf = NULL;
   samp_d3d9_draw_primitive_up_fn draw_primitive_up = NULL;
   HRESULT hr = E_FAIL;
+  HRESULT restore_hr = E_FAIL;
 
   if (device == NULL || slot == NULL || slot->preview_d3d_texture == NULL || w <= 0 || h <= 0 ||
       !memory_is_readable_compat(device, sizeof(void **))) {
@@ -13216,7 +13241,8 @@ static int textdraw_preview_draw_texture_compat(void *device, const samp_textdra
   }
   vtbl = *(void ***)device;
   if (vtbl == NULL || !memory_is_readable_compat(&vtbl[SAMP_D3D9_SET_FVF_INDEX], sizeof(void *)) ||
-      vtbl[SAMP_D3D9_SET_RENDER_STATE_INDEX] == NULL || vtbl[SAMP_D3D9_SET_TEXTURE_INDEX] == NULL ||
+      vtbl[SAMP_D3D9_SET_RENDER_STATE_INDEX] == NULL || vtbl[SAMP_D3D9_CREATE_STATE_BLOCK_INDEX] == NULL ||
+      vtbl[SAMP_D3D9_SET_TEXTURE_INDEX] == NULL ||
       vtbl[SAMP_D3D9_SET_TEXTURE_STAGE_STATE_INDEX] == NULL || vtbl[SAMP_D3D9_SET_SAMPLER_STATE_INDEX] == NULL ||
       vtbl[SAMP_D3D9_SET_FVF_INDEX] == NULL || vtbl[SAMP_D3D9_DRAW_PRIMITIVE_UP_INDEX] == NULL) {
     return 0;
@@ -13231,11 +13257,32 @@ static int textdraw_preview_draw_texture_compat(void *device, const samp_textdra
   vertices[3] = (samp_d3d9_textured_vertex_compat){(float)(x + w) + 0.5f, (float)y - 0.5f, 0.1f, 1.0f,
                                                     0xFFFFFFFFu, 1.0f, 0.0f};
   set_render_state = (samp_d3d9_set_render_state_fn)vtbl[SAMP_D3D9_SET_RENDER_STATE_INDEX];
+  create_state_block = (samp_d3d9_create_state_block_fn)vtbl[SAMP_D3D9_CREATE_STATE_BLOCK_INDEX];
   set_texture = (samp_d3d9_set_texture_fn)vtbl[SAMP_D3D9_SET_TEXTURE_INDEX];
   set_texture_stage_state = (samp_d3d9_set_texture_stage_state_fn)vtbl[SAMP_D3D9_SET_TEXTURE_STAGE_STATE_INDEX];
   set_sampler_state = (samp_d3d9_set_sampler_state_fn)vtbl[SAMP_D3D9_SET_SAMPLER_STATE_INDEX];
   set_fvf = (samp_d3d9_set_fvf_fn)vtbl[SAMP_D3D9_SET_FVF_INDEX];
   draw_primitive_up = (samp_d3d9_draw_primitive_up_fn)vtbl[SAMP_D3D9_DRAW_PRIMITIVE_UP_INDEX];
+
+  /* INFERRED + TODO_VERIFY:
+   * This quad is submitted directly through D3D9 from GTA's 2D/CFont phase.
+   * Restore every captured device state afterwards so RenderWare's cached
+   * state still agrees with the device before the following CFont slot.
+   */
+  if (FAILED(create_state_block(device, SAMP_D3DSBT_ALL, &state_block)) || state_block == NULL ||
+      !memory_is_readable_compat(state_block, sizeof(void **))) {
+    screenshot_compat_release_unknown(state_block);
+    return 0;
+  }
+  state_block_vtbl = *(void ***)state_block;
+  if (state_block_vtbl == NULL ||
+      !memory_is_readable_compat(&state_block_vtbl[SAMP_D3D9_STATE_BLOCK_APPLY_INDEX], sizeof(void *)) ||
+      state_block_vtbl[SAMP_D3D9_STATE_BLOCK_APPLY_INDEX] == NULL) {
+    screenshot_compat_release_unknown(state_block);
+    return 0;
+  }
+  apply_state_block =
+      (samp_d3d9_state_block_apply_fn)state_block_vtbl[SAMP_D3D9_STATE_BLOCK_APPLY_INDEX];
 
   (void)set_render_state(device, SAMP_D3DRS_ZENABLE, 0u);
   (void)set_render_state(device, SAMP_D3DRS_ALPHABLENDENABLE, 1u);
@@ -13253,20 +13300,24 @@ static int textdraw_preview_draw_texture_compat(void *device, const samp_textdra
   (void)set_fvf(device, SAMP_D3DFVF_XYZRHW_DIFFUSE_TEX1);
   hr = draw_primitive_up(device, SAMP_D3DPT_TRIANGLESTRIP, 2u, vertices, sizeof(vertices[0]));
   (void)set_texture(device, 0u, NULL);
+  restore_hr = apply_state_block(state_block);
+  screenshot_compat_release_unknown(state_block);
+  if (FAILED(restore_hr)) {
+    return -1;
+  }
   return SUCCEEDED(hr) ? 1 : 0;
 }
 
-static int textdraw_compat_draw_model_preview(void *device, samp_textdraw_slot_compat *slot, int x, int y, int w,
-                                              int h) {
+static int textdraw_compat_prepare_model_preview(void *device, samp_textdraw_slot_compat *slot) {
   DWORD now = GetTickCount();
 
-  if (device == NULL || slot == NULL || w <= 0 || h <= 0) {
+  if (device == NULL || slot == NULL) {
     return 0;
   }
   if (g_runtime.textdraw_preview_device != NULL && g_runtime.textdraw_preview_device != device) {
     textdraw_preview_release_all_compat("device_change");
   }
-  if (slot->preview_resource_seq != 0u && slot->preview_resource_seq != slot->seq) {
+  if (slot->preview_texture != NULL && slot->preview_resource_seq != slot->seq) {
     textdraw_preview_release_slot_compat(slot, "sequence_change");
   }
   if (slot->preview_texture == NULL) {
@@ -13279,18 +13330,65 @@ static int textdraw_compat_draw_model_preview(void *device, samp_textdraw_slot_c
       return 0;
     }
   }
-  if (!textdraw_preview_draw_texture_compat(device, slot, x, y, w, h)) {
-    textdraw_preview_release_slot_compat(slot, "d3d_draw_failed");
-    slot->preview_retry_after_tick = now + SAMP_TEXTDRAW_PREVIEW_RETRY_MS;
+  return slot->preview_texture != NULL && slot->preview_d3d_texture != NULL ? 1 : 0;
+}
+
+static int textdraw_compat_draw_cached_model_preview(void *device, samp_textdraw_slot_compat *slot, int x, int y,
+                                                     int w, int h, const char *phase) {
+  DWORD now = GetTickCount();
+  int draw_result = 0;
+
+  if (device == NULL || slot == NULL || w <= 0 || h <= 0 || slot->preview_texture == NULL ||
+      slot->preview_d3d_texture == NULL) {
     return 0;
+  }
+  if (slot->preview_retry_after_tick != 0u &&
+      (DWORD)(slot->preview_retry_after_tick - now) < 0x80000000u) {
+    return 0;
+  }
+  if (g_runtime.textdraw_preview_device != NULL && g_runtime.textdraw_preview_device != device) {
+    return 0;
+  }
+  if (slot->preview_resource_seq == 0u || slot->preview_resource_seq != slot->seq) {
+    return 0;
+  }
+  draw_result = textdraw_preview_draw_texture_compat(device, slot, x, y, w, h);
+  if (draw_result <= 0) {
+    /* INFERRED + TODO_VERIFY:
+     * CHud::DrawScriptText is render-only. Defer RW texture/context release to
+     * EndScene; an Apply failure is hard because subsequent CFont calls cannot
+     * safely assume that D3D and the RenderWare state cache still agree.
+     */
+    if (draw_result < 0) {
+      slot->preview_resource_seq = 0u;
+      runtime_tracef("textdraw_preview: draw_state_restore_failed seq=%lu model=%u phase=%s "
+                     "evidence=INFERRED,TODO_VERIFY",
+                     (unsigned long)slot->seq, (unsigned)slot->transmit.preview_model,
+                     phase != NULL ? phase : "unknown");
+    }
+    slot->preview_retry_after_tick = now + SAMP_TEXTDRAW_PREVIEW_RETRY_MS;
+    return draw_result < 0 ? -1 : 0;
   }
   if (slot->preview_draw_logged == 0u) {
     slot->preview_draw_logged = 1u;
-    runtime_tracef("textdraw_preview: draw seq=%lu model=%u rect=(%d,%d,%d,%d) "
+    runtime_tracef("textdraw_preview: draw seq=%lu model=%u rect=(%d,%d,%d,%d) phase=%s "
                    "evidence=OBSERVED_037,PROBE_TRACE,STATIC_037,GTA_REVERSED_REF",
-                   (unsigned long)slot->seq, (unsigned)slot->transmit.preview_model, x, y, w, h);
+                   (unsigned long)slot->seq, (unsigned)slot->transmit.preview_model, x, y, w, h,
+                   phase != NULL ? phase : "unknown");
   }
   return 1;
+}
+
+static int textdraw_compat_draw_model_preview(void *device, samp_textdraw_slot_compat *slot, int x, int y, int w,
+                                              int h) {
+  int draw_result = 0;
+
+  if (device == NULL || slot == NULL || w <= 0 || h <= 0 ||
+      !textdraw_compat_prepare_model_preview(device, slot)) {
+    return 0;
+  }
+  draw_result = textdraw_compat_draw_cached_model_preview(device, slot, x, y, w, h, "end_scene");
+  return draw_result > 0 ? 1 : (draw_result < 0 ? -1 : 0);
 }
 
 static void textdraw_compat_draw_preview_placeholder(void *device, const samp_textdraw_slot_compat *slot, int x, int y,
@@ -13923,7 +14021,18 @@ static void textdraw_compat_draw_slot(void *device, samp_textdraw_slot_compat *s
     return;
   }
   if (textdraw_compat_is_model_preview(slot)) {
-    if (!textdraw_compat_draw_model_preview(device, slot, x, y, w, h)) {
+    /* OBSERVED_037 + PROBE_TRACE:
+     * In the register-safe CFont mode EndScene only prepares the RenderWare
+     * cache. The 0x58C246 render callback composites that cache in slot order
+     * before later normal TextDraws, matching the original Font 5 sequence.
+     */
+    if (textdraw_compat_gta_font_game_process_enabled() &&
+        InterlockedCompareExchange(&g_runtime.game_process_hook_installed, 0, 0) != 0) {
+      (void)textdraw_compat_prepare_model_preview(device, slot);
+      return;
+    }
+    int preview_result = textdraw_compat_draw_model_preview(device, slot, x, y, w, h);
+    if (preview_result == 0) {
       textdraw_compat_draw_model_preview_proxy(device, slot, x, y, w, h);
     }
     return;
@@ -14000,17 +14109,41 @@ static int textdraw_compat_draw_gta_font_graphics_overlay(void) {
 
 static int textdraw_compat_draw_gta_font_game_process_overlay(void) {
   LONG active_count = InterlockedCompareExchange(&g_runtime.textdraw_active_count, 0, 0);
+  static LONG slot_order_logged = 0;
+  void *device = NULL;
   int drawn = 0;
+  int preview_drawn = 0;
+  int hard_draw_failure = 0;
   size_t i = 0u;
 
   if (active_count <= 0 || !textdraw_compat_gta_font_game_process_enabled()) {
     return 0;
   }
 
+  device = read_game_d3d_device_compat();
   for (i = 0u; i < SAMP_RAKNET_MAX_TEXTDRAWS; ++i) {
-    if (InterlockedCompareExchange(&g_runtime.textdraw_slots[i].active, 0, 0) != 0 &&
-        textdraw_compat_draw_gta_font_slot(&g_runtime.textdraw_slots[i],
-                                           SAMP_TEXTDRAW_GTA_FONT_PHASE_GAME_PROCESS)) {
+    samp_textdraw_slot_compat *slot = &g_runtime.textdraw_slots[i];
+
+    if (InterlockedCompareExchange(&slot->active, 0, 0) == 0) {
+      continue;
+    }
+    if (textdraw_compat_is_model_preview(slot)) {
+      int x = 0;
+      int y = 0;
+      int w = 0;
+      int h = 0;
+
+      if (device != NULL && textdraw_compat_slot_rect(slot, &x, &y, &w, &h)) {
+        int preview_result =
+            textdraw_compat_draw_cached_model_preview(device, slot, x, y, w, h, "game_process");
+        if (preview_result > 0) {
+          ++preview_drawn;
+        } else if (preview_result < 0) {
+          hard_draw_failure = 1;
+          break;
+        }
+      }
+    } else if (textdraw_compat_draw_gta_font_slot(slot, SAMP_TEXTDRAW_GTA_FONT_PHASE_GAME_PROCESS)) {
       ++drawn;
     }
   }
@@ -14022,7 +14155,15 @@ static int textdraw_compat_draw_gta_font_game_process_overlay(void) {
                    (unsigned)read_game_u8(SAMP_ADDR_GAME_STARTED),
                    (unsigned)read_game_u8(SAMP_ADDR_ENABLE_HUD));
   }
-  return drawn > 0 ? 1 : 0;
+  if (preview_drawn > 0 && InterlockedCompareExchange(&slot_order_logged, 1, 0) == 0) {
+    runtime_tracef("textdraw_layer: slot_order phase=game_process previews=%d fonts=%d active=%ld "
+                   "evidence=OBSERVED_037,PROBE_TRACE,STATIC_037",
+                   preview_drawn, drawn, (long)active_count);
+  }
+  if (hard_draw_failure) {
+    return 0;
+  }
+  return drawn > 0 || preview_drawn > 0 ? 1 : 0;
 }
 
 static int game_text_compat_style_bucket(int style) {
@@ -15913,6 +16054,8 @@ static uint32_t samp_asset_custom_low_preload_limit_compat(void) {
 static void samp_asset_request_custom_model_registration_compat(int32_t model, const char *source) {
   LONG count = 0;
   LONG i = 0;
+  LONG request_seq = 0;
+  int textdraw_preview_request = source != NULL && strcmp(source, "textdraw_preview") == 0;
 
   if (!object_compat_is_samp_custom_model(model) || object_compat_model_available(model)) {
     return;
@@ -15947,6 +16090,11 @@ static void samp_asset_request_custom_model_registration_compat(int32_t model, c
 
   for (i = 0; i < count; ++i) {
     if (InterlockedCompareExchange(&g_runtime.samp_asset_register_pending_models[i], 0, 0) == model) {
+      if (textdraw_preview_request) {
+        InterlockedExchange(
+            &g_runtime.samp_asset_preview_register_request_seq,
+            InterlockedCompareExchange(&g_runtime.samp_asset_register_request_seq, 0, 0));
+      }
       return;
     }
   }
@@ -15962,10 +16110,13 @@ static void samp_asset_request_custom_model_registration_compat(int32_t model, c
 
   InterlockedExchange(&g_runtime.samp_asset_register_pending_models[count], model);
   InterlockedExchange(&g_runtime.samp_asset_register_pending_count, count + 1);
+  request_seq = InterlockedIncrement(&g_runtime.samp_asset_register_request_seq);
+  if (textdraw_preview_request) {
+    InterlockedExchange(&g_runtime.samp_asset_preview_register_request_seq, request_seq);
+  }
   runtime_tracef("samp_asset_registration: request model=%ld source=%s seq=%ld pending=%ld "
                  "evidence=PROBE_TRACE,GTA_REVERSED_REF,TODO_VERIFY",
-                 (long)model, source != NULL ? source : "unknown",
-                 (long)InterlockedIncrement(&g_runtime.samp_asset_register_request_seq), (long)(count + 1));
+                 (long)model, source != NULL ? source : "unknown", (long)request_seq, (long)(count + 1));
 }
 
 static int samp_asset_register_streaming_image_compat(const char *label, const char *path, LONG *image_id_slot) {
@@ -17024,11 +17175,30 @@ static void samp_asset_process_pending_registrations_compat(const char *source) 
   int bulk_enabled = 0;
   int bulk_first = 0;
   int bulk_ok = 0;
+  int prespawn_preview_phase = 0;
 
   if (!samp_asset_custom_asset_register_enabled_compat()) {
     return;
   }
-  if (!object_compat_scene_ready()) {
+  /* OBSERVED_037 + PROBE_TRACE:
+   * Original 0.3.7-R5 (SHA256
+   * b72b5dbe725f81864ca3f78bc7063bda56cc05fc7188af822fa7a754432553a2)
+   * prepares and draws the almost full-screen Font 5 model 19129 from the
+   * textdraw path at samp.dll+0x0001E888/+0x0001E856 before class selection.
+   * The replacement used to hold its ModelInfo registration until the class
+   * object scene was ready, after the server had already hidden that slot.
+   * Queue the request during TextDraw snapshot application and permit the
+   * existing object-bridge registration drain only when a Font 5 custom
+   * preview is actually pending. CHud::DrawScriptText remains render-only;
+   * world-object creation remains scene-gated.
+   */
+  prespawn_preview_phase =
+      source != NULL &&
+      (strcmp(source, "object_bridge_idle") == 0 || strcmp(source, "object_bridge") == 0) &&
+      read_game_entry_gate_value() == 9 && read_game_u8(SAMP_ADDR_GAME_STARTED) == 0u &&
+      InterlockedCompareExchange(&g_runtime.samp_asset_preview_register_request_seq, 0, 0) >
+          InterlockedCompareExchange(&g_runtime.samp_asset_register_applied_seq, 0, 0);
+  if (!object_compat_scene_ready() && !prespawn_preview_phase) {
     return;
   }
 
@@ -17114,11 +17284,12 @@ static void samp_asset_process_pending_registrations_compat(const char *source) 
   InterlockedExchange(&g_runtime.samp_asset_register_pending_count, 0);
   InterlockedExchange(&g_runtime.samp_asset_register_applied_seq, request_seq);
   runtime_tracef("samp_asset_registration: drain source=%s request_seq=%ld count=%ld registered=%ld already=%ld "
-                 "preloaded=%ld skipped=%ld bulk_first=%d bulk_ok=%d archives=%d pending=%ld "
+                 "preloaded=%ld skipped=%ld bulk_first=%d bulk_ok=%d archives=%d pending=%ld prespawn_preview=%d "
                  "evidence=PROBE_TRACE,GTA_REVERSED_REF,TODO_VERIFY",
                  source != NULL ? source : "unknown", (long)request_seq, (long)count, (long)registered,
                  (long)already_registered, (long)preloaded, (long)skipped, bulk_first, bulk_ok, archive_loaded,
-                 (long)InterlockedCompareExchange(&g_runtime.samp_asset_register_pending_count, 0, 0));
+                 (long)InterlockedCompareExchange(&g_runtime.samp_asset_register_pending_count, 0, 0),
+                 prespawn_preview_phase);
   object_compat_flush_pending(object_compat_create_budget());
 }
 

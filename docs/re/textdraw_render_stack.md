@@ -59,29 +59,28 @@ GameProcess hook is unavailable or has not actually drawn during the recent
 frame window, normal TextDraws fall back to D3DX instead of disappearing merely
 because GameProcess mode is configured.
 
-`PROBE_TRACE` + `INFERRED` + `TODO_VERIFY`: the safe normal-font path and the
-Font 5 compatibility renderer currently run in different phases. A normal
-foreground label rendered in GameProcess is therefore already on the
-backbuffer when EndScene later composites the earlier Font 5 slot, including
-its transmitted translucent `0xaa464646` camera-clear background. This makes
-the opaque gold `0xff008caa` foreground look like a dark olive colour even
-though the decoder and `CFont::SetColor` value are correct.
+`OBSERVED_037` + `PROBE_TRACE`: the original client composites a cached Font 5
+quad and then invokes `CFont::PrintString` for the following normal slot in the
+same ordered TextDraw pass. The replacement now keeps expensive
+RenderWare-to-texture preparation in EndScene, but submits an already cached
+Font 5 quad from the register-preserving `CHud::DrawScriptText` epilogue at
+`0x58C246` while iterating the same slot order as normal GTA `CFont` TextDraws.
+EndScene suppresses the later duplicate composite in this mode.
 
 The 2026-07-16 13:11 replacement run tested deferring overlapping normal slots
 to the EndScene D3DX fallback. That is not compatible: centred labels collapsed
 into `GZombieNo caigas`, the counter moved to the viewport edge, and the run
 ended without `process_detach`. Normal slots therefore remain exclusively in
-the GTA `CFont` path. In split GameProcess mode, only the alpha of the preview
-camera clear is suppressed before EndScene composition; its RGB and the model
-render remain unchanged. This avoids covering the earlier foreground without
-changing its renderer or geometry. It is a scoped phase bridge until the
-complete original TextDraw renderer can execute normal and Font 5 slots in one
-safe phase.
+the GTA `CFont` path. Font 5 cache preparation retains the transmitted clear
+colour and alpha; the former transparent-alpha workaround is no longer needed
+because the cached quad is submitted before later foreground slots.
 
 `TODO_VERIFY`: the next replacement run must confirm a
 `textdraw_gta_font: prespawn_ready` marker and a successful
-`textdraw_gta_font_gameprocess` marker before `spawn_finalize_begin`, with no
-duplicate fallback rendering or `exception_filter`.
+`textdraw_gta_font_gameprocess` marker before `spawn_finalize_begin`, followed
+by `textdraw_preview: draw ... phase=game_process` and
+`textdraw_layer: slot_order`, with no later EndScene duplicate,
+`draw_state_restore_failed`, or `exception_filter`.
 
 Important GTA addresses:
 
@@ -155,9 +154,10 @@ one.
 
 `OBSERVED_037` + `PROBE_TRACE` + `STATIC_037` + `GTA_REVERSED_REF`: the
 2026-07-15 original-R5 run established the preview dispatcher at
-`samp.dll+0x000b34a0`. Atomic/CObject models route to
-`samp.dll+0x0006c140`, vehicles `400..611` to `samp.dll+0x0006c3c0`, and
-remaining model-info instances to `samp.dll+0x0006c9b0`. All three create 256x256
+`samp.dll+0x000b34a0`. Model-info vtable `0x0085bdc0` (`CPedModelInfo` in GTA
+SA 1.0 US) routes to `samp.dll+0x0006c140`, vehicles `400..611` to
+`samp.dll+0x0006c3c0`, and remaining model-info instances to
+`samp.dll+0x0006c9b0`. All three create 256x256
 A8R8G8B8 camera-texture rasters, use one shared 256x256 Z raster and ambient
 light, clear with the transmitted background colour, render a model instance
 using the transmitted rotation/zoom, then draws the cached D3D texture as a
@@ -175,7 +175,8 @@ remains visible. This avoids reproducing the known replacement crash from
 blindly registering models beyond the vanilla atomic store.
 
 `STATIC_037` + `GTA_REVERSED_REF`: the replacement preserves those three
-placement policies. Atomic/CObject previews use `{0, -2.25 * zoom, 50.05}`;
+placement policies. The special `0x0085bdc0` path uses
+`{0, -2.25 * zoom, 50.05}`;
 normal vehicles use `{0, (-1 - 2 * collisionRadius) * zoom, 50}`; the generic
 path retains collision-centre placement. It also leaves the created root frame
 intact, matching the absence of `RwFrameSetIdentity` in the original generic

@@ -55,6 +55,37 @@ assets.
 - early normal TextDraw CFont rendering is restricted to the
   register-preserving GameProcess phase; EndScene/graphics remain gated.
 
+## Purple pre-class wallpaper
+
+`OBSERVED_037` + `PROBE_TRACE`:
+
+- the large purple layer shown before the mode/class selection is not the GTA
+  loading-screen image and not a normal TextDraw box;
+- the server sends global TextDraw slot 12 as Font 5 with model `19129`, text
+  `LD_SPAC:white`, position `(-1.405576, -49.583057)`, size
+  `(673.909424, 551.833313)`, rotation `(90, 0, 100)`, zoom `0`, and black
+  preview background;
+- the original DLL identified above prepares that custom model from caller
+  `samp.dll+0x0001E888` and draws the resulting preview from
+  `samp.dll+0x0001E856` before the class scene is ready;
+- the 2026-07-16 replacement run received the same slot and queued model
+  `19129`, but logged `samp_custom_model_unregistered`; the server hid slots
+  12 through 16 before the object-scene gate finally drained the custom-model
+  registrations.
+
+The replacement now tags Font 5 registration requests when the ShowTextDraw
+snapshot is applied. The existing object-bridge lifecycle may drain that
+request while `entry=9` and `game_started=0`; the HUD/TextDraw render hook does
+not perform streaming or RenderWare destruction. This exception is active only
+while an unapplied Font 5 custom-model request exists. World-object creation
+remains under the class-scene/spawn gate.
+
+The 2026-07-16 replacement run with DLL SHA256
+`be514e9b1e1dd6d8cf4df246d8bb9c714ec235274fb81898deb83a1a916d56d4`
+confirmed registration before hide, generic-path preparation with transmitted
+zoom `0.000`, an unclamped overscan draw in the GameProcess TextDraw pass, and
+the expected purple `DanceFloor2` wallpaper below the normal foreground slots.
+
 ## Next-run acceptance markers
 
 - `object: class_scene_ready` before all pre-spawn `object: create` markers;
@@ -64,10 +95,9 @@ assets.
 - reused IDs create a new generation after the spawn hold;
 - `textdraw_gta_font: prespawn_ready` and
   `textdraw_gta_font_gameprocess: drawing enabled ... hud=0` before spawn;
+- `samp_asset_registration: drain source=object_bridge` (or
+  `source=object_bridge_idle`) with `prespawn_preview=1` before
+  `textdraw: hide ... id=12`;
+- `textdraw_preview: prepared ... model=19129` while slot 12 is still active;
 - no `create_opcode ... ok=0`, streaming/model errors,
   `exception_filter`, freeze, or duplicate TextDraw rendering.
-
-Font 5 remains a proxy in the replacement. The next original run should use
-the dedicated PE-identity-proxy/prologue-guarded Font 5 probe before
-implementing the real model-preview renderer. Record and verify the documented
-original DLL hash separately before that run.
