@@ -959,6 +959,9 @@ typedef BOOL(WINAPI *samp_d3d9_show_cursor_fn)(void *, BOOL);
 typedef ULONG(WINAPI *samp_unknown_release_fn)(void *);
 typedef BOOL(WINAPI *samp_bass_init_fn)(int, DWORD, DWORD, HWND, const GUID *);
 typedef BOOL(WINAPI *samp_bass_free_fn)(void);
+typedef BOOL(WINAPI *samp_bass_set_config_fn)(DWORD, DWORD);
+typedef BOOL(WINAPI *samp_bass_set_config_ptr_fn)(DWORD, const void *);
+typedef int(WINAPI *samp_bass_error_get_code_fn)(void);
 typedef DWORD(WINAPI *samp_bass_stream_create_url_fn)(const char *, DWORD, DWORD, void *, void *);
 typedef BOOL(WINAPI *samp_bass_channel_play_fn)(DWORD, BOOL);
 typedef BOOL(WINAPI *samp_bass_channel_stop_fn)(DWORD);
@@ -2249,6 +2252,9 @@ typedef struct samp_runtime_state {
   DWORD bass_stream_handle;
   samp_bass_init_fn bass_init;
   samp_bass_free_fn bass_free;
+  samp_bass_set_config_fn bass_set_config;
+  samp_bass_set_config_ptr_fn bass_set_config_ptr;
+  samp_bass_error_get_code_fn bass_error_get_code;
   samp_bass_stream_create_url_fn bass_stream_create_url;
   samp_bass_channel_play_fn bass_channel_play;
   samp_bass_channel_stop_fn bass_channel_stop;
@@ -2256,6 +2262,8 @@ typedef struct samp_runtime_state {
   samp_bass_channel_set_3d_attributes_fn bass_channel_set_3d_attributes;
   samp_bass_channel_set_3d_position_fn bass_channel_set_3d_position;
   samp_bass_apply_3d_fn bass_apply_3d;
+  DWORD bass_last_volume_tick;
+  DWORD bass_last_stream_volume;
   samp_bootstrap_shims bootstrap_shims;
   samp_tcp_bootstrap_manager net_mgr;
   samp_runtime_hook_bridge hook_bridge;
@@ -2877,6 +2885,24 @@ static HWND read_game_hwnd_compat(void) {
   return hwnd;
 }
 
+enum {
+  SAMP_BASS_CONFIG_GVOL_STREAM = 5u,
+  SAMP_BASS_CONFIG_NET_TIMEOUT = 11u,
+  SAMP_BASS_CONFIG_NET_AGENT = 16u,
+  SAMP_BASS_CONFIG_NET_PLAYLIST = 21u,
+  SAMP_BASS_STREAM_FLAGS_037 = 0x00940000u,
+  SAMP_BASS_STREAM_VOLUME_DEFAULT_037 = 7000u,
+  SAMP_BASS_STREAM_VOLUME_POSITIONAL_037 = 8000u,
+  SAMP_BASS_POSITION_UPDATE_MS_037 = 20u
+};
+
+static int audio_stream_compat_error_code(void) {
+  if (g_runtime.bass_error_get_code == NULL) {
+    return -1;
+  }
+  return g_runtime.bass_error_get_code();
+}
+
 static int audio_stream_compat_resolve(void) {
   if (g_runtime.bass_module == NULL) {
     g_runtime.bass_module = LoadLibraryA("BASS.dll");
@@ -2887,6 +2913,12 @@ static int audio_stream_compat_resolve(void) {
   if (g_runtime.bass_init == NULL) {
     g_runtime.bass_init = (samp_bass_init_fn)(uintptr_t)GetProcAddress(g_runtime.bass_module, "BASS_Init");
     g_runtime.bass_free = (samp_bass_free_fn)(uintptr_t)GetProcAddress(g_runtime.bass_module, "BASS_Free");
+    g_runtime.bass_set_config = (samp_bass_set_config_fn)(uintptr_t)GetProcAddress(
+        g_runtime.bass_module, "BASS_SetConfig");
+    g_runtime.bass_set_config_ptr = (samp_bass_set_config_ptr_fn)(uintptr_t)GetProcAddress(
+        g_runtime.bass_module, "BASS_SetConfigPtr");
+    g_runtime.bass_error_get_code = (samp_bass_error_get_code_fn)(uintptr_t)GetProcAddress(
+        g_runtime.bass_module, "BASS_ErrorGetCode");
     g_runtime.bass_stream_create_url = (samp_bass_stream_create_url_fn)(uintptr_t)GetProcAddress(
         g_runtime.bass_module, "BASS_StreamCreateURL");
     g_runtime.bass_channel_play = (samp_bass_channel_play_fn)(uintptr_t)GetProcAddress(
@@ -2906,7 +2938,7 @@ static int audio_stream_compat_resolve(void) {
   }
   return g_runtime.bass_init != NULL && g_runtime.bass_stream_create_url != NULL &&
          g_runtime.bass_channel_play != NULL && g_runtime.bass_channel_stop != NULL &&
-         g_runtime.bass_stream_free != NULL;
+         g_runtime.bass_stream_free != NULL && g_runtime.bass_set_config != NULL;
 }
 
 static int audio_stream_compat_stop(const char *reason) {
@@ -2917,15 +2949,19 @@ static int audio_stream_compat_stop(const char *reason) {
     stopped = g_runtime.bass_stream_free(handle) != FALSE;
     g_runtime.bass_stream_handle = 0u;
   }
+  g_runtime.bass_last_volume_tick = 0u;
+  g_runtime.bass_last_stream_volume = 0xffffffffu;
   runtime_tracef("audio_stream: stop reason=%s handle=%lu stopped=%d evidence=STATIC_037,TODO_VERIFY",
                  reason != NULL ? reason : "unknown", (unsigned long)handle, stopped);
   return handle == 0u || stopped;
 }
 
 static int audio_stream_compat_start(const char *url, const float pos[3], float distance, uint8_t use_pos) {
-  DWORD flags = 0x00100000u; /* BASS_STREAM_BLOCK */
+  DWORD flags = SAMP_BASS_STREAM_FLAGS_037;
   DWORD handle = 0u;
-  int positional = 0;
+  int positional = use_pos != 0u;
+
+  (void)pos;
 
   if (url == NULL || url[0] == '\0' || !audio_stream_compat_resolve()) {
     runtime_tracef("audio_stream: start skipped reason=%s evidence=STATIC_037,TODO_VERIFY",
@@ -2933,43 +2969,131 @@ static int audio_stream_compat_start(const char *url, const float pos[3], float 
     return 0;
   }
   if (InterlockedCompareExchange(&g_runtime.bass_initialized, 0, 0) == 0) {
-    if (!g_runtime.bass_init(-1, 44100u, 0u, read_game_hwnd_compat(), NULL)) {
-      runtime_tracef("audio_stream: BASS_Init failed evidence=STATIC_037,TODO_VERIFY");
+    BOOL playlist_configured = FALSE;
+    BOOL timeout_configured = FALSE;
+    BOOL agent_configured = FALSE;
+    int playlist_error = 0;
+    int timeout_error = 0;
+    int agent_error = 0;
+
+    /* STATIC_037:
+     * samp.dll SHA256=b72b5dbe725f81864ca3f78bc7063bda56cc05fc7188af822fa7a754432553a2
+     * +0x66480 initializes BASS with a NULL HWND, enables network-playlist
+     * processing (option 21), sets the network timeout (option 11) to 10000 ms,
+     * and uses the persistent "SA-MP/0.3" network agent (option 16).
+     * INFERRED: the missing playlist option is the strongest explanation for
+     * the old backend rejecting the observed SomaFM .pls RPC URL.
+     */
+    if (!g_runtime.bass_init(-1, 44100u, 0u, NULL, NULL)) {
+      runtime_tracef("audio_stream: BASS_Init failed error=%d evidence=STATIC_037,TODO_VERIFY",
+                     audio_stream_compat_error_code());
       return 0;
     }
+    playlist_configured = g_runtime.bass_set_config(SAMP_BASS_CONFIG_NET_PLAYLIST, 1u);
+    if (!playlist_configured) {
+      playlist_error = audio_stream_compat_error_code();
+    }
+    timeout_configured = g_runtime.bass_set_config(SAMP_BASS_CONFIG_NET_TIMEOUT, 10000u);
+    if (!timeout_configured) {
+      timeout_error = audio_stream_compat_error_code();
+    }
+    if (g_runtime.bass_set_config_ptr != NULL) {
+      agent_configured = g_runtime.bass_set_config_ptr(SAMP_BASS_CONFIG_NET_AGENT, "SA-MP/0.3");
+      if (!agent_configured) {
+        agent_error = audio_stream_compat_error_code();
+      }
+    } else {
+      agent_error = -1;
+    }
+    runtime_tracef("audio_stream: BASS_Init ok playlist=%d playlist_error=%d timeout=%d timeout_error=%d "
+                   "agent=%d agent_error=%d evidence=STATIC_037",
+                   playlist_configured != FALSE, playlist_error, timeout_configured != FALSE, timeout_error,
+                   agent_configured != FALSE, agent_error);
     InterlockedExchange(&g_runtime.bass_initialized, 1);
   }
   (void)audio_stream_compat_stop("replace");
-  positional = use_pos != 0u && g_runtime.bass_channel_set_3d_attributes != NULL &&
-               g_runtime.bass_channel_set_3d_position != NULL && g_runtime.bass_apply_3d != NULL;
-  if (positional) {
-    flags |= 0x00000004u; /* BASS_SAMPLE_3D */
-  }
+  /* STATIC_037: samp.dll+0x66727 passes 0x00940000 exactly
+   * (STATUS | BLOCK | AUTOFREE). RPC positional audio is attenuated manually;
+   * the original stream creation path does not add a sample-3D flag.
+   */
   handle = g_runtime.bass_stream_create_url(url, 0u, flags, NULL, NULL);
   if (handle == 0u) {
-    runtime_tracef("audio_stream: BASS_StreamCreateURL failed url_len=%lu positional=%d",
-                   (unsigned long)strlen(url), positional);
+    runtime_tracef("audio_stream: BASS_StreamCreateURL failed error=%d url_len=%lu positional=%d "
+                   "flags=0x%08lx evidence=STATIC_037,TODO_VERIFY",
+                   audio_stream_compat_error_code(), (unsigned long)strlen(url), positional,
+                   (unsigned long)flags);
     return 0;
   }
-  if (positional) {
-    samp_bass_3d_vector_compat bass_pos;
-    bass_pos.x = pos[0];
-    bass_pos.y = pos[1];
-    bass_pos.z = pos[2];
-    (void)g_runtime.bass_channel_set_3d_attributes(handle, 0, 0.0f, distance, -1, -1, -1.0f);
-    (void)g_runtime.bass_channel_set_3d_position(handle, &bass_pos, NULL, NULL);
-    g_runtime.bass_apply_3d();
-  }
   if (!g_runtime.bass_channel_play(handle, FALSE)) {
+    int error = audio_stream_compat_error_code();
     (void)g_runtime.bass_stream_free(handle);
-    runtime_tracef("audio_stream: BASS_ChannelPlay failed handle=%lu", (unsigned long)handle);
+    runtime_tracef("audio_stream: BASS_ChannelPlay failed error=%d handle=%lu evidence=STATIC_037,TODO_VERIFY",
+                   error, (unsigned long)handle);
     return 0;
   }
   g_runtime.bass_stream_handle = handle;
+  g_runtime.bass_last_volume_tick = 0u;
+  g_runtime.bass_last_stream_volume = 0xffffffffu;
   runtime_tracef("audio_stream: start handle=%lu url_len=%lu positional=%d distance=%.3f "
-                 "evidence=STATIC_037,OPENMP_REF,TODO_VERIFY",
-                 (unsigned long)handle, (unsigned long)strlen(url), positional, (double)distance);
+                 "flags=0x%08lx evidence=STATIC_037,OPENMP_REF,TODO_VERIFY",
+                 (unsigned long)handle, (unsigned long)strlen(url), positional, (double)distance,
+                 (unsigned long)flags);
   return 1;
+}
+
+static void audio_stream_compat_update_volume(void) {
+  DWORD now = 0u;
+  DWORD volume = SAMP_BASS_STREAM_VOLUME_DEFAULT_037;
+  uintptr_t ped = 0u;
+  float player_pos[3] = {0.0f, 0.0f, 0.0f};
+
+  if (g_runtime.bass_stream_handle == 0u || g_runtime.bass_set_config == NULL) {
+    return;
+  }
+  now = GetTickCount();
+  if (g_runtime.bass_last_volume_tick != 0u &&
+      (DWORD)(now - g_runtime.bass_last_volume_tick) < SAMP_BASS_POSITION_UPDATE_MS_037) {
+    return;
+  }
+  g_runtime.bass_last_volume_tick = now;
+
+  /* STATIC_037: samp.dll+0x66886..+0x66922 polls every 20 ms and applies
+   * positional attenuation through BASS_CONFIG_GVOL_STREAM rather than by
+   * creating a 3D stream. The original scales the user's GTA volume as well;
+   * that settings bridge is still TODO_VERIFY in the replacement.
+   */
+  if (g_runtime.raknet_audio_stream_use_pos != 0u) {
+    float radius = g_runtime.raknet_audio_stream_distance;
+    volume = 0u;
+    ped = gta_find_player_ped_compat();
+    if (radius > 0.0f && isfinite(radius) && ped != 0u &&
+        gta_entity_read_position_compat(ped, &player_pos[0], &player_pos[1], &player_pos[2])) {
+      float dx = player_pos[0] - g_runtime.raknet_audio_stream_pos[0];
+      float dy = player_pos[1] - g_runtime.raknet_audio_stream_pos[1];
+      float dz = player_pos[2] - g_runtime.raknet_audio_stream_pos[2];
+      float stream_distance = sqrtf((dx * dx) + (dy * dy) + (dz * dz));
+      if (isfinite(stream_distance) && stream_distance < radius) {
+        float factor = 1.0f - (stream_distance / radius);
+        volume = (DWORD)(factor * (float)SAMP_BASS_STREAM_VOLUME_POSITIONAL_037);
+      }
+    }
+  }
+  if (volume == g_runtime.bass_last_stream_volume) {
+    return;
+  }
+  if (!g_runtime.bass_set_config(SAMP_BASS_CONFIG_GVOL_STREAM, volume)) {
+    runtime_tracef("audio_stream: BASS_SetConfig volume failed error=%d volume=%lu positional=%u "
+                   "evidence=STATIC_037,TODO_VERIFY",
+                   audio_stream_compat_error_code(), (unsigned long)volume,
+                   (unsigned)g_runtime.raknet_audio_stream_use_pos);
+    return;
+  }
+  if (g_runtime.bass_last_stream_volume == 0xffffffffu) {
+    runtime_tracef("audio_stream: volume initial=%lu positional=%u radius=%.3f evidence=STATIC_037,TODO_VERIFY",
+                   (unsigned long)volume, (unsigned)g_runtime.raknet_audio_stream_use_pos,
+                   (double)g_runtime.raknet_audio_stream_distance);
+  }
+  g_runtime.bass_last_stream_volume = volume;
 }
 
 static int chat_input_enabled_compat(void) {
@@ -25399,6 +25523,7 @@ static void apply_multiplayer_session_bridge_compat(void) {
       runtime_tracef("mp_session_bridge: stop_audio_stream seq=%ld previous=%ld applied=%d",
                      (long)stop_audio_stream_seq, (long)applied_stop_audio_stream_seq, applied);
     }
+    audio_stream_compat_update_volume();
 
     player_color_seq = InterlockedCompareExchange(&g_runtime.raknet_player_color_seq, 0, 0);
     applied_player_color_seq = InterlockedCompareExchange(&g_runtime.mp_session_applied_player_color_seq, 0, 0);
