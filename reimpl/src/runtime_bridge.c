@@ -747,7 +747,13 @@
 #define SAMP_SPECIAL_ACTION_USECELLPHONE 11u
 #define SAMP_SPECIAL_ACTION_NIGHTVISION 14u
 #define SAMP_SPECIAL_ACTION_THERMALVISION 15u
-#define SAMP_MAP_ICON_BLIP_SCALE 3
+#define SAMP_MAP_ICON_STYLE_LOCAL 0u
+#define SAMP_MAP_ICON_STYLE_GLOBAL 1u
+#define SAMP_MAP_ICON_STYLE_LOCAL_CHECKPOINT 2u
+#define SAMP_MAP_ICON_STYLE_GLOBAL_CHECKPOINT 3u
+#define SAMP_MAP_ICON_COLOR_SCALE_THRESHOLD 1004u
+#define SAMP_MAP_ICON_BLIP_SCALE_SMALL 2
+#define SAMP_MAP_ICON_BLIP_SCALE_LARGE 3
 #define SAMP_NAME_TAG_DEFAULT_DRAW_DISTANCE 70.0f
 #define SAMP_NAME_TAG_Z_BASE 1.0f
 #define SAMP_NAME_TAG_Z_DISTANCE_SCALE 0.05f
@@ -1273,7 +1279,8 @@ typedef struct samp_map_icon_slot_compat {
   uint32_t seq;
   uint32_t marker_id;
   uint8_t icon;
-  uint8_t reserved[3];
+  uint8_t style;
+  uint8_t reserved[2];
   uint32_t color;
   float pos[3];
 } samp_map_icon_slot_compat;
@@ -9612,14 +9619,33 @@ static void map_icon_compat_disable_slot(uint8_t index, samp_map_icon_slot_compa
   }
   memset(slot, 0, sizeof(*slot));
   if (marker_id != 0u) {
-    runtime_tracef("map_icon: disable index=%u marker=%lu reason=%s evidence=INFERRED,TODO_VERIFY",
+    runtime_tracef("map_icon: disable index=%u marker=%lu reason=%s evidence=STATIC_037:samp.dll+0x08FB0",
                    (unsigned)index, (unsigned long)marker_id, reason != NULL ? reason : "unknown");
+  }
+}
+
+static uint16_t map_icon_compat_create_opcode(uint8_t style) {
+  /* STATIC_037: CGame::CreateMarker at samp.dll+0xA0D90 selects these four
+   * GTA script commands. Unknown styles follow the original style-0 path.
+   */
+  switch (style) {
+    case SAMP_MAP_ICON_STYLE_GLOBAL:
+      return 0x02A8u;
+    case SAMP_MAP_ICON_STYLE_LOCAL_CHECKPOINT:
+      return 0x0570u;
+    case SAMP_MAP_ICON_STYLE_GLOBAL_CHECKPOINT:
+      return 0x02A7u;
+    case SAMP_MAP_ICON_STYLE_LOCAL:
+    default:
+      return 0x04CEu;
   }
 }
 
 static void map_icon_compat_apply_event(const samp_raknet_map_icon_event *event) {
   samp_map_icon_slot_compat *slot = NULL;
   uint32_t marker_id = 0u;
+  uint16_t create_opcode = 0u;
+  uint8_t effective_style = 0u;
 
   if (event == NULL || event->index >= SAMP_RAKNET_MAP_ICON_MAX) {
     return;
@@ -9637,37 +9663,48 @@ static void map_icon_compat_apply_event(const samp_raknet_map_icon_event *event)
   }
 
   map_icon_compat_disable_slot(event->index, slot, "replace");
-  /*
-   * GTA_REVERSED_REF + INFERRED + TODO_VERIFY:
-   * Compatibility NetGame::SetMapIcon uses create_radar_marker_without_sphere (04CE),
-   * set_marker_color (0165), then change_blip_scale (0168) with size 3.
-   */
-  if (!gta_script_command_compat(0x04CEu, "fffiv", event->pos[0], event->pos[1], event->pos[2],
+  effective_style = event->style <= SAMP_MAP_ICON_STYLE_GLOBAL_CHECKPOINT ? event->style
+                                                                           : SAMP_MAP_ICON_STYLE_LOCAL;
+  create_opcode = map_icon_compat_create_opcode(effective_style);
+  if (!gta_script_command_compat(create_opcode, "fffiv", event->pos[0], event->pos[1], event->pos[2],
                                  (int)event->icon, &marker_id) ||
       marker_id == 0u) {
-    runtime_tracef("map_icon: create_failed seq=%lu index=%u icon=%u pos=(%.3f,%.3f,%.3f)",
+    runtime_tracef("map_icon: create_failed seq=%lu index=%u icon=%u style=%u effective_style=%u "
+                   "opcode=0x%04x pos=(%.3f,%.3f,%.3f)",
                    (unsigned long)event->seq, (unsigned)event->index, (unsigned)event->icon,
+                   (unsigned)event->style, (unsigned)effective_style, (unsigned)create_opcode,
                    (double)event->pos[0], (double)event->pos[1], (double)event->pos[2]);
     return;
   }
 
-  (void)gta_script_command_compat(0x0165u, "ii", (int)marker_id,
-                                  radar_compat_color_code_to_rgba(event->color));
-  (void)gta_script_command_compat(0x0168u, "ii", (int)marker_id, SAMP_MAP_ICON_BLIP_SCALE);
+  /* STATIC_037: samp.dll+0xA0D90 only customizes icon 0. Named sprite icons
+   * retain their GTA-defined color and scale. The wire color is passed through
+   * unchanged; values below 1004 use scale 2, all others scale 3.
+   */
+  if (event->icon == 0u) {
+    int scale = event->color < SAMP_MAP_ICON_COLOR_SCALE_THRESHOLD ? SAMP_MAP_ICON_BLIP_SCALE_SMALL
+                                                                   : SAMP_MAP_ICON_BLIP_SCALE_LARGE;
+    (void)gta_script_command_compat(0x0165u, "ii", (int)marker_id, (int)event->color);
+    (void)gta_script_command_compat(0x0168u, "ii", (int)marker_id, scale);
+  }
   slot->seq = event->seq;
   slot->marker_id = marker_id;
   slot->icon = event->icon;
+  slot->style = effective_style;
   slot->color = event->color;
   memcpy(slot->pos, event->pos, sizeof(slot->pos));
   InterlockedExchange(&slot->active, 1);
 
   if (InterlockedCompareExchange(&g_runtime.map_icon_logged, 1, 0) == 0) {
-    runtime_tracef("map_icon: bridge active first_seq=%lu evidence=INFERRED,TODO_VERIFY",
-                   (unsigned long)event->seq);
+    runtime_tracef("map_icon: bridge active first_seq=%lu slots=%u "
+                   "evidence=STATIC_037:samp.dll+0x08FB0,+0x0A2C0,+0x0A300,+0x0A0D90",
+                   (unsigned long)event->seq, (unsigned)SAMP_RAKNET_MAP_ICON_MAX);
   }
-  runtime_tracef("map_icon: set seq=%lu index=%u marker=%lu icon=%u color=0x%08lx pos=(%.3f,%.3f,%.3f)",
+  runtime_tracef("map_icon: set seq=%lu index=%u marker=%lu icon=%u color=0x%08lx style=%u "
+                 "effective_style=%u opcode=0x%04x pos=(%.3f,%.3f,%.3f)",
                  (unsigned long)event->seq, (unsigned)event->index, (unsigned long)marker_id,
-                 (unsigned)event->icon, (unsigned long)event->color, (double)event->pos[0],
+                 (unsigned)event->icon, (unsigned long)event->color, (unsigned)event->style,
+                 (unsigned)effective_style, (unsigned)create_opcode, (double)event->pos[0],
                  (double)event->pos[1], (double)event->pos[2]);
 }
 
@@ -9711,6 +9748,8 @@ static void map_icon_compat_reset(const char *reason) {
   InterlockedExchange(&g_runtime.map_icon_event_seq, 0);
   InterlockedExchange(&g_runtime.map_icon_logged, 0);
   memset(g_runtime.map_icon_slots, 0, sizeof(g_runtime.map_icon_slots));
+  runtime_tracef("map_icon: reset slots=%u reason=%s evidence=STATIC_037:samp.dll+0x0A2C0",
+                 (unsigned)SAMP_RAKNET_MAP_ICON_MAX, reason != NULL ? reason : "unknown");
 }
 
 static int remote_player_compat_skin_valid(int32_t skin) {
@@ -20558,10 +20597,12 @@ static void client_control_compat_update_from_snapshot(const samp_raknet_rpc_pro
   if (snapshot->game_mode_restart_seq != 0u && snapshot->game_mode_restart_seq != restart_seq) {
     restart_seq = snapshot->game_mode_restart_seq;
     attach_active = interp_active = bounds_active = 0u;
+    map_icon_compat_reset("gamemode_restart");
     InterlockedExchange(&g_runtime.client_spectate_active, 0);
     (void)gta_script_command_compat(0x02EBu, "");
     (void)gta_script_command_compat(0x0373u, "");
-    runtime_tracef("client_control: gamemode_restart seq=%lu camera_state_reset=1 evidence=STATIC_037,INFERRED,TODO_VERIFY",
+    runtime_tracef("client_control: gamemode_restart seq=%lu camera_state_reset=1 map_icons_reset=1 "
+                   "evidence=STATIC_037,INFERRED,TODO_VERIFY",
                    (unsigned long)restart_seq);
   }
   if (snapshot->force_class_selection_seq != 0u && snapshot->force_class_selection_seq != force_class_seq) {
@@ -26640,6 +26681,7 @@ static void launch_prepare_network_compat(void) {
     }
 
     if (disconnect_packet) {
+      map_icon_compat_reset("network_disconnect");
       rpc_flags = 0u;
       connected_after_pump = 0;
     }

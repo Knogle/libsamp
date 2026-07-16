@@ -164,8 +164,8 @@ typedef struct samp_raknet_join_profile {
 #define SAMP_RAKNET_REMOTE_PLAYER_ACTION_ADD 1u
 #define SAMP_RAKNET_REMOTE_PLAYER_ACTION_REMOVE 2u
 #define SAMP_RAKNET_REMOTE_PLAYER_ACTION_DEATH 3u
-#define SAMP_RAKNET_MAP_ICON_EVENT_RING 64u
-#define SAMP_RAKNET_MAP_ICON_MAX 32u
+#define SAMP_RAKNET_MAP_ICON_EVENT_RING 128u
+#define SAMP_RAKNET_MAP_ICON_MAX 100u
 #define SAMP_RAKNET_MAP_ICON_ACTION_SET 1u
 #define SAMP_RAKNET_MAP_ICON_ACTION_REMOVE 2u
 #define SAMP_RAKNET_NAME_TAG_EVENT_RING 64u
@@ -306,7 +306,7 @@ typedef struct samp_raknet_map_icon_event {
   uint8_t action;
   uint8_t index;
   uint8_t icon;
-  uint8_t reserved;
+  uint8_t style;
   uint32_t color;
   float pos[3];
 } samp_raknet_map_icon_event;

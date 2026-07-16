@@ -105,6 +105,7 @@ static_assert(sizeof(samp_raknet_incar_sync) == 63U, "SA-MP 0.3.7 in-car sync pa
 static_assert(sizeof(samp_raknet_aim_sync) == 31U, "SA-MP 0.3.7 aim sync payload must be 31 bytes");
 static_assert(sizeof(samp_raknet_bullet_sync) == 40U, "SA-MP 0.3.7 bullet sync payload must be 40 bytes");
 static_assert(sizeof(samp_raknet_spectator_sync) == 18U, "SA-MP 0.3.7 spectator sync payload must be 18 bytes");
+static_assert(sizeof(samp_raknet_map_icon_event) == 24U, "internal map-icon event ABI must remain stable");
 
 bool packet_resets_session_state(unsigned char packet_id) {
   return packet_id == static_cast<unsigned char>(RakNet::ID_DISCONNECTION_NOTIFICATION) ||
@@ -540,7 +541,7 @@ const RpcMeta kRpcMeta[] = {
     {53U, "Death", kRpcLocalOutgoing, "OPENMP_REF"},
     {54U, "NPCJoin", kRpcLocalOutgoing, "OPENMP_REF"},
     {55U, "ScrDeathMessage", kRpcLocalImplemented, "STATIC_037,OPENMP_REF,TODO_VERIFY"},
-    {56U, "ScrSetPlayerMapIcon", kRpcLocalImplemented, "INFERRED,TODO_VERIFY"},
+    {56U, "ScrSetPlayerMapIcon", kRpcLocalImplemented, "STATIC_037:samp.dll+0x1A790"},
     {57U, "ScrRemoveVehicleComponent", kRpcLocalImplemented, "STATIC_037:samp.dll+0x1C5C0"},
     {58U, "ScrUpdate3DTextLabel", kRpcLocalImplemented, "SAMPFUNCS_037,TODO_VERIFY"},
     {59U, "ScrChatBubble", kRpcLocalImplemented, "OPENMP_REF,TODO_VERIFY"},
@@ -616,7 +617,7 @@ const RpcMeta kRpcMeta[] = {
     {138U, "ScrServerQuit", kRpcLocalImplemented, "PROBE_TRACE,OPENMP_REF,TODO_VERIFY"},
     {139U, "ScrInitGame", kRpcLocalImplemented, "PROBE_TRACE"},
     {140U, "MenuQuit", kRpcLocalOutgoing, "OPENMP_REF"},
-    {144U, "ScrRemovePlayerMapIcon/TogClockCompat", kRpcLocalImplemented, "INFERRED,PROBE_TRACE,TODO_VERIFY"},
+    {144U, "ScrRemovePlayerMapIcon", kRpcLocalImplemented, "STATIC_037:samp.dll+0x1A8B0"},
     {145U, "ScrSetPlayerAmmo", kRpcLocalImplemented, "STATIC_037:samp.dll+0x1AC10"},
     {146U, "ScrSetGravity", kRpcLocalImplemented, "STATIC_037:samp.dll+0x1ACD0"},
     {147U, "ScrSetVehicleHealth", kRpcLocalImplemented, "PROBE_TRACE"},
@@ -736,6 +737,8 @@ unsigned int rpc_min_payload_bytes(unsigned int rpc_id) {
       return 20U;
     case 55U:
       return 5U;
+    case 56U:
+      return 19U;
     case 57U:
       return 6U;
     case 29U:
@@ -2713,7 +2716,7 @@ void queue_player_pool_event(unsigned char action, unsigned short player_id, uns
 }
 
 void queue_map_icon_event(unsigned char action, unsigned char index, const float pos[3], unsigned char icon,
-                          unsigned int color) {
+                          unsigned int color, unsigned char style) {
   const unsigned int seq = bump_seq(&g_rpc_probe.map_icon_event_seq);
   const unsigned int slot = (seq - 1U) % SAMP_RAKNET_MAP_ICON_EVENT_RING;
   samp_raknet_map_icon_event *event = &g_rpc_probe.map_icon_events[slot];
@@ -2723,6 +2726,7 @@ void queue_map_icon_event(unsigned char action, unsigned char index, const float
   event->action = action;
   event->index = index;
   event->icon = icon;
+  event->style = style;
   event->color = color;
   if (pos != nullptr) {
     event->pos[0] = pos[0];
@@ -3983,9 +3987,10 @@ bool decode_set_map_icon_payload(const unsigned char *data, unsigned int bytes) 
   float pos[3] = {0.0f, 0.0f, 0.0f};
   unsigned char index = 0U;
   unsigned char icon = 0U;
+  unsigned char style = 0U;
   unsigned int color = 0U;
 
-  if (data == nullptr || bytes < 18U) {
+  if (data == nullptr || bytes < 19U) {
     return false;
   }
   index = data[0U];
@@ -3997,13 +4002,16 @@ bool decode_set_map_icon_payload(const unsigned char *data, unsigned int bytes) 
   read_vec3(data + 1U, pos);
   icon = data[13U];
   color = read_le32(data + 14U);
+  style = data[18U];
   if (!std::isfinite(pos[0]) || !std::isfinite(pos[1]) || !std::isfinite(pos[2])) {
     return false;
   }
-  queue_map_icon_event(SAMP_RAKNET_MAP_ICON_ACTION_SET, index, pos, icon, color);
-  trace_netf("rpc-state id=56 set_map_icon seq=%u index=%u icon=%u color=0x%08x pos=%.3f %.3f %.3f evidence=INFERRED,TODO_VERIFY",
+  queue_map_icon_event(SAMP_RAKNET_MAP_ICON_ACTION_SET, index, pos, icon, color, style);
+  trace_netf("rpc-state id=56 set_map_icon seq=%u index=%u icon=%u color=0x%08x style=%u "
+             "pos=%.3f %.3f %.3f evidence=STATIC_037:samp.dll+0x1A790",
              g_rpc_probe.map_icon_event_seq, static_cast<unsigned int>(index), static_cast<unsigned int>(icon),
-             color, static_cast<double>(pos[0]), static_cast<double>(pos[1]), static_cast<double>(pos[2]));
+             color, static_cast<unsigned int>(style), static_cast<double>(pos[0]), static_cast<double>(pos[1]),
+             static_cast<double>(pos[2]));
   return true;
 }
 
@@ -4019,8 +4027,8 @@ bool decode_remove_map_icon_payload(const unsigned char *data, unsigned int byte
                static_cast<unsigned int>(index), bytes);
     return false;
   }
-  queue_map_icon_event(SAMP_RAKNET_MAP_ICON_ACTION_REMOVE, index, nullptr, 0U, 0U);
-  trace_netf("rpc-state id=144 remove_map_icon seq=%u index=%u evidence=INFERRED,TODO_VERIFY",
+  queue_map_icon_event(SAMP_RAKNET_MAP_ICON_ACTION_REMOVE, index, nullptr, 0U, 0U, 0U);
+  trace_netf("rpc-state id=144 remove_map_icon seq=%u index=%u evidence=STATIC_037:samp.dll+0x1A8B0",
              g_rpc_probe.map_icon_event_seq, static_cast<unsigned int>(index));
   return true;
 }
@@ -6007,12 +6015,8 @@ void rpc_observer(RakNet::RPCParameters *rpc_params, void *extra) {
       }
     }
   } else if (rpc_id == 144U) {
-    if (rpc_params != nullptr && bytes >= 1U) {
-      g_rpc_probe.saw_toggle_clock = 1;
-      g_rpc_probe.clock_enabled = rpc_params->input[0] != 0U ? 1U : 0U;
-      (void)decode_remove_map_icon_payload(rpc_params->input, bytes);
-      trace_netf("rpc-state id=144 toggle_clock_compat=%u bytes=%u",
-                 static_cast<unsigned int>(g_rpc_probe.clock_enabled), bytes);
+    if (rpc_params == nullptr || !decode_remove_map_icon_payload(rpc_params->input, bytes)) {
+      trace_netf("rpc-state id=144 remove_map_icon decode_failed bytes=%u", bytes);
     }
   } else if (rpc_id == 156U) {
     if (rpc_params != nullptr && bytes >= 1U) {

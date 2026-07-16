@@ -38,6 +38,29 @@ static const gRpcAudioTestUrl[] = "http://stream.radioparadise.com/mp3-128";
 static const Float:RPC_AUDIO_TEST_OFFSET_X = 5.0;
 static const Float:RPC_AUDIO_TEST_RADIUS = 30.0;
 
+#define RPC_MAP_ICON_SLOT_COUNT (100)
+#define RPC_MAP_ICON_STYLE_COUNT (4)
+#define RPC_MAP_ICON_SLOTS_PER_STYLE (25)
+#define RPC_MAP_ICON_GRID_WIDTH (5)
+#define RPC_MAP_ICON_TICK_MS (1000)
+static const Float:RPC_MAP_ICON_GRID_SPACING = 4.0;
+static const Float:RPC_MAP_ICON_CLUSTER_DISTANCE = 32.0;
+
+// Safe radar sprites: marker types 1, 2, 4 and 56 are intentionally omitted
+// because the official documentation warns that they can crash the map legend.
+static const gRpcMapIconMarkerTypes[RPC_MAP_ICON_SLOTS_PER_STYLE] = {
+	0, 3,
+	5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16,
+	17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27
+};
+
+static const gRpcMapIconColours[RPC_MAP_ICON_STYLE_COUNT] = {
+	0xFF4040FF, // Local: red
+	0x40FF40FF, // Global: green
+	0x4080FFFF, // Local checkpoint: blue
+	0xFFD040FF  // Global checkpoint: yellow
+};
+
 static const CLASS_SELECTION_INTERIOR = 14;
 static const Float:CLASS_SELECTION_X = 258.4893;
 static const Float:CLASS_SELECTION_Y = -41.4008;
@@ -60,6 +83,7 @@ static const Float:CLASS_CAMERA_Z = 1004.0234;
 #define SAMP_OBJECT_SCAN_PHASE_GAP (1)
 
 forward SampObjectScanTick();
+forward RpcMapIconBatchTick();
 
 static gVehicleIds[TEST_VEHICLE_COUNT];
 static gSpawnCustomObjects[SPAWN_CUSTOM_OBJECT_COUNT];
@@ -94,6 +118,10 @@ static gRpcAttachedObject = INVALID_OBJECT_ID;
 static gRpcAttachedObjectPlayer = INVALID_PLAYER_ID;
 static bool:gRpcShopEnabled[MAX_PLAYERS];
 static bool:gRpcColorAlternate[MAX_PLAYERS];
+static bool:gRpcMapIconBatchActive = false;
+static gRpcMapIconBatchSource = INVALID_PLAYER_ID;
+static gRpcMapIconBatchTimer = 0;
+static gRpcMapIconBatchTickCount = 0;
 
 static const gVehicleModels[TEST_VEHICLE_COUNT] = {
 	411, // Infernus
@@ -244,7 +272,172 @@ stock SendPlayerAudioChatRpcHelp(playerid)
 	SendClientMessage(playerid, 0xFFFFFFFF, "[bare-rpctest] /rpcaudiotest, /rpcaudiotestpos, /rpcstopaudio (fixed direct MP3 test)");
 	SendClientMessage(playerid, 0xFFFFFFFF, "[bare-rpctest] /rpcedit, /rpccanceledit, /rpcshop, /rpcaudio <url>, /rpcaudiopos <url>");
 	SendClientMessage(playerid, 0xFFFFFFFF, "[bare-rpctest] /rpcbubble <other player id>, /rpcteam <0-255>, /rpccolor, /rpcattach, /rpcattachoff");
+	SendClientMessage(playerid, 0xFFFFFFFF, "[bare-rpctest] /rpcmapicons starts the 100-slot moving beacon; /rpcmapiconsoff removes it.");
 	SendClientMessage(playerid, 0xFFCC66FF, "[bare-rpctest] RPC137/138 join/quit are automatic; RPC59 needs a second client/NPC as the visible target.");
+	return 1;
+}
+
+/// Removes all 100 RPC map-icon slots from one observer.
+/// Reference: https://open.mp/docs/scripting/functions/RemovePlayerMapIcon
+stock RemoveRpcMapIconBatchForPlayer(playerid)
+{
+	for (new slot = 0; slot < RPC_MAP_ICON_SLOT_COUNT; slot++)
+	{
+		RemovePlayerMapIcon(playerid, slot);
+	}
+	return 1;
+}
+
+/// Removes the active batch from every connected observer and stops its timer.
+/// References: https://open.mp/docs/scripting/functions/RemovePlayerMapIcon
+///             https://open.mp/docs/scripting/functions/KillTimer
+stock StopRpcMapIconBatch(playerid, bool:quiet)
+{
+	new bool:wasActive = gRpcMapIconBatchActive;
+	new previousSource = gRpcMapIconBatchSource;
+
+	if (gRpcMapIconBatchTimer != 0)
+	{
+		KillTimer(gRpcMapIconBatchTimer);
+		gRpcMapIconBatchTimer = 0;
+	}
+
+	for (new observer = 0; observer < MAX_PLAYERS; observer++)
+	{
+		if (IsPlayerConnected(observer) && !IsPlayerNPC(observer))
+		{
+			RemoveRpcMapIconBatchForPlayer(observer);
+		}
+	}
+
+	gRpcMapIconBatchActive = false;
+	gRpcMapIconBatchSource = INVALID_PLAYER_ID;
+	gRpcMapIconBatchTickCount = 0;
+
+	if (!quiet && playerid != INVALID_PLAYER_ID && IsPlayerConnected(playerid))
+	{
+		SendClientMessage(playerid, 0x66FF66FF, wasActive ?
+			"[bare-rpctest] RPC144 removed all 100 map-icon slots from every observer." :
+			"[bare-rpctest] No RPC map-icon batch was active; all slots were cleared anyway.");
+	}
+	printf("[bare-rpctest] RPC144 map_icon_batch_stop requester=%d source=%d was_active=%d",
+		playerid, previousSource, wasActive);
+	return 1;
+}
+
+/// Sends all 100 RPC56 slots to one observer as four style-specific clusters.
+/// References: https://open.mp/docs/scripting/functions/SetPlayerMapIcon
+///             https://open.mp/docs/scripting/resources/mapiconstyles
+///             https://open.mp/docs/scripting/resources/mapicons
+stock ApplyRpcMapIconBatchForPlayer(playerid, Float:sourceX, Float:sourceY, Float:sourceZ)
+{
+	for (new slot = 0; slot < RPC_MAP_ICON_SLOT_COUNT; slot++)
+	{
+		new style = slot / RPC_MAP_ICON_SLOTS_PER_STYLE;
+		new styleSlot = slot % RPC_MAP_ICON_SLOTS_PER_STYLE;
+		new gridX = (styleSlot % RPC_MAP_ICON_GRID_WIDTH) - 2;
+		new gridY = (styleSlot / RPC_MAP_ICON_GRID_WIDTH) - 2;
+		new Float:clusterX = 0.0;
+		new Float:clusterY = 0.0;
+
+		switch (style)
+		{
+			case 0: clusterX = -RPC_MAP_ICON_CLUSTER_DISTANCE;
+			case 1: clusterX = RPC_MAP_ICON_CLUSTER_DISTANCE;
+			case 2: clusterY = -RPC_MAP_ICON_CLUSTER_DISTANCE;
+			case 3: clusterY = RPC_MAP_ICON_CLUSTER_DISTANCE;
+		}
+
+		new markerType = gRpcMapIconMarkerTypes[styleSlot];
+		new colour = markerType == 0 ? gRpcMapIconColours[style] : 0;
+		SetPlayerMapIcon(
+			playerid,
+			slot,
+			sourceX + clusterX + (float(gridX) * RPC_MAP_ICON_GRID_SPACING),
+			sourceY + clusterY + (float(gridY) * RPC_MAP_ICON_GRID_SPACING),
+			sourceZ,
+			markerType,
+			colour,
+			MAPICON:style
+		);
+	}
+	return 1;
+}
+
+/// Refreshes the moving player beacon, intentionally replacing all 100 slots.
+/// References: https://open.mp/docs/scripting/functions/GetPlayerPos
+///             https://open.mp/docs/scripting/functions/SetTimer
+public RpcMapIconBatchTick()
+{
+	if (!gRpcMapIconBatchActive || gRpcMapIconBatchSource == INVALID_PLAYER_ID ||
+		!IsPlayerConnected(gRpcMapIconBatchSource))
+	{
+		StopRpcMapIconBatch(INVALID_PLAYER_ID, true);
+		return 1;
+	}
+
+	new Float:x, Float:y, Float:z;
+	if (!GetPlayerPos(gRpcMapIconBatchSource, x, y, z))
+	{
+		StopRpcMapIconBatch(INVALID_PLAYER_ID, true);
+		return 1;
+	}
+
+	new observers = 0;
+	for (new observer = 0; observer < MAX_PLAYERS; observer++)
+	{
+		if (!IsPlayerConnected(observer) || IsPlayerNPC(observer))
+		{
+			continue;
+		}
+		ApplyRpcMapIconBatchForPlayer(observer, x, y, z);
+		observers++;
+	}
+
+	gRpcMapIconBatchTickCount++;
+	if (gRpcMapIconBatchTickCount <= 5 || (gRpcMapIconBatchTickCount % 30) == 0)
+	{
+		printf("[bare-rpctest] RPC56 map_icon_batch tick=%d source=%d observers=%d sets=%d pos=%.3f,%.3f,%.3f",
+			gRpcMapIconBatchTickCount, gRpcMapIconBatchSource, observers,
+			observers * RPC_MAP_ICON_SLOT_COUNT, x, y, z);
+	}
+	return 1;
+}
+
+/// Starts a repeating 100-slot map-icon batch centered around the player.
+/// References: https://open.mp/docs/scripting/functions/SetPlayerMapIcon
+///             https://open.mp/docs/scripting/functions/SetTimer
+stock StartRpcMapIconBatch(playerid)
+{
+	if (gRpcMapIconBatchActive || gRpcMapIconBatchTimer != 0)
+	{
+		StopRpcMapIconBatch(playerid, true);
+	}
+
+	gRpcMapIconBatchSource = playerid;
+	gRpcMapIconBatchActive = true;
+	gRpcMapIconBatchTickCount = 0;
+	gRpcMapIconBatchTimer = SetTimer("RpcMapIconBatchTick", RPC_MAP_ICON_TICK_MS, true);
+	if (gRpcMapIconBatchTimer == 0)
+	{
+		gRpcMapIconBatchActive = false;
+		gRpcMapIconBatchSource = INVALID_PLAYER_ID;
+		SendClientMessage(playerid, 0xFF6666FF, "[bare-rpctest] Could not create the RPC map-icon timer.");
+		return 1;
+	}
+	RpcMapIconBatchTick();
+	if (!gRpcMapIconBatchActive)
+	{
+		SendClientMessage(playerid, 0xFF6666FF, "[bare-rpctest] Could not read the beacon player's position.");
+		return 1;
+	}
+
+	SendClientMessage(playerid, 0x66FF66FF,
+		"[bare-rpctest] RPC56 beacon active: 100 slots, 25 per style, refreshed every second for all observers.");
+	SendClientMessage(playerid, 0xFFFFFFFF,
+		"[bare-rpctest] Walk around while the replacement client watches HUD/map. Use /rpcmapiconsoff to send RPC144 x100.");
+	printf("[bare-rpctest] RPC56 map_icon_batch_start source=%d timer=%d interval_ms=%d",
+		playerid, gRpcMapIconBatchTimer, RPC_MAP_ICON_TICK_MS);
 	return 1;
 }
 
@@ -767,6 +960,16 @@ public OnPlayerCommandText(playerid, cmdtext[])
 	{
 		SendPlayerAudioChatRpcHelp(playerid);
 		return 1;
+	}
+
+	if (!strcmp(cmdtext, "/rpcmapicons", true))
+	{
+		return StartRpcMapIconBatch(playerid);
+	}
+
+	if (!strcmp(cmdtext, "/rpcmapiconsoff", true))
+	{
+		return StopRpcMapIconBatch(playerid, false);
 	}
 
 	if (!strcmp(cmdtext, "/rpcedit", true))
@@ -1676,6 +1879,11 @@ public OnPlayerDisconnect(playerid, reason)
 	GetPlayerName(playerid, name, sizeof(name));
 	printf("[bare-rpctest] RPC138 ServerQuit player=%d name=%s reason=%d", playerid, name, reason);
 
+	if (gRpcMapIconBatchActive && gRpcMapIconBatchSource == playerid)
+	{
+		StopRpcMapIconBatch(playerid, true);
+	}
+
 	if (gSampObjectScanActive && gSampObjectScanPlayer == playerid)
 	{
 		StopSampObjectScan(playerid, true);
@@ -1691,6 +1899,7 @@ public OnPlayerDisconnect(playerid, reason)
 
 public OnGameModeExit()
 {
+	StopRpcMapIconBatch(INVALID_PLAYER_ID, true);
 	StopSampObjectScan(INVALID_PLAYER_ID, true);
 	DestroyRpcAttachedObject("gamemode_exit");
 	if (gRpcEditObject != INVALID_OBJECT_ID)
