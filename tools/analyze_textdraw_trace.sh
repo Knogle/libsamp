@@ -60,6 +60,8 @@ FONT_ORDER_FILE="${OUT_DIR}/font_order.log"
 FONT_CALL_COUNTS_FILE="${OUT_DIR}/font_call_counts.tsv"
 FONT_CALLER_COUNTS_FILE="${OUT_DIR}/font_caller_counts.tsv"
 PRINT_STRINGS_FILE="${OUT_DIR}/print_strings.log"
+FONT5_DISPATCH_FILE="${OUT_DIR}/font5_dispatch.log"
+FONT5_RTT_FILE="${OUT_DIR}/font5_rtt.log"
 SERVER_EVENTS_FILE="${OUT_DIR}/server_events.log"
 SUMMARY_FILE="${OUT_DIR}/SUMMARY.txt"
 
@@ -100,6 +102,10 @@ sed -n 's/.*textdraw_font: seq=[0-9][0-9]* .*caller_samp_rva=\(0x[0-9a-fA-F]*\).
 
 rg -n 'name=CFont\.PrintString' "$FONT_SEQUENCE_FILE" >"$PRINT_STRINGS_FILE" || true
 
+rg -n -e 'font5_code_hook:' -e 'font5_dispatch:' "$CLIENT_LOG" >"$FONT5_DISPATCH_FILE" || true
+rg -n -e 'textdraw_rtt:' -e 'textdraw_render: (IDirect3D(Device9|Texture9)|ID3DXSprite)' \
+  "$CLIENT_LOG" >"$FONT5_RTT_FILE" || true
+
 if [[ -n "$SERVER_LOG" ]]; then
   rg -n -i \
     -e '\[tdprobe\]' \
@@ -128,6 +134,8 @@ fi
     font_call_counts.tsv \
     font_caller_counts.tsv \
     print_strings.log \
+    font5_dispatch.log \
+    font5_rtt.log \
     server_events.log; do
     printf '%-32s %s\n' "$f" "$(wc -l < "${OUT_DIR}/${f}" 2>/dev/null || echo 0) lines"
   done

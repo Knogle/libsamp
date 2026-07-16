@@ -25,6 +25,7 @@ int samp_raknet_client_send_textdraw_click(void *client, uint16_t textdraw_id);
 int samp_raknet_client_mark_class_selection_after_death(void *client);
 int samp_raknet_client_request_class_selection_after_death(void *client);
 int samp_raknet_client_request_class_delta(void *client, int delta);
+int samp_raknet_client_request_spawn(void *client);
 
 #pragma pack(push, 1)
 typedef struct samp_raknet_onfoot_sync {
@@ -141,6 +142,10 @@ typedef struct samp_raknet_join_profile {
 #define SAMP_RAKNET_GIVE_MONEY_EVENT_RING 16u
 #define SAMP_RAKNET_PICKUP_EVENT_RING 64u
 #define SAMP_RAKNET_EXPLOSION_EVENT_RING 16u
+#define SAMP_RAKNET_CHAT_BUBBLE_EVENT_RING 32u
+#define SAMP_RAKNET_CHAT_BUBBLE_TEXT_BYTES 129u
+#define SAMP_RAKNET_AUDIO_STREAM_URL_BYTES 129u
+#define SAMP_RAKNET_SHOP_NAME_BYTES 33u
 #define SAMP_RAKNET_PICKUP_ACTION_CREATE 1u
 #define SAMP_RAKNET_PICKUP_ACTION_DESTROY 2u
 #define SAMP_RAKNET_CLIENT_MESSAGE_BYTES 256u
@@ -152,6 +157,8 @@ typedef struct samp_raknet_join_profile {
 #define SAMP_RAKNET_PLAYER_POOL_ACTION_JOIN 1u
 #define SAMP_RAKNET_PLAYER_POOL_ACTION_QUIT 2u
 #define SAMP_RAKNET_PLAYER_POOL_ACTION_RENAME 3u
+#define SAMP_RAKNET_PLAYER_POOL_ACTION_TEAM 4u
+#define SAMP_RAKNET_PLAYER_POOL_ACTION_COLOR 5u
 #define SAMP_RAKNET_REMOTE_PLAYER_EVENT_RING 64u
 #define SAMP_RAKNET_REMOTE_PLAYER_SYNC_RING 128u
 #define SAMP_RAKNET_REMOTE_PLAYER_ACTION_ADD 1u
@@ -472,6 +479,16 @@ typedef struct samp_raknet_explosion_event {
   float radius;
 } samp_raknet_explosion_event;
 
+typedef struct samp_raknet_chat_bubble_event {
+  uint32_t seq;
+  uint16_t player_id;
+  uint16_t reserved;
+  uint32_t color;
+  uint32_t duration_ms;
+  float draw_distance;
+  char text[SAMP_RAKNET_CHAT_BUBBLE_TEXT_BYTES];
+} samp_raknet_chat_bubble_event;
+
 typedef struct samp_raknet_rpc_probe_snapshot {
   uint32_t flags;
   uint32_t client_message_count;
@@ -491,6 +508,7 @@ typedef struct samp_raknet_rpc_probe_snapshot {
   uint32_t give_money_event_count;
   uint32_t pickup_event_count;
   uint32_t explosion_event_count;
+  uint32_t chat_bubble_event_count;
   uint8_t textdraw_select_active;
   uint32_t textdraw_select_color;
   uint16_t init_spawns_available;
@@ -558,6 +576,10 @@ typedef struct samp_raknet_rpc_probe_snapshot {
   uint32_t checkpoint_event_seq;
   uint32_t pickup_event_seq;
   uint32_t explosion_event_seq;
+  uint32_t chat_bubble_event_seq;
+  uint32_t cancel_edit_seq;
+  uint32_t shop_name_seq;
+  uint32_t play_audio_stream_seq;
   uint32_t play_sound_seq;
   uint32_t stop_audio_stream_seq;
   uint32_t player_color_seq;
@@ -609,6 +631,11 @@ typedef struct samp_raknet_rpc_probe_snapshot {
   float race_checkpoint_next[3];
   float race_checkpoint_size;
   uint8_t checkpoint_event_type;
+  char shop_name[SAMP_RAKNET_SHOP_NAME_BYTES];
+  char audio_stream_url[SAMP_RAKNET_AUDIO_STREAM_URL_BYTES];
+  float audio_stream_pos[3];
+  float audio_stream_distance;
+  uint8_t audio_stream_use_pos;
   uint32_t play_sound_id;
   float play_sound_pos[3];
   uint16_t player_color_player_id;
@@ -687,6 +714,7 @@ typedef struct samp_raknet_rpc_probe_snapshot {
   samp_raknet_give_money_event give_money_events[SAMP_RAKNET_GIVE_MONEY_EVENT_RING];
   samp_raknet_pickup_event pickup_events[SAMP_RAKNET_PICKUP_EVENT_RING];
   samp_raknet_explosion_event explosion_events[SAMP_RAKNET_EXPLOSION_EVENT_RING];
+  samp_raknet_chat_bubble_event chat_bubble_events[SAMP_RAKNET_CHAT_BUBBLE_EVENT_RING];
 } samp_raknet_rpc_probe_snapshot;
 
 /*

@@ -17,6 +17,7 @@
 #define PROBE_TEXTDRAW_HOOKS_FLAG "samp_probe_textdraw_hooks.flag"
 #define PROBE_TEXTDRAW_VERBOSE_FLAG "samp_probe_textdraw_verbose.flag"
 #define PROBE_TEXTDRAW_RENDER_FLAG "samp_probe_textdraw_render.flag"
+#define PROBE_FONT5_HOOKS_FLAG "samp_probe_font5_hooks.flag"
 #define PROBE_MAX_IMPORT_LOGS 4096
 #define PROBE_WATCH_INTERVAL_MS 250
 #define PROBE_WAIT_FOR_SAMP_MS 30000
@@ -24,7 +25,7 @@
 #define PROBE_PAYLOAD_PREVIEW_BYTES 256
 #define PROBE_STATE_HEARTBEAT_MS 5000
 #define PROBE_ASSET_HANDLE_SLOTS 64
-#define PROBE_TEXTURE_TRACK_SLOTS 256
+#define PROBE_TEXTURE_TRACK_SLOTS 1024
 #define PROBE_TEXTDRAW_RENDER_HINT_MS 750u
 
 #define PROBE_GTA_ADDR_MODEL_INFO_PTRS 0x00A9B0C8u
@@ -51,6 +52,16 @@
 #define PROBE_D3DDEV_VTBL_SET_RENDER_STATE 57u
 #define PROBE_D3DDEV_VTBL_SET_TEXTURE 65u
 #define PROBE_D3DDEV_VTBL_SET_FVF 89u
+#define PROBE_D3DDEV_VTBL_CREATE_TEXTURE 23u
+#define PROBE_D3DDEV_VTBL_CREATE_RENDER_TARGET 28u
+#define PROBE_D3DDEV_VTBL_CREATE_DEPTH_STENCIL_SURFACE 29u
+#define PROBE_D3DDEV_VTBL_STRETCH_RECT 34u
+#define PROBE_D3DDEV_VTBL_SET_RENDER_TARGET 37u
+#define PROBE_D3DDEV_VTBL_GET_RENDER_TARGET 38u
+#define PROBE_D3DDEV_VTBL_SET_DEPTH_STENCIL_SURFACE 39u
+#define PROBE_D3DDEV_VTBL_GET_DEPTH_STENCIL_SURFACE 40u
+#define PROBE_D3DDEV_VTBL_CLEAR 43u
+#define PROBE_D3DDEV_VTBL_SET_VIEWPORT 47u
 #define PROBE_D3DDEV_VTBL_DRAW_PRIMITIVE 81u
 #define PROBE_D3DDEV_VTBL_DRAW_INDEXED_PRIMITIVE 82u
 #define PROBE_D3DDEV_VTBL_DRAW_PRIMITIVE_UP 83u
@@ -58,6 +69,18 @@
 #define PROBE_D3DXSPRITE_VTBL_BEGIN 8u
 #define PROBE_D3DXSPRITE_VTBL_DRAW 9u
 #define PROBE_D3DXSPRITE_VTBL_END 11u
+#define PROBE_D3DTEXTURE_VTBL_GET_SURFACE_LEVEL 18u
+#define PROBE_D3DUSAGE_RENDERTARGET 0x00000001u
+
+/* STATIC_037 + PROBE_TRACE: exact local SA-MP 0.3.7-R5 reference identity
+ * proxy.  The PE COFF TimeDateStamp is the raw UTC value from the image;
+ * do not reconstruct it from objdump's localized display time.
+ * SHA256=b72b5dbe725f81864ca3f78bc7063bda56cc05fc7188af822fa7a754432553a2. */
+#define PROBE_SAMP_R5_TIMESTAMP 0x6372c39eu
+#define PROBE_SAMP_R5_ENTRY_RVA 0x000cbc90u
+#define PROBE_SAMP_R5_IMAGE_SIZE 0x0027e000u
+#define PROBE_SAMP_R5_FONT5_PREPARE_RVA 0x000b34a0u
+#define PROBE_SAMP_R5_FONT5_DRAW_DISPATCH_RVA 0x000b3480u
 
 #if defined(__GNUC__)
 #define PROBE_ALWAYS_INLINE static __inline__ __attribute__((always_inline))
@@ -104,6 +127,7 @@ typedef void(__cdecl *probe_gta_load_cd_directory_fn)(const char *, int);
 typedef int(__cdecl *probe_gta_col_add_slot_fn)(const char *);
 typedef int(__cdecl *probe_gta_col_load_buffer_fn)(int, void *, int);
 typedef void(PROBE_THISCALL *probe_gta_physical_add_fn)(void *);
+typedef void(PROBE_THISCALL *probe_samp_font5_method_fn)(void *);
 typedef void(__cdecl *probe_gta_font_set_scale_fn)(float, float);
 typedef void(__cdecl *probe_gta_font_set_color_fn)(DWORD);
 typedef void(__cdecl *probe_gta_font_set_int_fn)(int);
@@ -111,6 +135,7 @@ typedef void(__cdecl *probe_gta_font_set_float_fn)(float);
 typedef void(__cdecl *probe_gta_font_use_box_fn)(int, int);
 typedef void(__cdecl *probe_gta_font_print_string_fn)(float, float, char *);
 typedef HRESULT(WINAPI *probe_D3DXCreateSprite_fn)(void *, void **);
+typedef HRESULT(WINAPI *probe_D3DXCreateTexture_fn)(void *, UINT, UINT, UINT, DWORD, int, int, void **);
 typedef HRESULT(WINAPI *probe_D3DXCreateTextureFromFileA_fn)(void *, LPCSTR, void **);
 typedef HRESULT(WINAPI *probe_D3DXCreateTextureFromFileExA_fn)(void *, LPCSTR, UINT, UINT, UINT, DWORD, int, int,
                                                               DWORD, DWORD, DWORD, void *, void *, void **);
@@ -130,6 +155,27 @@ typedef HRESULT(WINAPI *probe_d3dx_sprite_draw_fn)(void *, void *, const RECT *,
 typedef HRESULT(WINAPI *probe_d3d_set_render_state_fn)(void *, DWORD, DWORD);
 typedef HRESULT(WINAPI *probe_d3d_set_texture_fn)(void *, DWORD, void *);
 typedef HRESULT(WINAPI *probe_d3d_set_fvf_fn)(void *, DWORD);
+typedef struct probe_d3d_viewport {
+  DWORD x;
+  DWORD y;
+  DWORD width;
+  DWORD height;
+  float min_z;
+  float max_z;
+} probe_d3d_viewport;
+typedef HRESULT(WINAPI *probe_d3d_create_texture_fn)(void *, UINT, UINT, UINT, DWORD, int, int, void **, HANDLE *);
+typedef HRESULT(WINAPI *probe_d3d_create_render_target_fn)(void *, UINT, UINT, int, int, DWORD, BOOL, void **,
+                                                           HANDLE *);
+typedef HRESULT(WINAPI *probe_d3d_create_depth_stencil_surface_fn)(void *, UINT, UINT, int, int, DWORD, BOOL,
+                                                                  void **, HANDLE *);
+typedef HRESULT(WINAPI *probe_d3d_stretch_rect_fn)(void *, void *, const RECT *, void *, const RECT *, int);
+typedef HRESULT(WINAPI *probe_d3d_set_render_target_fn)(void *, DWORD, void *);
+typedef HRESULT(WINAPI *probe_d3d_get_render_target_fn)(void *, DWORD, void **);
+typedef HRESULT(WINAPI *probe_d3d_set_depth_stencil_surface_fn)(void *, void *);
+typedef HRESULT(WINAPI *probe_d3d_get_depth_stencil_surface_fn)(void *, void **);
+typedef HRESULT(WINAPI *probe_d3d_clear_fn)(void *, DWORD, const void *, DWORD, DWORD, float, DWORD);
+typedef HRESULT(WINAPI *probe_d3d_set_viewport_fn)(void *, const probe_d3d_viewport *);
+typedef HRESULT(WINAPI *probe_d3d_texture_get_surface_level_fn)(void *, UINT, void **);
 typedef HRESULT(WINAPI *probe_d3d_draw_primitive_fn)(void *, DWORD, UINT, UINT);
 typedef HRESULT(WINAPI *probe_d3d_draw_indexed_primitive_fn)(void *, DWORD, INT, UINT, UINT, UINT, UINT);
 typedef HRESULT(WINAPI *probe_d3d_draw_primitive_up_fn)(void *, DWORD, UINT, const void *, UINT);
@@ -200,7 +246,7 @@ typedef struct probe_code_hook {
   DWORD rva;
   void *replacement;
   void **original_slot;
-  BYTE expected[8];
+  BYTE expected[16];
   size_t expected_len;
   void *patch_target;
   void *trampoline;
@@ -217,6 +263,10 @@ typedef struct probe_asset_handle {
 
 typedef struct probe_texture_record {
   void *texture;
+  void *level0_surface;
+  UINT width;
+  UINT height;
+  DWORD usage;
   char source[192];
   LONG draw_count;
 } probe_texture_record;
@@ -273,6 +323,8 @@ static void *g_orig_gta_load_cd_directory;
 static void *g_orig_gta_col_add_slot;
 static void *g_orig_gta_col_load_buffer;
 static void *g_orig_gta_physical_add;
+static void *g_orig_samp_font5_prepare;
+static void *g_orig_samp_font5_draw_dispatch;
 static void *g_orig_gta_font_set_scale;
 static void *g_orig_gta_font_set_color;
 static void *g_orig_gta_font_set_style;
@@ -288,6 +340,7 @@ static void *g_orig_gta_font_unk12;
 static void *g_orig_gta_font_set_justify;
 static void *g_orig_gta_font_print_string;
 static void *g_orig_D3DXCreateSprite;
+static void *g_orig_D3DXCreateTexture;
 static void *g_orig_D3DXCreateTextureFromFileA;
 static void *g_orig_D3DXCreateTextureFromFileExA;
 static void *g_orig_D3DXCreateTextureFromFileInMemory;
@@ -298,6 +351,17 @@ static void *g_orig_d3dx_sprite_end;
 static void *g_orig_d3d_set_render_state;
 static void *g_orig_d3d_set_texture;
 static void *g_orig_d3d_set_fvf;
+static void *g_orig_d3d_create_texture;
+static void *g_orig_d3d_create_render_target;
+static void *g_orig_d3d_create_depth_stencil_surface;
+static void *g_orig_d3d_stretch_rect;
+static void *g_orig_d3d_set_render_target;
+static void *g_orig_d3d_get_render_target;
+static void *g_orig_d3d_set_depth_stencil_surface;
+static void *g_orig_d3d_get_depth_stencil_surface;
+static void *g_orig_d3d_clear;
+static void *g_orig_d3d_set_viewport;
+static void *g_orig_d3d_texture_get_surface_level;
 static void *g_orig_d3d_draw_primitive;
 static void *g_orig_d3d_draw_indexed_primitive;
 static void *g_orig_d3d_draw_primitive_up;
@@ -308,13 +372,18 @@ static probe_texture_record g_texture_records[PROBE_TEXTURE_TRACK_SLOTS];
 static BYTE g_model_info_physical_dumped[PROBE_GTA_MODEL_INFO_MAX];
 static PROBE_THREAD_LOCAL int g_file_hook_depth;
 static PROBE_THREAD_LOCAL int g_textdraw_render_hook_depth;
+static PROBE_THREAD_LOCAL int g_font5_trace_depth;
+static PROBE_THREAD_LOCAL LONG g_font5_active_seq;
 static LONG g_textdraw_font_call_count;
 static LONG g_textdraw_render_call_count;
+static LONG g_font5_trace_call_count;
 static LONG g_textdraw_current_font_style = -1;
 static LONG g_d3d_device_hooks_installed;
 static DWORD g_textdraw_render_hint_until_ms;
 static void *g_d3d_device_vtable;
 static void *g_d3d_stage0_texture;
+static void *g_d3d_current_render_target;
+static void *g_d3d_current_depth_stencil;
 
 static int env_or_flag_enabled(const char *env_name, const char *flag_name);
 static int asset_path_hooks_enabled(void);
@@ -326,6 +395,8 @@ static int custom_object_heavy_enabled(void);
 static int textdraw_hooks_enabled(void);
 static int textdraw_verbose_enabled(void);
 static int textdraw_render_enabled(void);
+static int font5_hooks_enabled(void);
+static PIMAGE_NT_HEADERS get_samp_nt_headers(void);
 static LONG CALLBACK probe_exception_handler(PEXCEPTION_POINTERS info);
 static int WINAPI hook_WSAStartup(WORD version, LPWSADATA data);
 static int WINAPI hook_WSACleanup(void);
@@ -370,6 +441,8 @@ static void __cdecl hook_gta_load_cd_directory(const char *path, int image_id);
 static int __cdecl hook_gta_col_add_slot(const char *name);
 static int __cdecl hook_gta_col_load_buffer(int slot, void *buffer, int size);
 static void PROBE_THISCALL hook_gta_physical_add(void *entity);
+static void PROBE_THISCALL hook_samp_font5_prepare(void *textdraw);
+static void PROBE_THISCALL hook_samp_font5_draw_dispatch(void *textdraw);
 static void __cdecl hook_gta_font_set_scale(float x, float y);
 static void __cdecl hook_gta_font_set_color(DWORD color);
 static void __cdecl hook_gta_font_set_style(int style);
@@ -385,6 +458,8 @@ static void __cdecl hook_gta_font_unk12(int value);
 static void __cdecl hook_gta_font_set_justify(int justify);
 static void __cdecl hook_gta_font_print_string(float x, float y, char *text);
 static HRESULT WINAPI hook_D3DXCreateSprite(void *device, void **sprite);
+static HRESULT WINAPI hook_D3DXCreateTexture(void *device, UINT width, UINT height, UINT mip_levels, DWORD usage,
+                                             int format, int pool, void **texture);
 static HRESULT WINAPI hook_D3DXCreateTextureFromFileA(void *device, LPCSTR src_file, void **texture);
 static HRESULT WINAPI hook_D3DXCreateTextureFromFileExA(void *device, LPCSTR src_file, UINT width, UINT height,
                                                        UINT mip_levels, DWORD usage, int format, int pool,
@@ -405,6 +480,24 @@ static HRESULT WINAPI hook_d3dx_sprite_end(void *sprite);
 static HRESULT WINAPI hook_d3d_set_render_state(void *device, DWORD state, DWORD value);
 static HRESULT WINAPI hook_d3d_set_texture(void *device, DWORD stage, void *texture);
 static HRESULT WINAPI hook_d3d_set_fvf(void *device, DWORD fvf);
+static HRESULT WINAPI hook_d3d_create_texture(void *device, UINT width, UINT height, UINT levels, DWORD usage,
+                                              int format, int pool, void **texture, HANDLE *shared_handle);
+static HRESULT WINAPI hook_d3d_create_render_target(void *device, UINT width, UINT height, int format,
+                                                    int multi_sample, DWORD multi_sample_quality, BOOL lockable,
+                                                    void **surface, HANDLE *shared_handle);
+static HRESULT WINAPI hook_d3d_create_depth_stencil_surface(void *device, UINT width, UINT height, int format,
+                                                            int multi_sample, DWORD multi_sample_quality,
+                                                            BOOL discard, void **surface, HANDLE *shared_handle);
+static HRESULT WINAPI hook_d3d_stretch_rect(void *device, void *source_surface, const RECT *source_rect,
+                                            void *dest_surface, const RECT *dest_rect, int filter);
+static HRESULT WINAPI hook_d3d_set_render_target(void *device, DWORD index, void *surface);
+static HRESULT WINAPI hook_d3d_get_render_target(void *device, DWORD index, void **surface);
+static HRESULT WINAPI hook_d3d_set_depth_stencil_surface(void *device, void *surface);
+static HRESULT WINAPI hook_d3d_get_depth_stencil_surface(void *device, void **surface);
+static HRESULT WINAPI hook_d3d_clear(void *device, DWORD count, const void *rects, DWORD flags, DWORD color,
+                                     float z, DWORD stencil);
+static HRESULT WINAPI hook_d3d_set_viewport(void *device, const probe_d3d_viewport *viewport);
+static HRESULT WINAPI hook_d3d_texture_get_surface_level(void *texture, UINT level, void **surface);
 static HRESULT WINAPI hook_d3d_draw_primitive(void *device, DWORD primitive_type, UINT start_vertex,
                                              UINT primitive_count);
 static HRESULT WINAPI hook_d3d_draw_indexed_primitive(void *device, DWORD primitive_type, INT base_vertex_index,
@@ -471,6 +564,7 @@ static probe_iat_hook g_file_read_hooks[] = {
 
 static probe_iat_hook g_textdraw_render_iat_hooks[] = {
     {"d3dx9_25.dll", "D3DXCreateSprite", 0, (void *)hook_D3DXCreateSprite, &g_orig_D3DXCreateSprite, 0},
+    {"d3dx9_25.dll", "D3DXCreateTexture", 0, (void *)hook_D3DXCreateTexture, &g_orig_D3DXCreateTexture, 0},
     {"d3dx9_25.dll", "D3DXCreateTextureFromFileA", 0, (void *)hook_D3DXCreateTextureFromFileA,
      &g_orig_D3DXCreateTextureFromFileA, 0},
     {"d3dx9_25.dll", "D3DXCreateTextureFromFileExA", 0, (void *)hook_D3DXCreateTextureFromFileExA,
@@ -543,6 +637,20 @@ static probe_code_hook g_samp_code_hooks[] = {
      {0x83, 0xec, 0x10, 0x57}, 4, NULL, NULL, {0}, 0, 0},
     {"samp.ProcessNetworkPacket", 0x0003b950u, (void *)hook_samp_process_network_packet, &g_orig_samp_process_network_packet,
      {0x6a, 0xff, 0x68}, 3, NULL, NULL, {0}, 0, 0},
+};
+
+static probe_code_hook g_samp_font5_code_hooks[] = {
+    /* STATIC_037:
+     * Original samp.dll SHA256=b72b5dbe725f81864ca3f78bc7063bda56cc05fc7188af822fa7a754432553a2.
+     * RVA 0xb34a0 validates style 5 and creates/caches the preview entity.
+     * RVA 0xb3480 selects cached-preview drawing vs. the normal CFont path.
+     * Both hooks additionally require the PE identity proxy and exact prologue bytes. */
+    {"samp.CTextDraw.Font5Prepare", PROBE_SAMP_R5_FONT5_PREPARE_RVA, (void *)hook_samp_font5_prepare,
+     &g_orig_samp_font5_prepare, {0x56, 0x8b, 0xf1, 0x83, 0xbe, 0x87, 0x09, 0x00, 0x00, 0x05}, 10,
+     NULL, NULL, {0}, 0, 0},
+    {"samp.CTextDraw.DrawDispatch", PROBE_SAMP_R5_FONT5_DRAW_DISPATCH_RVA,
+     (void *)hook_samp_font5_draw_dispatch, &g_orig_samp_font5_draw_dispatch,
+     {0x83, 0xb9, 0xa3, 0x09, 0x00, 0x00, 0xff}, 7, NULL, NULL, {0}, 0, 0},
 };
 
 static probe_code_hook g_gta_asset_code_hooks[] = {
@@ -860,7 +968,15 @@ static int textdraw_render_enabled(void) {
    * Focused Font 4 sprite / Font 5 preview traces need D3DX/IDirect3DDevice9
    * hooks in addition to CFont. Keep this deeper render probe separately opt-in
    * because it patches COM vtables and can be noisy during short render runs. */
-  return env_or_flag_enabled("SAMP_PROBE_TEXTDRAW_RENDER", PROBE_TEXTDRAW_RENDER_FLAG);
+  return env_or_flag_enabled("SAMP_PROBE_TEXTDRAW_RENDER", PROBE_TEXTDRAW_RENDER_FLAG) || font5_hooks_enabled();
+}
+
+static int font5_hooks_enabled(void) {
+  /* STATIC_037 + TODO_VERIFY:
+   * These internal samp.dll hooks are restricted to an exact R5 PE identity
+   * proxy plus validated prologue bytes. The dedicated switch also enables the
+   * D3D render tracer so one short run captures dispatch and RTT activity. */
+  return env_or_flag_enabled("SAMP_PROBE_FONT5_HOOKS", PROBE_FONT5_HOOKS_FLAG);
 }
 
 PROBE_ALWAYS_INLINE void *probe_return_address(void) {
@@ -1432,6 +1548,74 @@ static void remember_texture_source(void *texture, const char *source) {
   LeaveCriticalSection(&g_log_lock);
 }
 
+static void remember_texture_details(void *texture, const char *source, UINT width, UINT height, DWORD usage) {
+  size_t i;
+
+  remember_texture_source(texture, source);
+  if (texture == NULL) {
+    return;
+  }
+
+  EnterCriticalSection(&g_log_lock);
+  for (i = 0; i < PROBE_TEXTURE_TRACK_SLOTS; ++i) {
+    if (g_texture_records[i].texture == texture) {
+      g_texture_records[i].width = width;
+      g_texture_records[i].height = height;
+      g_texture_records[i].usage = usage;
+      break;
+    }
+  }
+  LeaveCriticalSection(&g_log_lock);
+}
+
+static void remember_texture_surface(void *texture, UINT level, void *surface) {
+  size_t i;
+
+  if (texture == NULL || level != 0 || surface == NULL) {
+    return;
+  }
+
+  EnterCriticalSection(&g_log_lock);
+  for (i = 0; i < PROBE_TEXTURE_TRACK_SLOTS; ++i) {
+    if (g_texture_records[i].texture == texture) {
+      g_texture_records[i].level0_surface = surface;
+      break;
+    }
+  }
+  LeaveCriticalSection(&g_log_lock);
+}
+
+static int texture_for_surface(void *surface, void **texture_out, char *source, size_t source_size) {
+  size_t i;
+  int found = 0;
+
+  if (texture_out != NULL) {
+    *texture_out = NULL;
+  }
+  if (source != NULL && source_size > 0) {
+    source[0] = '\0';
+  }
+  if (surface == NULL) {
+    return 0;
+  }
+
+  EnterCriticalSection(&g_log_lock);
+  for (i = 0; i < PROBE_TEXTURE_TRACK_SLOTS; ++i) {
+    if (g_texture_records[i].level0_surface == surface) {
+      found = 1;
+      if (texture_out != NULL) {
+        *texture_out = g_texture_records[i].texture;
+      }
+      if (source != NULL && source_size > 0) {
+        snprintf(source, source_size, "%s", g_texture_records[i].source);
+      }
+      break;
+    }
+  }
+  LeaveCriticalSection(&g_log_lock);
+  return found;
+}
+
 static int texture_source_for(void *texture, char *out, size_t out_size, LONG *draw_count_out) {
   size_t i;
   int found = 0;
@@ -1484,13 +1668,39 @@ static int textdraw_render_hint_active(void) {
 }
 
 static int should_log_textdraw_render_call(void *caller, LONG count, const char *texture_source) {
+  int broad_samp_render_trace;
+
   if (!textdraw_render_enabled()) {
     return 0;
   }
   if (env_flag_enabled("SAMP_PROBE_TEXTDRAW_RENDER_LOG_ALL")) {
     return 1;
   }
-  if (address_in_samp(caller) || textdraw_render_hint_active() || source_text_interesting(texture_source)) {
+  /* The dedicated Font 5 switch is intentionally narrower than the generic
+   * render switch: exact dispatch depth supplies the correlation and avoids a
+   * whole-frame SA-MP D3D trace. */
+  broad_samp_render_trace = env_or_flag_enabled("SAMP_PROBE_TEXTDRAW_RENDER", PROBE_TEXTDRAW_RENDER_FLAG);
+  if (g_font5_trace_depth > 0 ||
+      (broad_samp_render_trace && (address_in_samp(caller) || textdraw_render_hint_active() ||
+                                  source_text_interesting(texture_source)))) {
+    return 1;
+  }
+  return textdraw_verbose_enabled() && should_log_call(count);
+}
+
+static void format_font5_stack(char *out, size_t out_size) {
+  format_samp_stack_rvas(out, out_size, 192, 10);
+}
+
+static int should_log_font5_rtt_call(LONG count) {
+  int broad_samp_render_trace;
+
+  if (!textdraw_render_enabled()) {
+    return 0;
+  }
+  broad_samp_render_trace = env_or_flag_enabled("SAMP_PROBE_TEXTDRAW_RENDER", PROBE_TEXTDRAW_RENDER_FLAG);
+  if (g_font5_trace_depth > 0 || env_flag_enabled("SAMP_PROBE_TEXTDRAW_RENDER_LOG_ALL") ||
+      (broad_samp_render_trace && textdraw_render_hint_active())) {
     return 1;
   }
   return textdraw_verbose_enabled() && should_log_call(count);
@@ -1558,6 +1768,17 @@ static void install_d3dx_sprite_hooks(void *sprite) {
                               &g_orig_d3dx_sprite_end, "ID3DXSprite.End");
 }
 
+static void install_d3d_texture_hooks(void *texture) {
+  if (!textdraw_render_enabled() || texture == NULL) {
+    return;
+  }
+
+  (void)patch_com_vtable_slot(texture, PROBE_D3DTEXTURE_VTBL_GET_SURFACE_LEVEL,
+                              (void *)hook_d3d_texture_get_surface_level,
+                              &g_orig_d3d_texture_get_surface_level,
+                              "IDirect3DTexture9.GetSurfaceLevel");
+}
+
 static int install_d3d_device_hooks(int log_summary) {
   void *device;
   void **vtable;
@@ -1573,11 +1794,40 @@ static int install_d3d_device_hooks(int log_summary) {
   }
 
   vtable = *(void ***)device;
-  if (vtable == NULL || !memory_is_readable((uintptr_t)&vtable[PROBE_D3DDEV_VTBL_DRAW_INDEXED_PRIMITIVE_UP],
+  if (vtable == NULL || !memory_is_readable((uintptr_t)&vtable[PROBE_D3DDEV_VTBL_SET_FVF],
                                             sizeof(void *))) {
     return 0;
   }
 
+  installed += patch_com_vtable_slot(device, PROBE_D3DDEV_VTBL_CREATE_TEXTURE, (void *)hook_d3d_create_texture,
+                                     &g_orig_d3d_create_texture, "IDirect3DDevice9.CreateTexture");
+  installed += patch_com_vtable_slot(device, PROBE_D3DDEV_VTBL_CREATE_RENDER_TARGET,
+                                     (void *)hook_d3d_create_render_target, &g_orig_d3d_create_render_target,
+                                     "IDirect3DDevice9.CreateRenderTarget");
+  installed += patch_com_vtable_slot(device, PROBE_D3DDEV_VTBL_CREATE_DEPTH_STENCIL_SURFACE,
+                                     (void *)hook_d3d_create_depth_stencil_surface,
+                                     &g_orig_d3d_create_depth_stencil_surface,
+                                     "IDirect3DDevice9.CreateDepthStencilSurface");
+  installed += patch_com_vtable_slot(device, PROBE_D3DDEV_VTBL_STRETCH_RECT, (void *)hook_d3d_stretch_rect,
+                                     &g_orig_d3d_stretch_rect, "IDirect3DDevice9.StretchRect");
+  installed += patch_com_vtable_slot(device, PROBE_D3DDEV_VTBL_SET_RENDER_TARGET,
+                                     (void *)hook_d3d_set_render_target, &g_orig_d3d_set_render_target,
+                                     "IDirect3DDevice9.SetRenderTarget");
+  installed += patch_com_vtable_slot(device, PROBE_D3DDEV_VTBL_GET_RENDER_TARGET,
+                                     (void *)hook_d3d_get_render_target, &g_orig_d3d_get_render_target,
+                                     "IDirect3DDevice9.GetRenderTarget");
+  installed += patch_com_vtable_slot(device, PROBE_D3DDEV_VTBL_SET_DEPTH_STENCIL_SURFACE,
+                                     (void *)hook_d3d_set_depth_stencil_surface,
+                                     &g_orig_d3d_set_depth_stencil_surface,
+                                     "IDirect3DDevice9.SetDepthStencilSurface");
+  installed += patch_com_vtable_slot(device, PROBE_D3DDEV_VTBL_GET_DEPTH_STENCIL_SURFACE,
+                                     (void *)hook_d3d_get_depth_stencil_surface,
+                                     &g_orig_d3d_get_depth_stencil_surface,
+                                     "IDirect3DDevice9.GetDepthStencilSurface");
+  installed += patch_com_vtable_slot(device, PROBE_D3DDEV_VTBL_CLEAR, (void *)hook_d3d_clear,
+                                     &g_orig_d3d_clear, "IDirect3DDevice9.Clear");
+  installed += patch_com_vtable_slot(device, PROBE_D3DDEV_VTBL_SET_VIEWPORT, (void *)hook_d3d_set_viewport,
+                                     &g_orig_d3d_set_viewport, "IDirect3DDevice9.SetViewport");
   installed += patch_com_vtable_slot(device, PROBE_D3DDEV_VTBL_SET_RENDER_STATE, (void *)hook_d3d_set_render_state,
                                      &g_orig_d3d_set_render_state, "IDirect3DDevice9.SetRenderState");
   installed += patch_com_vtable_slot(device, PROBE_D3DDEV_VTBL_SET_TEXTURE, (void *)hook_d3d_set_texture,
@@ -2324,6 +2574,7 @@ static int install_samp_code_hook(probe_code_hook *hook) {
   BYTE *target_bytes;
   void *patch_target;
   size_t patch_len;
+  size_t readable_len;
   DWORD old_protect = 0;
   DWORD restore_protect = 0;
   int32_t rel;
@@ -2338,7 +2589,8 @@ static int install_samp_code_hook(probe_code_hook *hook) {
   }
 
   patch_target = (void *)(g_samp_base + (uintptr_t)hook->rva);
-  if (patch_target == hook->replacement || !memory_is_readable((uintptr_t)patch_target, 8)) {
+  readable_len = hook->expected_len > 8 ? hook->expected_len : 8;
+  if (patch_target == hook->replacement || !memory_is_readable((uintptr_t)patch_target, readable_len)) {
     return 0;
   }
 
@@ -2439,6 +2691,175 @@ static int install_samp_code_hooks(int log_summary) {
               (unsigned)(sizeof(g_samp_code_hooks) / sizeof(g_samp_code_hooks[0])));
   }
   return installed;
+}
+
+static int samp_font5_identity_matches(void) {
+  PIMAGE_NT_HEADERS nt = get_samp_nt_headers();
+
+  /* PROBE_TRACE (original R5 run 2026-07-15 23:15): get_samp_nt_headers()
+   * successfully reported the expected entry RVA and image size while this
+   * identity check rejected the same Wine-mapped image.  INFERRED: the
+   * redundant VirtualQuery readability check was the differing condition.
+   * Reuse the already validated PE parser here, keep checking the timestamp,
+   * and require exact target prologues and decoded patch lengths below. */
+  return nt != NULL && g_samp_size == PROBE_SAMP_R5_IMAGE_SIZE &&
+         nt->FileHeader.TimeDateStamp == PROBE_SAMP_R5_TIMESTAMP &&
+         nt->OptionalHeader.AddressOfEntryPoint == PROBE_SAMP_R5_ENTRY_RVA &&
+         nt->OptionalHeader.SizeOfImage == PROBE_SAMP_R5_IMAGE_SIZE;
+}
+
+static int preflight_samp_font5_code_hooks(void) {
+  size_t i;
+
+  /* STATIC_037 + TODO_VERIFY:
+   * Treat the two Font 5 hooks as one guarded probe.  Validate every target,
+   * exact overwritten prologue, and decoded patch length before the first
+   * target is mutated.  This avoids leaving only the prepare hook installed
+   * when the dispatch site is already owned by another module. */
+  for (i = 0; i < sizeof(g_samp_font5_code_hooks) / sizeof(g_samp_font5_code_hooks[0]); ++i) {
+    probe_code_hook *hook = &g_samp_font5_code_hooks[i];
+    void *patch_target;
+    size_t readable_len;
+    size_t patch_len;
+
+    if (hook->expected_len < 5 || hook->expected_len > sizeof(hook->expected) ||
+        hook->expected_len > PROBE_INLINE_HOOK_MAX_COPY) {
+      probe_log("font5_code_hook: pair_preflight_failed name=%s rva=0x%08lx reason=invalid_expected_len len=%lu",
+                hook->name, (unsigned long)hook->rva, (unsigned long)hook->expected_len);
+      return 0;
+    }
+
+    readable_len = hook->expected_len > 8 ? hook->expected_len : 8;
+    if (g_samp_base == 0 || g_samp_size < readable_len || hook->rva >= g_samp_size ||
+        hook->rva > g_samp_size - readable_len) {
+      probe_log("font5_code_hook: pair_preflight_failed name=%s rva=0x%08lx reason=target_bounds",
+                hook->name, (unsigned long)hook->rva);
+      return 0;
+    }
+
+    patch_target = (void *)(g_samp_base + (uintptr_t)hook->rva);
+    if (patch_target == hook->replacement || !memory_is_readable((uintptr_t)patch_target, readable_len)) {
+      probe_log("font5_code_hook: pair_preflight_failed name=%s rva=0x%08lx target=%p reason=unreadable_target",
+                hook->name, (unsigned long)hook->rva, patch_target);
+      return 0;
+    }
+
+    if (memcmp(patch_target, hook->expected, hook->expected_len) != 0) {
+      BYTE bytes[8];
+      char hex[40];
+      memcpy(bytes, patch_target, sizeof(bytes));
+      bytes_to_hex(bytes, sizeof(bytes), hex, sizeof(hex));
+      probe_log("font5_code_hook: pair_preflight_failed name=%s rva=0x%08lx target=%p reason=prologue "
+                "actual=%s",
+                hook->name, (unsigned long)hook->rva, patch_target, hex);
+      return 0;
+    }
+
+    patch_len = calculate_patch_length(patch_target);
+    if (patch_len == 0 || patch_len != hook->expected_len || hook->rva > g_samp_size - patch_len) {
+      probe_log("font5_code_hook: pair_preflight_failed name=%s rva=0x%08lx target=%p reason=patch_len "
+                "decoded=%lu expected=%lu",
+                hook->name, (unsigned long)hook->rva, patch_target, (unsigned long)patch_len,
+                (unsigned long)hook->expected_len);
+      return 0;
+    }
+  }
+
+  probe_log("font5_code_hook: pair_preflight_ok hooks=%u evidence=STATIC_037,TODO_VERIFY",
+            (unsigned)(sizeof(g_samp_font5_code_hooks) / sizeof(g_samp_font5_code_hooks[0])));
+  return 1;
+}
+
+static int install_samp_font5_code_hooks(int log_summary) {
+  size_t i;
+  size_t hook_count = sizeof(g_samp_font5_code_hooks) / sizeof(g_samp_font5_code_hooks[0]);
+  size_t already_installed = 0;
+  int installed = 0;
+
+  if (!font5_hooks_enabled()) {
+    if (log_summary) {
+      probe_log("font5_code_hook: disabled by default; enable with SAMP_PROBE_FONT5_HOOKS=1 or %s",
+                PROBE_FONT5_HOOKS_FLAG);
+    }
+    return 0;
+  }
+  if (env_flag_enabled("SAMP_PROBE_NO_SAMP_CODE_HOOKS")) {
+    if (log_summary) {
+      probe_log("font5_code_hook: disabled by SAMP_PROBE_NO_SAMP_CODE_HOOKS");
+    }
+    return 0;
+  }
+  if (!samp_font5_identity_matches()) {
+    if (log_summary) {
+      PIMAGE_NT_HEADERS actual_nt = get_samp_nt_headers();
+      DWORD actual_timestamp = actual_nt != NULL ? actual_nt->FileHeader.TimeDateStamp : 0u;
+      DWORD actual_entry = actual_nt != NULL ? actual_nt->OptionalHeader.AddressOfEntryPoint : 0u;
+      DWORD actual_header_size = actual_nt != NULL ? actual_nt->OptionalHeader.SizeOfImage : 0u;
+      probe_log("font5_code_hook: skip unsupported_identity headers_valid=%d "
+                "timestamp_expected=0x%08lx timestamp_actual=0x%08lx "
+                "entry_expected=0x%08lx entry_actual=0x%08lx "
+                "size_expected=0x%08lx header_size_actual=0x%08lx module_size_actual=0x%08lx supported_sha256="
+                "b72b5dbe725f81864ca3f78bc7063bda56cc05fc7188af822fa7a754432553a2 "
+                "evidence=STATIC_037,TODO_VERIFY",
+                actual_nt != NULL, (unsigned long)PROBE_SAMP_R5_TIMESTAMP, (unsigned long)actual_timestamp,
+                (unsigned long)PROBE_SAMP_R5_ENTRY_RVA, (unsigned long)actual_entry,
+                (unsigned long)PROBE_SAMP_R5_IMAGE_SIZE, (unsigned long)actual_header_size,
+                (unsigned long)g_samp_size);
+    }
+    return 0;
+  }
+
+  for (i = 0; i < hook_count; ++i) {
+    LONG state = InterlockedCompareExchange(&g_samp_font5_code_hooks[i].installed, 0, 0);
+    if (state == 1) {
+      ++already_installed;
+    } else if (state != 0) {
+      return 0;
+    }
+  }
+  if (already_installed == hook_count) {
+    return 0;
+  }
+  if (already_installed != 0) {
+    if (log_summary) {
+      probe_log("font5_code_hook: skip partial_prior_state installed=%u requested=%u",
+                (unsigned)already_installed, (unsigned)hook_count);
+    }
+    return 0;
+  }
+
+  if (!preflight_samp_font5_code_hooks()) {
+    for (i = 0; i < hook_count; ++i) {
+      InterlockedExchange(&g_samp_font5_code_hooks[i].installed, -1);
+    }
+    return 0;
+  }
+
+  for (i = 0; i < hook_count; ++i) {
+    installed += install_samp_code_hook(&g_samp_font5_code_hooks[i]);
+  }
+  if ((size_t)installed != hook_count) {
+    probe_log("font5_code_hook: incomplete_install installed=%d requested=%u; discard run and terminate process",
+              installed, (unsigned)hook_count);
+  }
+  if (log_summary) {
+    probe_log("font5_code_hook: summary installed=%d requested=%u supported_sha256="
+              "b72b5dbe725f81864ca3f78bc7063bda56cc05fc7188af822fa7a754432553a2 "
+              "evidence=STATIC_037,TODO_VERIFY",
+              installed, (unsigned)hook_count);
+  }
+  return installed;
+}
+
+static int font5_code_hooks_active(void) {
+  size_t i;
+
+  for (i = 0; i < sizeof(g_samp_font5_code_hooks) / sizeof(g_samp_font5_code_hooks[0]); ++i) {
+    if (InterlockedCompareExchange(&g_samp_font5_code_hooks[i].installed, 0, 0) != 1) {
+      return 0;
+    }
+  }
+  return 1;
 }
 
 static int install_absolute_code_hook(probe_code_hook *hook) {
@@ -2815,10 +3236,11 @@ static DWORD WINAPI probe_worker(LPVOID param) {
   init_log_path();
   probe_log("probe: attached build=%s %s", __DATE__, __TIME__);
   probe_log("probe: options asset_path_hooks=%d asset_read_hooks=%d samp_code_hooks=%d gta_asset_hooks=%d "
-            "object_info=%d custom_object_heavy=%d textdraw_hooks=%d textdraw_verbose=%d textdraw_render=%d",
+            "object_info=%d custom_object_heavy=%d textdraw_hooks=%d textdraw_verbose=%d textdraw_render=%d "
+            "font5_hooks=%d",
             asset_path_hooks_enabled(), asset_read_hooks_enabled(), samp_code_hooks_enabled(), gta_asset_hooks_enabled(),
             object_info_enabled(), custom_object_heavy_enabled(), textdraw_hooks_enabled(), textdraw_verbose_enabled(),
-            textdraw_render_enabled());
+            textdraw_render_enabled(), font5_hooks_enabled());
   if (custom_object_heavy_enabled()) {
     probe_log("custom_object_heavy: store_addresses model_info_ptrs=0x%08lx atomic_count=0x%08lx "
               "time_count=0x%08lx clump_count=0x%08lx low_range=%u-%u high_range=%u-%u "
@@ -2871,6 +3293,7 @@ static DWORD WINAPI probe_worker(LPVOID param) {
     install_iat_hooks(nt, 1);
     install_inline_hooks(1);
     install_samp_code_hooks(1);
+    install_samp_font5_code_hooks(1);
     install_gta_textdraw_code_hooks(1);
     install_gta_asset_code_hooks(1);
     install_d3d_device_hooks(1);
@@ -2883,6 +3306,7 @@ static DWORD WINAPI probe_worker(LPVOID param) {
       (void)install_iat_hooks(nt, 0);
       (void)install_inline_hooks(0);
       (void)install_samp_code_hooks(0);
+      (void)install_samp_font5_code_hooks(0);
       (void)install_gta_textdraw_code_hooks(0);
       (void)install_gta_asset_code_hooks(0);
       (void)install_d3d_device_hooks(0);
@@ -2956,6 +3380,121 @@ static void WINAPI hook_samp_process_network_packet(unsigned long binary_address
   }
 }
 
+static void *font5_preview_pointer_for(void *textdraw, LONG *slot_out) {
+  LONG slot = -1;
+  uintptr_t array_address;
+  DWORD value;
+
+  if (slot_out != NULL) {
+    *slot_out = -1;
+  }
+  if (textdraw == NULL || !memory_is_readable((uintptr_t)textdraw + 0x9a3u, sizeof(DWORD))) {
+    return NULL;
+  }
+
+  slot = (LONG)read_u32_or((uintptr_t)textdraw + 0x9a3u, 0xffffffffu);
+  if (slot_out != NULL) {
+    *slot_out = slot;
+  }
+  if (slot < 0 || slot >= 512 || g_samp_base == 0) {
+    return NULL;
+  }
+
+  array_address = g_samp_base + 0x0026b568u + ((uintptr_t)(unsigned)slot * sizeof(DWORD));
+  if (!memory_is_readable(array_address, sizeof(DWORD))) {
+    return NULL;
+  }
+  value = read_u32_or(array_address, 0u);
+  return (void *)(uintptr_t)value;
+}
+
+static void log_font5_snapshot(const char *phase, LONG seq, void *caller, void *textdraw, int include_raw) {
+  uintptr_t base = (uintptr_t)textdraw;
+  LONG slot = -1;
+  void *preview = font5_preview_pointer_for(textdraw, &slot);
+  char text[128];
+  char raw[256];
+  char stack_rvas[448];
+
+  if (textdraw == NULL || !memory_is_readable(base, 0x9c0u)) {
+    probe_log("font5_dispatch: phase=%s seq=%ld caller=%p caller_samp_rva=0x%08lx textdraw=%p readable=0 "
+              "evidence=STATIC_037,PROBE_TRACE,TODO_VERIFY",
+              phase != NULL ? phase : "unknown", (long)seq, caller, samp_rva_from_address(caller), textdraw);
+    return;
+  }
+
+  safe_cstr_or((const char *)textdraw, text, sizeof(text), "");
+  raw[0] = '\0';
+  if (include_raw) {
+    probe_bytes_hex_or(base + 0x963u, 0x5du, raw, sizeof(raw));
+  }
+  format_font5_stack(stack_rvas, sizeof(stack_rvas));
+  probe_log("font5_dispatch: phase=%s seq=%ld caller=%p caller_samp_rva=0x%08lx textdraw=%p readable=1 "
+            "style=%lu model=%d slot=%ld preview=%p text='%s' pos=%.6f,%.6f size=%.6f,%.6f "
+            "rot=%.6f,%.6f,%.6f zoom=%.6f colors=%d,%d background=0x%08lx raw=%s stack_samp='%s' "
+            "evidence=STATIC_037,PROBE_TRACE,TODO_VERIFY",
+            phase != NULL ? phase : "unknown", (long)seq, caller, samp_rva_from_address(caller), textdraw,
+            (unsigned long)read_u32_or(base + 0x987u, 0xffffffffu),
+            (int)(int16_t)read_u16_or(base + 0x9a8u, 0xffffu), (long)slot, preview, text,
+            read_f32_or(base + 0x98bu, -1.0f), read_f32_or(base + 0x98fu, -1.0f),
+            read_f32_or(base + 0x972u, -1.0f), read_f32_or(base + 0x976u, -1.0f),
+            read_f32_or(base + 0x9aau, -1.0f), read_f32_or(base + 0x9aeu, -1.0f),
+            read_f32_or(base + 0x9b2u, -1.0f), read_f32_or(base + 0x9b6u, -1.0f),
+            (int)(int16_t)read_u16_or(base + 0x9bau, 0xffffu),
+            (int)(int16_t)read_u16_or(base + 0x9bcu, 0xffffu),
+            (unsigned long)read_u32_or(base + 0x97fu, 0xffffffffu), raw, stack_rvas);
+}
+
+static void PROBE_THISCALL hook_samp_font5_prepare(void *textdraw) {
+  void *caller = probe_return_address();
+  DWORD style = textdraw != NULL ? read_u32_or((uintptr_t)textdraw + 0x987u, 0xffffffffu) : 0xffffffffu;
+  LONG seq;
+  LONG previous_seq = g_font5_active_seq;
+
+  if (style != 5u) {
+    if (g_orig_samp_font5_prepare != NULL) {
+      ((probe_samp_font5_method_fn)g_orig_samp_font5_prepare)(textdraw);
+    }
+    return;
+  }
+  seq = next_call_count(&g_font5_trace_call_count);
+  log_font5_snapshot("prepare.begin", seq, caller, textdraw, 1);
+  ++g_font5_trace_depth;
+  g_font5_active_seq = seq;
+  if (g_orig_samp_font5_prepare != NULL) {
+    ((probe_samp_font5_method_fn)g_orig_samp_font5_prepare)(textdraw);
+  }
+  g_font5_active_seq = previous_seq;
+  --g_font5_trace_depth;
+  log_font5_snapshot("prepare.end", seq, caller, textdraw, 1);
+}
+
+static void PROBE_THISCALL hook_samp_font5_draw_dispatch(void *textdraw) {
+  void *caller = probe_return_address();
+  LONG seq;
+  LONG previous_seq = g_font5_active_seq;
+  DWORD style = textdraw != NULL ? read_u32_or((uintptr_t)textdraw + 0x987u, 0xffffffffu) : 0xffffffffu;
+  LONG slot = -1;
+
+  if (style != 5u) {
+    if (g_orig_samp_font5_draw_dispatch != NULL) {
+      ((probe_samp_font5_method_fn)g_orig_samp_font5_draw_dispatch)(textdraw);
+    }
+    return;
+  }
+  seq = next_call_count(&g_font5_trace_call_count);
+  (void)font5_preview_pointer_for(textdraw, &slot);
+  log_font5_snapshot("draw.begin", seq, caller, textdraw, 0);
+  ++g_font5_trace_depth;
+  g_font5_active_seq = seq;
+  if (g_orig_samp_font5_draw_dispatch != NULL) {
+    ((probe_samp_font5_method_fn)g_orig_samp_font5_draw_dispatch)(textdraw);
+  }
+  g_font5_active_seq = previous_seq;
+  --g_font5_trace_depth;
+  log_font5_snapshot(slot >= 0 ? "draw.preview.end" : "draw.font.end", seq, caller, textdraw, 0);
+}
+
 static int should_log_textdraw_font_call(void *caller, LONG count) {
   if (!address_in_samp(caller) && !env_flag_enabled("SAMP_PROBE_TEXTDRAW_LOG_ALL_FONT")) {
     return 0;
@@ -3005,6 +3544,9 @@ static void __cdecl hook_gta_font_set_style(int style) {
   char detail[64];
 
   InterlockedExchange(&g_textdraw_current_font_style, (LONG)style);
+  if (style == 5 && !font5_code_hooks_active()) {
+    textdraw_render_mark_hint("font5_style");
+  }
   snprintf(detail, sizeof(detail), "style=%d", style);
   log_textdraw_font_call(caller, n, "CFont.SetFontStyle", detail);
   if (g_orig_gta_font_set_style != NULL) {
@@ -3141,7 +3683,7 @@ static void __cdecl hook_gta_font_print_string(float x, float y, char *text) {
 
   safe_cstr_or(text, safe_text, sizeof(safe_text), "(null)");
   snprintf(detail, sizeof(detail), "x=%.6f y=%.6f style_context=%ld text='%s'", x, y, (long)style, safe_text);
-  if (style == 5 && strcmp(safe_text, "_") == 0) {
+  if (style == 5 && strcmp(safe_text, "_") == 0 && !font5_code_hooks_active()) {
     textdraw_render_mark_hint("font5_preview_underscore");
   } else if (ascii_contains_ci(safe_text, "LD_")) {
     textdraw_render_mark_hint("font4_sprite_text");
@@ -3169,6 +3711,38 @@ static HRESULT WINAPI hook_D3DXCreateSprite(void *device, void **sprite) {
   }
   if (rc >= 0 && sprite != NULL && *sprite != NULL) {
     install_d3dx_sprite_hooks(*sprite);
+  }
+  return rc;
+}
+
+static HRESULT WINAPI hook_D3DXCreateTexture(void *device, UINT width, UINT height, UINT mip_levels, DWORD usage,
+                                             int format, int pool, void **texture) {
+  static LONG count;
+  void *caller = probe_return_address();
+  LONG n = next_call_count(&count);
+  HRESULT rc = E_FAIL;
+  char source[192];
+  char stack_rvas[448];
+
+  if (g_orig_D3DXCreateTexture != NULL) {
+    rc = ((probe_D3DXCreateTexture_fn)g_orig_D3DXCreateTexture)(device, width, height, mip_levels, usage, format,
+                                                               pool, texture);
+  }
+  snprintf(source, sizeof(source), "D3DXCreateTexture:%ux%u:usage=0x%08lx:fmt=%d:pool=%d",
+           (unsigned)width, (unsigned)height, (unsigned long)usage, format, pool);
+  if (rc >= 0 && texture != NULL && *texture != NULL) {
+    remember_texture_details(*texture, source, width, height, usage);
+    install_d3d_texture_hooks(*texture);
+  }
+  if ((usage & PROBE_D3DUSAGE_RENDERTARGET) != 0 || should_log_textdraw_render_call(caller, n, source) ||
+      should_log_call(n)) {
+    format_font5_stack(stack_rvas, sizeof(stack_rvas));
+    probe_log("textdraw_rtt: D3DXCreateTexture count=%ld font5_seq=%ld caller=%p caller_samp_rva=0x%08lx "
+              "device=%p size=%ux%u mip=%u usage=0x%08lx fmt=%d pool=%d texture=%p result=0x%08lx "
+              "stack_samp='%s' evidence=STATIC_037,PROBE_TRACE,TODO_VERIFY",
+              (long)n, (long)g_font5_active_seq, caller, samp_rva_from_address(caller), device, (unsigned)width,
+              (unsigned)height, (unsigned)mip_levels, (unsigned long)usage, format, pool,
+              rc >= 0 && texture != NULL ? *texture : NULL, (unsigned long)rc, stack_rvas);
   }
   return rc;
 }
@@ -3342,6 +3916,340 @@ static HRESULT WINAPI hook_d3dx_sprite_end(void *sprite) {
     ++g_textdraw_render_hook_depth;
     rc = ((probe_d3dx_sprite_end_fn)g_orig_d3dx_sprite_end)(sprite);
     --g_textdraw_render_hook_depth;
+  }
+  return rc;
+}
+
+static void describe_surface_texture(void *surface, void **texture_out, char *source, size_t source_size) {
+  if (!texture_for_surface(surface, texture_out, source, source_size)) {
+    if (texture_out != NULL) {
+      *texture_out = NULL;
+    }
+    if (source != NULL && source_size > 0) {
+      source[0] = '\0';
+    }
+  }
+}
+
+static HRESULT WINAPI hook_d3d_create_texture(void *device, UINT width, UINT height, UINT levels, DWORD usage,
+                                              int format, int pool, void **texture, HANDLE *shared_handle) {
+  static LONG count;
+  void *caller = probe_return_address();
+  LONG n = next_call_count(&count);
+  HRESULT rc = E_FAIL;
+  char source[192];
+  char stack_rvas[448];
+
+  if (g_orig_d3d_create_texture != NULL) {
+    ++g_textdraw_render_hook_depth;
+    rc = ((probe_d3d_create_texture_fn)g_orig_d3d_create_texture)(device, width, height, levels, usage, format, pool,
+                                                                 texture, shared_handle);
+    --g_textdraw_render_hook_depth;
+  }
+  snprintf(source, sizeof(source), "CreateTexture:%ux%u:usage=0x%08lx:fmt=%d:pool=%d", (unsigned)width,
+           (unsigned)height, (unsigned long)usage, format, pool);
+  if (rc >= 0 && texture != NULL && *texture != NULL &&
+      ((usage & PROBE_D3DUSAGE_RENDERTARGET) != 0 || g_font5_trace_depth > 0)) {
+    remember_texture_details(*texture, source, width, height, usage);
+    install_d3d_texture_hooks(*texture);
+  }
+  if ((usage & PROBE_D3DUSAGE_RENDERTARGET) != 0 || should_log_font5_rtt_call(n)) {
+    format_font5_stack(stack_rvas, sizeof(stack_rvas));
+    probe_log("textdraw_rtt: IDirect3DDevice9.CreateTexture seq=%ld font5_seq=%ld caller=%p "
+              "caller_samp_rva=0x%08lx device=%p size=%ux%u levels=%u usage=0x%08lx fmt=%d pool=%d "
+              "texture=%p shared=%p result=0x%08lx stack_samp='%s' "
+              "evidence=STATIC_037,PROBE_TRACE,TODO_VERIFY",
+              (long)n, (long)g_font5_active_seq, caller, samp_rva_from_address(caller), device, (unsigned)width,
+              (unsigned)height, (unsigned)levels, (unsigned long)usage, format, pool,
+              rc >= 0 && texture != NULL ? *texture : NULL,
+              rc >= 0 && shared_handle != NULL ? *shared_handle : NULL,
+              (unsigned long)rc, stack_rvas);
+  }
+  return rc;
+}
+
+static HRESULT WINAPI hook_d3d_create_render_target(void *device, UINT width, UINT height, int format,
+                                                    int multi_sample, DWORD multi_sample_quality, BOOL lockable,
+                                                    void **surface, HANDLE *shared_handle) {
+  static LONG count;
+  void *caller = probe_return_address();
+  LONG n = next_call_count(&count);
+  HRESULT rc = E_FAIL;
+  char stack_rvas[448];
+
+  if (g_orig_d3d_create_render_target != NULL) {
+    ++g_textdraw_render_hook_depth;
+    rc = ((probe_d3d_create_render_target_fn)g_orig_d3d_create_render_target)(
+        device, width, height, format, multi_sample, multi_sample_quality, lockable, surface, shared_handle);
+    --g_textdraw_render_hook_depth;
+  }
+  if (should_log_font5_rtt_call(n) || should_log_call(n)) {
+    format_font5_stack(stack_rvas, sizeof(stack_rvas));
+    probe_log("textdraw_rtt: IDirect3DDevice9.CreateRenderTarget seq=%ld font5_seq=%ld caller=%p "
+              "caller_samp_rva=0x%08lx device=%p size=%ux%u fmt=%d multisample=%d quality=%lu lockable=%d "
+              "surface=%p shared=%p result=0x%08lx stack_samp='%s' "
+              "evidence=STATIC_037,PROBE_TRACE,TODO_VERIFY",
+              (long)n, (long)g_font5_active_seq, caller, samp_rva_from_address(caller), device, (unsigned)width,
+              (unsigned)height, format, multi_sample, (unsigned long)multi_sample_quality, lockable != FALSE,
+              rc >= 0 && surface != NULL ? *surface : NULL,
+              rc >= 0 && shared_handle != NULL ? *shared_handle : NULL,
+              (unsigned long)rc, stack_rvas);
+  }
+  return rc;
+}
+
+static HRESULT WINAPI hook_d3d_create_depth_stencil_surface(void *device, UINT width, UINT height, int format,
+                                                            int multi_sample, DWORD multi_sample_quality,
+                                                            BOOL discard, void **surface, HANDLE *shared_handle) {
+  static LONG count;
+  void *caller = probe_return_address();
+  LONG n = next_call_count(&count);
+  HRESULT rc = E_FAIL;
+  char stack_rvas[448];
+
+  if (g_orig_d3d_create_depth_stencil_surface != NULL) {
+    ++g_textdraw_render_hook_depth;
+    rc = ((probe_d3d_create_depth_stencil_surface_fn)g_orig_d3d_create_depth_stencil_surface)(
+        device, width, height, format, multi_sample, multi_sample_quality, discard, surface, shared_handle);
+    --g_textdraw_render_hook_depth;
+  }
+  if (should_log_font5_rtt_call(n) || should_log_call(n)) {
+    format_font5_stack(stack_rvas, sizeof(stack_rvas));
+    probe_log("textdraw_rtt: IDirect3DDevice9.CreateDepthStencilSurface seq=%ld font5_seq=%ld caller=%p "
+              "caller_samp_rva=0x%08lx device=%p size=%ux%u fmt=%d multisample=%d quality=%lu discard=%d "
+              "surface=%p shared=%p result=0x%08lx stack_samp='%s' "
+              "evidence=STATIC_037,PROBE_TRACE,TODO_VERIFY",
+              (long)n, (long)g_font5_active_seq, caller, samp_rva_from_address(caller), device, (unsigned)width,
+              (unsigned)height, format, multi_sample, (unsigned long)multi_sample_quality, discard != FALSE,
+              rc >= 0 && surface != NULL ? *surface : NULL,
+              rc >= 0 && shared_handle != NULL ? *shared_handle : NULL,
+              (unsigned long)rc, stack_rvas);
+  }
+  return rc;
+}
+
+static HRESULT WINAPI hook_d3d_stretch_rect(void *device, void *source_surface, const RECT *source_rect,
+                                            void *dest_surface, const RECT *dest_rect, int filter) {
+  static LONG count;
+  void *caller = probe_return_address();
+  LONG n = next_call_count(&count);
+  HRESULT rc = E_FAIL;
+  void *source_texture = NULL;
+  void *dest_texture = NULL;
+  char source_name[192];
+  char dest_name[192];
+  char stack_rvas[448];
+
+  describe_surface_texture(source_surface, &source_texture, source_name, sizeof(source_name));
+  describe_surface_texture(dest_surface, &dest_texture, dest_name, sizeof(dest_name));
+  if (should_log_font5_rtt_call(n)) {
+    format_font5_stack(stack_rvas, sizeof(stack_rvas));
+    probe_log("textdraw_rtt: IDirect3DDevice9.StretchRect.begin seq=%ld font5_seq=%ld caller=%p "
+              "caller_samp_rva=0x%08lx device=%p source_surface=%p source_texture=%p source='%s' "
+              "source_rect=%p dest_surface=%p dest_texture=%p dest='%s' dest_rect=%p filter=%d stack_samp='%s' "
+              "evidence=STATIC_037,PROBE_TRACE,TODO_VERIFY",
+              (long)n, (long)g_font5_active_seq, caller, samp_rva_from_address(caller), device, source_surface,
+              source_texture, source_name, source_rect, dest_surface, dest_texture, dest_name, dest_rect, filter,
+              stack_rvas);
+  }
+  if (g_orig_d3d_stretch_rect != NULL) {
+    ++g_textdraw_render_hook_depth;
+    rc = ((probe_d3d_stretch_rect_fn)g_orig_d3d_stretch_rect)(device, source_surface, source_rect, dest_surface,
+                                                             dest_rect, filter);
+    --g_textdraw_render_hook_depth;
+  }
+  return rc;
+}
+
+static HRESULT WINAPI hook_d3d_set_render_target(void *device, DWORD index, void *surface) {
+  static LONG count;
+  void *caller = probe_return_address();
+  LONG n = next_call_count(&count);
+  HRESULT rc = E_FAIL;
+  void *texture = NULL;
+  void *previous = index == 0 ? g_d3d_current_render_target : NULL;
+  char source[192];
+  char stack_rvas[448];
+
+  describe_surface_texture(surface, &texture, source, sizeof(source));
+  if (should_log_font5_rtt_call(n)) {
+    format_font5_stack(stack_rvas, sizeof(stack_rvas));
+    probe_log("textdraw_rtt: IDirect3DDevice9.SetRenderTarget.begin seq=%ld font5_seq=%ld caller=%p "
+              "caller_samp_rva=0x%08lx device=%p index=%lu previous=%p surface=%p texture=%p source='%s' "
+              "stack_samp='%s' evidence=STATIC_037,PROBE_TRACE,TODO_VERIFY",
+              (long)n, (long)g_font5_active_seq, caller, samp_rva_from_address(caller), device,
+              (unsigned long)index, previous, surface, texture, source, stack_rvas);
+  }
+  if (g_orig_d3d_set_render_target != NULL) {
+    ++g_textdraw_render_hook_depth;
+    rc = ((probe_d3d_set_render_target_fn)g_orig_d3d_set_render_target)(device, index, surface);
+    --g_textdraw_render_hook_depth;
+  }
+  if (rc >= 0 && index == 0) {
+    g_d3d_current_render_target = surface;
+  }
+  return rc;
+}
+
+static HRESULT WINAPI hook_d3d_get_render_target(void *device, DWORD index, void **surface) {
+  static LONG count;
+  void *caller = probe_return_address();
+  LONG n = next_call_count(&count);
+  HRESULT rc = E_FAIL;
+  void *texture = NULL;
+  char source[192];
+  char stack_rvas[448];
+
+  if (g_orig_d3d_get_render_target != NULL) {
+    ++g_textdraw_render_hook_depth;
+    rc = ((probe_d3d_get_render_target_fn)g_orig_d3d_get_render_target)(device, index, surface);
+    --g_textdraw_render_hook_depth;
+  }
+  if (rc >= 0 && surface != NULL && index == 0) {
+    g_d3d_current_render_target = *surface;
+  }
+  describe_surface_texture(rc >= 0 && surface != NULL ? *surface : NULL, &texture, source, sizeof(source));
+  if (should_log_font5_rtt_call(n)) {
+    format_font5_stack(stack_rvas, sizeof(stack_rvas));
+    probe_log("textdraw_rtt: IDirect3DDevice9.GetRenderTarget seq=%ld font5_seq=%ld caller=%p "
+              "caller_samp_rva=0x%08lx device=%p index=%lu surface=%p texture=%p source='%s' result=0x%08lx "
+              "stack_samp='%s' evidence=STATIC_037,PROBE_TRACE,TODO_VERIFY",
+              (long)n, (long)g_font5_active_seq, caller, samp_rva_from_address(caller), device,
+              (unsigned long)index, rc >= 0 && surface != NULL ? *surface : NULL, texture, source, (unsigned long)rc,
+              stack_rvas);
+  }
+  return rc;
+}
+
+static HRESULT WINAPI hook_d3d_set_depth_stencil_surface(void *device, void *surface) {
+  static LONG count;
+  void *caller = probe_return_address();
+  LONG n = next_call_count(&count);
+  HRESULT rc = E_FAIL;
+  char stack_rvas[448];
+
+  if (should_log_font5_rtt_call(n)) {
+    format_font5_stack(stack_rvas, sizeof(stack_rvas));
+    probe_log("textdraw_rtt: IDirect3DDevice9.SetDepthStencilSurface.begin seq=%ld font5_seq=%ld caller=%p "
+              "caller_samp_rva=0x%08lx device=%p previous=%p surface=%p stack_samp='%s' "
+              "evidence=STATIC_037,PROBE_TRACE,TODO_VERIFY",
+              (long)n, (long)g_font5_active_seq, caller, samp_rva_from_address(caller), device,
+              g_d3d_current_depth_stencil, surface, stack_rvas);
+  }
+  if (g_orig_d3d_set_depth_stencil_surface != NULL) {
+    ++g_textdraw_render_hook_depth;
+    rc = ((probe_d3d_set_depth_stencil_surface_fn)g_orig_d3d_set_depth_stencil_surface)(device, surface);
+    --g_textdraw_render_hook_depth;
+  }
+  if (rc >= 0) {
+    g_d3d_current_depth_stencil = surface;
+  }
+  return rc;
+}
+
+static HRESULT WINAPI hook_d3d_get_depth_stencil_surface(void *device, void **surface) {
+  static LONG count;
+  void *caller = probe_return_address();
+  LONG n = next_call_count(&count);
+  HRESULT rc = E_FAIL;
+  char stack_rvas[448];
+
+  if (g_orig_d3d_get_depth_stencil_surface != NULL) {
+    ++g_textdraw_render_hook_depth;
+    rc = ((probe_d3d_get_depth_stencil_surface_fn)g_orig_d3d_get_depth_stencil_surface)(device, surface);
+    --g_textdraw_render_hook_depth;
+  }
+  if (rc >= 0 && surface != NULL) {
+    g_d3d_current_depth_stencil = *surface;
+  }
+  if (should_log_font5_rtt_call(n)) {
+    format_font5_stack(stack_rvas, sizeof(stack_rvas));
+    probe_log("textdraw_rtt: IDirect3DDevice9.GetDepthStencilSurface seq=%ld font5_seq=%ld caller=%p "
+              "caller_samp_rva=0x%08lx device=%p surface=%p result=0x%08lx stack_samp='%s' "
+              "evidence=STATIC_037,PROBE_TRACE,TODO_VERIFY",
+              (long)n, (long)g_font5_active_seq, caller, samp_rva_from_address(caller), device,
+              rc >= 0 && surface != NULL ? *surface : NULL, (unsigned long)rc, stack_rvas);
+  }
+  return rc;
+}
+
+static HRESULT WINAPI hook_d3d_clear(void *device, DWORD count, const void *rects, DWORD flags, DWORD color,
+                                     float z, DWORD stencil) {
+  static LONG call_count;
+  void *caller = probe_return_address();
+  LONG n = next_call_count(&call_count);
+  HRESULT rc = E_FAIL;
+  char stack_rvas[448];
+
+  if (should_log_font5_rtt_call(n)) {
+    format_font5_stack(stack_rvas, sizeof(stack_rvas));
+    probe_log("textdraw_rtt: IDirect3DDevice9.Clear.begin seq=%ld font5_seq=%ld caller=%p "
+              "caller_samp_rva=0x%08lx device=%p target=%p depth=%p count=%lu rects=%p flags=0x%08lx "
+              "color=0x%08lx z=%.6f stencil=%lu stack_samp='%s' "
+              "evidence=STATIC_037,PROBE_TRACE,TODO_VERIFY",
+              (long)n, (long)g_font5_active_seq, caller, samp_rva_from_address(caller), device,
+              g_d3d_current_render_target, g_d3d_current_depth_stencil, (unsigned long)count, rects,
+              (unsigned long)flags, (unsigned long)color, z, (unsigned long)stencil, stack_rvas);
+  }
+  if (g_orig_d3d_clear != NULL) {
+    ++g_textdraw_render_hook_depth;
+    rc = ((probe_d3d_clear_fn)g_orig_d3d_clear)(device, count, rects, flags, color, z, stencil);
+    --g_textdraw_render_hook_depth;
+  }
+  return rc;
+}
+
+static HRESULT WINAPI hook_d3d_set_viewport(void *device, const probe_d3d_viewport *viewport) {
+  static LONG count;
+  void *caller = probe_return_address();
+  LONG n = next_call_count(&count);
+  HRESULT rc = E_FAIL;
+  char stack_rvas[448];
+  int readable = viewport != NULL && memory_is_readable((uintptr_t)viewport, sizeof(*viewport));
+
+  if (should_log_font5_rtt_call(n)) {
+    format_font5_stack(stack_rvas, sizeof(stack_rvas));
+    probe_log("textdraw_rtt: IDirect3DDevice9.SetViewport.begin seq=%ld font5_seq=%ld caller=%p "
+              "caller_samp_rva=0x%08lx device=%p viewport=%p readable=%d xy=%lu,%lu size=%lux%lu z=%.6f,%.6f "
+              "target=%p stack_samp='%s' evidence=STATIC_037,PROBE_TRACE,TODO_VERIFY",
+              (long)n, (long)g_font5_active_seq, caller, samp_rva_from_address(caller), device, viewport, readable,
+              readable ? (unsigned long)viewport->x : 0ul, readable ? (unsigned long)viewport->y : 0ul,
+              readable ? (unsigned long)viewport->width : 0ul, readable ? (unsigned long)viewport->height : 0ul,
+              readable ? viewport->min_z : 0.0f, readable ? viewport->max_z : 0.0f,
+              g_d3d_current_render_target, stack_rvas);
+  }
+  if (g_orig_d3d_set_viewport != NULL) {
+    ++g_textdraw_render_hook_depth;
+    rc = ((probe_d3d_set_viewport_fn)g_orig_d3d_set_viewport)(device, viewport);
+    --g_textdraw_render_hook_depth;
+  }
+  return rc;
+}
+
+static HRESULT WINAPI hook_d3d_texture_get_surface_level(void *texture, UINT level, void **surface) {
+  static LONG count;
+  void *caller = probe_return_address();
+  LONG n = next_call_count(&count);
+  HRESULT rc = E_FAIL;
+  char source[192];
+  char stack_rvas[448];
+  int tracked = texture_source_for(texture, source, sizeof(source), NULL);
+
+  if (g_orig_d3d_texture_get_surface_level != NULL) {
+    ++g_textdraw_render_hook_depth;
+    rc = ((probe_d3d_texture_get_surface_level_fn)g_orig_d3d_texture_get_surface_level)(texture, level, surface);
+    --g_textdraw_render_hook_depth;
+  }
+  if (rc >= 0 && surface != NULL) {
+    remember_texture_surface(texture, level, *surface);
+  }
+  if (tracked || should_log_font5_rtt_call(n)) {
+    format_font5_stack(stack_rvas, sizeof(stack_rvas));
+    probe_log("textdraw_rtt: IDirect3DTexture9.GetSurfaceLevel seq=%ld font5_seq=%ld caller=%p "
+              "caller_samp_rva=0x%08lx texture=%p source='%s' level=%u surface=%p result=0x%08lx "
+              "stack_samp='%s' evidence=STATIC_037,PROBE_TRACE,TODO_VERIFY",
+              (long)n, (long)g_font5_active_seq, caller, samp_rva_from_address(caller), texture, source,
+              (unsigned)level, rc >= 0 && surface != NULL ? *surface : NULL, (unsigned long)rc, stack_rvas);
   }
   return rc;
 }

@@ -84,6 +84,11 @@ static bool:gRpcBoundsEnabled = false;
 static bool:gRpcSpecialEnabled = false;
 static bool:gRpcRenameAlternate = false;
 static gRpcCameraObject = INVALID_OBJECT_ID;
+static gRpcEditObject = INVALID_OBJECT_ID;
+static gRpcAttachedObject = INVALID_OBJECT_ID;
+static gRpcAttachedObjectPlayer = INVALID_PLAYER_ID;
+static bool:gRpcShopEnabled[MAX_PLAYERS];
+static bool:gRpcColorAlternate[MAX_PLAYERS];
 
 static const gVehicleModels[TEST_VEHICLE_COUNT] = {
 	411, // Infernus
@@ -225,6 +230,30 @@ stock ResetSmallRpcTest(playerid)
 	SetGravity(DEFAULT_GRAVITY);
 	SendClientMessage(playerid, 0x66FF66FF, "[bare-rpctest] Wanted=0 and gravity=0.008 restored.");
 	printf("[bare-rpctest] player=%d reset wanted=0 gravity=%.3f", playerid, DEFAULT_GRAVITY);
+	return 1;
+}
+
+/// Lists the focused commands for RPCs 28, 33, 41, 42, 59, 69, 72, 75, 137 and 138.
+stock SendPlayerAudioChatRpcHelp(playerid)
+{
+	SendClientMessage(playerid, 0xFFFFFFFF, "[bare-rpctest] /rpcedit, /rpccanceledit, /rpcshop, /rpcaudio <url>, /rpcaudiopos <url>, /rpcstopaudio");
+	SendClientMessage(playerid, 0xFFFFFFFF, "[bare-rpctest] /rpcbubble <other player id>, /rpcteam <0-255>, /rpccolor, /rpcattach, /rpcattachoff");
+	SendClientMessage(playerid, 0xFFCC66FF, "[bare-rpctest] RPC137/138 join/quit are automatic; RPC59 needs a second client/NPC as the visible target.");
+	return 1;
+}
+
+stock DestroyRpcAttachedObject(const reason[])
+{
+	if (gRpcAttachedObject == INVALID_OBJECT_ID)
+	{
+		return 0;
+	}
+
+	printf("[bare-rpctest] RPC75 destroy object=%d player=%d reason=%s",
+		gRpcAttachedObject, gRpcAttachedObjectPlayer, reason);
+	DestroyObject(gRpcAttachedObject);
+	gRpcAttachedObject = INVALID_OBJECT_ID;
+	gRpcAttachedObjectPlayer = INVALID_PLAYER_ID;
 	return 1;
 }
 
@@ -691,6 +720,12 @@ public OnGameModeInit()
 /// Reference: https://open.mp/docs/scripting/callbacks/OnPlayerConnect
 public OnPlayerConnect(playerid)
 {
+	new name[MAX_PLAYER_NAME + 1];
+	GetPlayerName(playerid, name, sizeof(name));
+	printf("[bare-rpctest] RPC137 ServerJoin player=%d name=%s npc=%d", playerid, name, IsPlayerNPC(playerid));
+
+	gRpcShopEnabled[playerid] = false;
+	gRpcColorAlternate[playerid] = false;
 	RemoveArea51BaseBuildings(playerid);
 	GameTextForPlayer(playerid, WELCOME_GAME_TEXT, 5000, 5);
 	return 1;
@@ -700,6 +735,149 @@ public OnPlayerConnect(playerid)
 /// Reference: https://open.mp/docs/scripting/callbacks/OnPlayerCommandText
 public OnPlayerCommandText(playerid, cmdtext[])
 {
+	if (!strcmp(cmdtext, "/rpcbatch", true))
+	{
+		SendPlayerAudioChatRpcHelp(playerid);
+		return 1;
+	}
+
+	if (!strcmp(cmdtext, "/rpcedit", true))
+	{
+		new Float:x, Float:y, Float:z;
+		GetPlayerPos(playerid, x, y, z);
+		if (gRpcEditObject != INVALID_OBJECT_ID)
+		{
+			DestroyObject(gRpcEditObject);
+		}
+		gRpcEditObject = CreateObject(1239, x + 3.0, y, z + 1.0, 0.0, 0.0, 0.0, 200.0);
+		if (gRpcEditObject == INVALID_OBJECT_ID || !BeginObjectEditing(playerid, gRpcEditObject))
+		{
+			SendClientMessage(playerid, 0xFF6666FF, "[bare-rpctest] Could not start the RPC28 edit setup.");
+			return 1;
+		}
+		SendClientMessage(playerid, 0x66FF66FF, "[bare-rpctest] Object editor active; use /rpccanceledit to exercise RPC28.");
+		printf("[bare-rpctest] RPC28 setup player=%d object=%d", playerid, gRpcEditObject);
+		return 1;
+	}
+
+	if (!strcmp(cmdtext, "/rpccanceledit", true))
+	{
+		CancelEdit(playerid);
+		SendClientMessage(playerid, 0x66FF66FF, "[bare-rpctest] RPC28 CancelEdit sent.");
+		printf("[bare-rpctest] RPC28 CancelEdit player=%d", playerid);
+		return 1;
+	}
+
+	if (!strcmp(cmdtext, "/rpcshop", true))
+	{
+		gRpcShopEnabled[playerid] = !gRpcShopEnabled[playerid];
+		SetPlayerShopName(playerid, gRpcShopEnabled[playerid] ? "FDPIZA" : "");
+		SendClientMessage(playerid, 0x66FF66FF, gRpcShopEnabled[playerid] ?
+			"[bare-rpctest] RPC33 shop FDPIZA loaded." : "[bare-rpctest] RPC33 shop unloaded.");
+		printf("[bare-rpctest] RPC33 player=%d enabled=%d shop=FDPIZA", playerid, gRpcShopEnabled[playerid]);
+		return 1;
+	}
+
+	if ((!strcmp(cmdtext, "/rpcaudio", true, 9) && (cmdtext[9] == ' ' || cmdtext[9] == '\t')) ||
+		(!strcmp(cmdtext, "/rpcaudiopos", true, 12) && (cmdtext[12] == ' ' || cmdtext[12] == '\t')))
+	{
+		new bool:positional = !strcmp(cmdtext, "/rpcaudiopos", true, 12);
+		new token = SkipCommandSpaces(cmdtext, positional ? 12 : 9);
+		new urlLength = strlen(cmdtext[token]);
+		if (urlLength < 1 || urlLength > 127)
+		{
+			SendClientMessage(playerid, 0xFFCC66FF, "[bare-rpctest] Usage: /rpcaudio[pos] <url up to 127 characters>");
+			return 1;
+		}
+
+		new Float:x, Float:y, Float:z;
+		GetPlayerPos(playerid, x, y, z);
+		PlayAudioStreamForPlayer(playerid, cmdtext[token], x + 5.0, y, z, 30.0, positional);
+		SendClientMessage(playerid, 0x66FF66FF, positional ?
+			"[bare-rpctest] RPC41 positional stream started five metres east." :
+			"[bare-rpctest] RPC41 non-positional stream started.");
+		printf("[bare-rpctest] RPC41 player=%d positional=%d url_length=%d", playerid, positional, urlLength);
+		return 1;
+	}
+
+	if (!strcmp(cmdtext, "/rpcstopaudio", true))
+	{
+		StopAudioStreamForPlayer(playerid);
+		SendClientMessage(playerid, 0x66FF66FF, "[bare-rpctest] RPC42 audio stream stopped.");
+		printf("[bare-rpctest] RPC42 player=%d", playerid);
+		return 1;
+	}
+
+	if (!strcmp(cmdtext, "/rpcbubble", true, 10) &&
+		(cmdtext[10] == ' ' || cmdtext[10] == '\t'))
+	{
+		new token = SkipCommandSpaces(cmdtext, 10);
+		new targetid = strval(cmdtext[token]);
+		if (cmdtext[token] == '\0' || targetid == playerid || !IsPlayerConnected(targetid))
+		{
+			SendClientMessage(playerid, 0xFFCC66FF, "[bare-rpctest] Usage: /rpcbubble <connected other player/NPC id>");
+			return 1;
+		}
+		SetPlayerChatBubble(targetid, "[RPC59] visible for eight seconds", 0x66CCFFFF, 100.0, 8000);
+		SendClientMessage(playerid, 0x66FF66FF, "[bare-rpctest] RPC59 bubble set on the other player/NPC for eight seconds.");
+		printf("[bare-rpctest] RPC59 observer=%d target=%d", playerid, targetid);
+		return 1;
+	}
+
+	if (!strcmp(cmdtext, "/rpcteam", true, 8) &&
+		(cmdtext[8] == ' ' || cmdtext[8] == '\t'))
+	{
+		new token = SkipCommandSpaces(cmdtext, 8);
+		new team = strval(cmdtext[token]);
+		if (cmdtext[token] == '\0' || team < 0 || team > 255)
+		{
+			SendClientMessage(playerid, 0xFFCC66FF, "[bare-rpctest] Usage: /rpcteam <0-255; 255 means no team>");
+			return 1;
+		}
+		SetPlayerTeam(playerid, team);
+		new message[96];
+		format(message, sizeof(message), "[bare-rpctest] RPC69 team set to %d.", team);
+		SendClientMessage(playerid, 0x66FF66FF, message);
+		printf("[bare-rpctest] RPC69 player=%d team=%d", playerid, team);
+		return 1;
+	}
+
+	if (!strcmp(cmdtext, "/rpccolor", true))
+	{
+		gRpcColorAlternate[playerid] = !gRpcColorAlternate[playerid];
+		new colour = gRpcColorAlternate[playerid] ? 0xFF6666FF : 0x66CCFFFF;
+		SetPlayerColor(playerid, colour);
+		SendClientMessage(playerid, 0x66FF66FF, "[bare-rpctest] RPC72 player colour toggled; check scoreboard/name tag from client two.");
+		printf("[bare-rpctest] RPC72 player=%d colour=%x", playerid, colour);
+		return 1;
+	}
+
+	if (!strcmp(cmdtext, "/rpcattach", true))
+	{
+		new Float:x, Float:y, Float:z;
+		GetPlayerPos(playerid, x, y, z);
+		DestroyRpcAttachedObject("replace");
+		gRpcAttachedObject = CreateObject(1239, x, y, z + 1.5, 0.0, 0.0, 0.0, 200.0);
+		if (gRpcAttachedObject == INVALID_OBJECT_ID)
+		{
+			SendClientMessage(playerid, 0xFF6666FF, "[bare-rpctest] Could not create the RPC75 test object.");
+			return 1;
+		}
+		gRpcAttachedObjectPlayer = playerid;
+		// OPENMP_REF: the legacy native is documented to return false even when the attach is sent.
+		AttachObjectToPlayer(gRpcAttachedObject, playerid, 0.0, 0.0, 1.5, 0.0, 0.0, 0.0);
+		SendClientMessage(playerid, 0x66FF66FF, "[bare-rpctest] RPC75 info-icon object attached above the player; /rpcattachoff removes it.");
+		printf("[bare-rpctest] RPC75 object=%d player=%d", gRpcAttachedObject, playerid);
+		return 1;
+	}
+
+	if (!strcmp(cmdtext, "/rpcattachoff", true))
+	{
+		DestroyRpcAttachedObject("command");
+		SendClientMessage(playerid, 0x66FF66FF, "[bare-rpctest] RPC75 test object destroyed.");
+		return 1;
+	}
+
 	if (!strcmp(cmdtext, "/yadayada", true))
 	{
 		return 1;
@@ -1456,18 +1634,32 @@ public OnPlayerSpawn(playerid)
 
 public OnPlayerDisconnect(playerid, reason)
 {
-	#pragma unused reason
+	new name[MAX_PLAYER_NAME + 1];
+	GetPlayerName(playerid, name, sizeof(name));
+	printf("[bare-rpctest] RPC138 ServerQuit player=%d name=%s reason=%d", playerid, name, reason);
 
 	if (gSampObjectScanActive && gSampObjectScanPlayer == playerid)
 	{
 		StopSampObjectScan(playerid, true);
 	}
+	if (gRpcAttachedObjectPlayer == playerid)
+	{
+		DestroyRpcAttachedObject("disconnect");
+	}
+	gRpcShopEnabled[playerid] = false;
+	gRpcColorAlternate[playerid] = false;
 	return 1;
 }
 
 public OnGameModeExit()
 {
 	StopSampObjectScan(INVALID_PLAYER_ID, true);
+	DestroyRpcAttachedObject("gamemode_exit");
+	if (gRpcEditObject != INVALID_OBJECT_ID)
+	{
+		DestroyObject(gRpcEditObject);
+		gRpcEditObject = INVALID_OBJECT_ID;
+	}
 	return 1;
 }
 

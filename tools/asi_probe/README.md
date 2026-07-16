@@ -144,6 +144,7 @@ SAMP_PROBE_CUSTOM_OBJECT_HEAVY=1
 SAMP_PROBE_TEXTDRAW_HOOKS=1
 SAMP_PROBE_TEXTDRAW_VERBOSE=1
 SAMP_PROBE_TEXTDRAW_RENDER=1
+SAMP_PROBE_FONT5_HOOKS=1
 ```
 
 The asset trace can also be toggled through files next to the ASI:
@@ -158,6 +159,7 @@ samp_probe_custom_object_heavy.flag
 samp_probe_textdraw_hooks.flag
 samp_probe_textdraw_verbose.flag
 samp_probe_textdraw_render.flag
+samp_probe_font5_hooks.flag
 ```
 
 Use `samp_probe_asset_paths.flag` for normal original-DLL golden traces. It logs interesting SA-MP asset opens, size queries, seeks, and closes. `samp_probe_file_hooks.flag` additionally hooks `ReadFile`; keep that for short, targeted runs only because original 0.3.7 performs large overlapped reads against the SAMP archives.
@@ -207,6 +209,35 @@ render probe tracks texture sources and marks short render windows after
 Font 4/5 CFont hints, so lines with the prefix `textdraw_render:` are the main
 diff target. Treat these as `PROBE_TRACE`/`TODO_VERIFY` evidence and keep runs
 short because this flag patches COM vtables.
+
+For the focused original-R5 Font 5 run, use only
+`samp_probe_font5_hooks.flag` in addition to the normal passive probe flags.
+This dedicated flag implies the TextDraw render hooks and additionally patches
+two strictly validated original-`samp.dll` functions:
+
+- `samp.dll+0x000b34a0`: style-5 preview entity preparation/cache;
+- `samp.dll+0x000b3480`: cached-preview versus normal-CFont draw dispatch.
+
+`STATIC_037`: both RVAs are for original `samp.dll`
+SHA256=`b72b5dbe725f81864ca3f78bc7063bda56cc05fc7188af822fa7a754432553a2`.
+The probe requires the matching PE timestamp, entry RVA, image size, and exact
+function prologues before installing either hook. Other DLL identities are
+logged as `unsupported_identity` and remain unmodified.
+
+Run this focused probe process-bound: do not hot-unload the ASI. End the
+`gta_sa.exe` process after the short capture so its code and COM-vtable hooks
+cannot outlive the probe module. A valid capture must contain
+`font5_code_hook: pair_preflight_ok` and a summary with `installed=2`; discard
+the run if `pair_preflight_failed` or `incomplete_install` appears.
+
+The focused trace emits `font5_dispatch:` records containing the model, slot,
+cached preview pointer, position/size, rotation, zoom, vehicle colors, bounded
+raw state, and SA-MP stack RVAs. During each hooked draw it correlates
+`textdraw_rtt:` records through `font5_seq`, including `CreateTexture`,
+texture-to-surface mapping, render-target/depth-stencil switches, viewport,
+clear, stretch/resolve, and resource creation. This is still
+`STATIC_037`/`PROBE_TRACE`/`TODO_VERIFY`: only the next original run can promote
+the observed branch and API sequence to runtime evidence.
 
 ## Example Log Output
 

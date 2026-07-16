@@ -1,5 +1,7 @@
 #include "sampdll/net/raknet_client_adapter.h"
 
+#include "death_message_codec.h"
+
 #include <cstdarg>
 #include <cmath>
 #include <cstddef>
@@ -251,6 +253,11 @@ struct RpcProbeState {
   samp_raknet_pickup_event pickup_events[SAMP_RAKNET_PICKUP_EVENT_RING];
   unsigned int explosion_event_seq;
   samp_raknet_explosion_event explosion_events[SAMP_RAKNET_EXPLOSION_EVENT_RING];
+  unsigned int chat_bubble_event_seq;
+  samp_raknet_chat_bubble_event chat_bubble_events[SAMP_RAKNET_CHAT_BUBBLE_EVENT_RING];
+  unsigned int cancel_edit_seq;
+  unsigned int shop_name_seq;
+  unsigned int play_audio_stream_seq;
   unsigned int play_sound_seq;
   unsigned int stop_audio_stream_seq;
   unsigned int player_color_seq;
@@ -302,6 +309,11 @@ struct RpcProbeState {
   samp_raknet_given_weapon_event player_given_weapon_events[SAMP_RAKNET_GIVE_WEAPON_EVENT_RING];
   unsigned int play_sound_id;
   float play_sound_pos[3];
+  char shop_name[SAMP_RAKNET_SHOP_NAME_BYTES];
+  char audio_stream_url[SAMP_RAKNET_AUDIO_STREAM_URL_BYTES];
+  float audio_stream_pos[3];
+  float audio_stream_distance;
+  unsigned char audio_stream_use_pos;
   unsigned short player_color_player_id;
   unsigned int player_color;
   unsigned short player_team_player_id;
@@ -620,12 +632,12 @@ const RpcMeta kRpcMeta[] = {
     {25U, "ClientJoin", kRpcLocalOutgoing, "OPENMP_REF"},
     {26U, "EnterVehicle", kRpcLocalOutgoing, "OPENMP_REF"},
     {27U, "EnterEditObject", kRpcLocalOutgoing, "OPENMP_REF"},
-    {28U, "ScrCancelEdit", kRpcLocalDummy, "SAMPFUNCS_037"},
+    {28U, "ScrCancelEdit", kRpcLocalDecoded, "OPENMP_REF,TODO_VERIFY"},
     {29U, "ScrSetPlayerTime/SetTimeEx", kRpcLocalImplemented, "PROBE_TRACE"},
     {30U, "ScrToggleClock", kRpcLocalImplemented, "STATIC_037:samp.dll+0xF500"},
     {31U, "ScriptCash", kRpcLocalOutgoing, "OPENMP_REF"},
     {32U, "ScrWorldPlayerAdd", kRpcLocalImplemented, "STATIC_037,PROBE_TRACE"},
-    {33U, "ScrSetPlayerShopName", kRpcLocalDummy, "SAMPFUNCS_037"},
+    {33U, "ScrSetPlayerShopName", kRpcLocalDecoded, "STATIC_037:samp.dll+0x17E50,TODO_VERIFY"},
     {34U, "ScrSetPlayerSkillLevel", kRpcLocalImplemented, "STATIC_037:samp.dll+0xF5E0"},
     {35U, "ScrSetPlayerDrunkLevel", kRpcLocalImplemented, "STATIC_037:samp.dll+0x18DB0"},
     {36U, "ScrCreate3DTextLabel", kRpcLocalImplemented, "OPENMP_REF,TODO_VERIFY"},
@@ -633,8 +645,8 @@ const RpcMeta kRpcMeta[] = {
     {38U, "ScrSetRaceCheckpoint", kRpcLocalImplemented, "STATIC_037:samp.dll+0xF140"},
     {39U, "ScrDisableRaceCheckpoint", kRpcLocalImplemented, "STATIC_037:samp.dll+0xF1E0"},
     {40U, "ScrGameModeRestart", kRpcLocalImplemented, "STATIC_037:samp.dll+0xE650"},
-    {41U, "ScrPlayAudioStream", kRpcLocalDummy, "SAMPFUNCS_037"},
-    {42U, "ScrStopAudioStream", kRpcLocalDecoded, "OPENMP_REF"},
+    {41U, "ScrPlayAudioStream", kRpcLocalImplemented, "STATIC_037:samp.dll+0x1D3C0,OPENMP_REF,TODO_VERIFY"},
+    {42U, "ScrStopAudioStream", kRpcLocalImplemented, "STATIC_037:samp.dll+0x180F0,OPENMP_REF"},
     {43U, "ScrRemoveBuildingForPlayer", kRpcLocalDecoded, "OPENMP_REF"},
     {44U, "ScrCreateObject", kRpcLocalImplemented, "PROBE_TRACE"},
     {45U, "ScrSetObjectPos", kRpcLocalImplemented, "PROBE_TRACE"},
@@ -648,7 +660,7 @@ const RpcMeta kRpcMeta[] = {
     {56U, "ScrSetPlayerMapIcon", kRpcLocalImplemented, "INFERRED,TODO_VERIFY"},
     {57U, "ScrRemoveVehicleComponent", kRpcLocalImplemented, "STATIC_037:samp.dll+0x1C5C0"},
     {58U, "ScrUpdate3DTextLabel", kRpcLocalImplemented, "SAMPFUNCS_037,TODO_VERIFY"},
-    {59U, "ScrChatBubble", kRpcLocalDummy, "SAMPFUNCS_037"},
+    {59U, "ScrChatBubble", kRpcLocalImplemented, "OPENMP_REF,TODO_VERIFY"},
     {60U, "ScrSomeUpdate", kRpcLocalDummy, "SAMPFUNCS_037"},
     {61U, "ScrShowDialog", kRpcLocalImplemented, "PROBE_TRACE"},
     {62U, "DialogResponse", kRpcLocalOutgoing, "OPENMP_REF"},
@@ -658,13 +670,13 @@ const RpcMeta kRpcMeta[] = {
     {66U, "ScrSetPlayerArmour", kRpcLocalImplemented, "OPENMP_REF"},
     {67U, "ScrSetPlayerArmedWeapon", kRpcLocalImplemented, "OPENMP_REF"},
     {68U, "ScrSetSpawnInfo", kRpcLocalImplemented, "PROBE_TRACE"},
-    {69U, "ScrSetPlayerTeam", kRpcLocalDecoded, "OPENMP_REF"},
+    {69U, "ScrSetPlayerTeam", kRpcLocalImplemented, "STATIC_037:samp.dll+0x19710,OPENMP_REF"},
     {70U, "ScrPutPlayerInVehicle", kRpcLocalImplemented, "PROBE_TRACE,STATIC_037,TODO_VERIFY"},
     {71U, "ScrRemovePlayerFromVehicle", kRpcLocalImplemented, "STATIC_037:samp.dll+0x17FF0"},
-    {72U, "ScrSetPlayerColor", kRpcLocalDecoded, "OPENMP_REF"},
+    {72U, "ScrSetPlayerColor", kRpcLocalImplemented, "STATIC_037:samp.dll+0x19800,OPENMP_REF"},
     {73U, "ScrDisplayGameText", kRpcLocalImplemented, "STATIC_037,OPENMP_REF,TODO_VERIFY"},
     {74U, "ScrForceClassSelection", kRpcLocalImplemented, "STATIC_037:samp.dll+0x180D0"},
-    {75U, "ScrAttachObjectToPlayer", kRpcLocalDecoded, "PROBE_TRACE"},
+    {75U, "ScrAttachObjectToPlayer", kRpcLocalImplemented, "STATIC_037:samp.dll+0x1C6A0,PROBE_TRACE,TODO_VERIFY"},
     {76U, "ScrInitMenu", kRpcLocalDummy, "STATIC_037"},
     {77U, "ScrShowMenu", kRpcLocalDummy, "STATIC_037"},
     {78U, "ScrHideMenu", kRpcLocalDummy, "STATIC_037"},
@@ -717,8 +729,8 @@ const RpcMeta kRpcMeta[] = {
     {134U, "ScrShowTextDraw", kRpcLocalImplemented, "PROBE_TRACE"},
     {135U, "ScrHideTextDraw", kRpcLocalImplemented, "PROBE_TRACE"},
     {136U, "ScrEditTextDraw/VehicleDestroyed", kRpcLocalImplemented, "PROBE_TRACE"},
-    {137U, "ScrServerJoin", kRpcLocalDecoded, "PROBE_TRACE"},
-    {138U, "ScrServerQuit", kRpcLocalDecoded, "STATIC_037"},
+    {137U, "ScrServerJoin", kRpcLocalImplemented, "PROBE_TRACE,OPENMP_REF,TODO_VERIFY"},
+    {138U, "ScrServerQuit", kRpcLocalImplemented, "PROBE_TRACE,OPENMP_REF,TODO_VERIFY"},
     {139U, "ScrInitGame", kRpcLocalImplemented, "PROBE_TRACE"},
     {140U, "MenuQuit", kRpcLocalOutgoing, "OPENMP_REF"},
     {144U, "ScrRemovePlayerMapIcon/TogClockCompat", kRpcLocalImplemented, "INFERRED,PROBE_TRACE,TODO_VERIFY"},
@@ -818,15 +830,23 @@ unsigned int rpc_min_payload_bytes(unsigned int rpc_id) {
       return 18U;
     case 36U:
       return 27U;
+    case 28U:
     case 37U:
     case 39U:
     case 40U:
+    case 42U:
     case 74U:
       return 0U;
+    case 33U:
+      return 32U;
+    case 41U:
+      return 18U;
     case 38U:
       return 29U;
     case 58U:
       return 6U;
+    case 59U:
+      return 15U;
     case 64U:
       return 2U;
     case 43U:
@@ -937,6 +957,10 @@ unsigned int rpc_min_payload_bytes(unsigned int rpc_id) {
       return 3U;
     case 134U:
       return kTextDrawShowMinBytes;
+    case 137U:
+      return 8U;
+    case 138U:
+      return 3U;
     case 139U:
     case 162U:
       return 0U;
@@ -1137,6 +1161,10 @@ void reset_rpc_probe_runtime(RakNet::RakClientInterface *client) {
   g_rpc_probe.checkpoint_event_seq = 0U;
   g_rpc_probe.pickup_event_seq = 0U;
   g_rpc_probe.explosion_event_seq = 0U;
+  g_rpc_probe.chat_bubble_event_seq = 0U;
+  g_rpc_probe.cancel_edit_seq = 0U;
+  g_rpc_probe.shop_name_seq = 0U;
+  g_rpc_probe.play_audio_stream_seq = 0U;
   g_rpc_probe.play_sound_seq = 0U;
   g_rpc_probe.stop_audio_stream_seq = 0U;
   g_rpc_probe.player_color_seq = 0U;
@@ -1194,6 +1222,12 @@ void reset_rpc_probe_runtime(RakNet::RakClientInterface *client) {
   std::memset(g_rpc_probe.give_money_events, 0, sizeof(g_rpc_probe.give_money_events));
   std::memset(g_rpc_probe.pickup_events, 0, sizeof(g_rpc_probe.pickup_events));
   std::memset(g_rpc_probe.explosion_events, 0, sizeof(g_rpc_probe.explosion_events));
+  std::memset(g_rpc_probe.chat_bubble_events, 0, sizeof(g_rpc_probe.chat_bubble_events));
+  g_rpc_probe.shop_name[0] = '\0';
+  g_rpc_probe.audio_stream_url[0] = '\0';
+  std::memset(g_rpc_probe.audio_stream_pos, 0, sizeof(g_rpc_probe.audio_stream_pos));
+  g_rpc_probe.audio_stream_distance = 0.0f;
+  g_rpc_probe.audio_stream_use_pos = 0U;
   g_rpc_probe.play_sound_id = 0U;
   std::memset(g_rpc_probe.play_sound_pos, 0, sizeof(g_rpc_probe.play_sound_pos));
   g_rpc_probe.player_color_player_id = 0U;
@@ -3118,30 +3152,25 @@ bool decode_world_player_remove_payload(const unsigned char *data, unsigned int 
 }
 
 bool decode_death_message_payload(const unsigned char *data, unsigned int bytes) {
-  unsigned short killer_id = 0xFFFFU;
-  unsigned short killee_id = 0xFFFFU;
-  unsigned char reason = 0U;
+  sampdll::net::DeathMessagePayload decoded{};
   unsigned char action = SAMP_RAKNET_DEATH_WINDOW_ACTION_ADD;
   samp_raknet_death_window_event *event = nullptr;
 
-  if (data == nullptr || bytes < 3U) {
+  if (!sampdll::net::decode_death_message(data, bytes, &decoded)) {
     return false;
   }
 
   /*
-   * STATIC_037 + TODO_VERIFY:
-   * 0.3.x ScrDeathMessage reads three bytes: killer, killee, weapon/reason. INVALID_PLAYER_ID is byte 255
-   * on this RPC and is widened to the runtime invalid marker before the overlay consumes it.
+   * PROBE_TRACE + OPENMP_REF:
+   * samp_net_trace.log, run=libsamp-20260715-killlist-ak47, payload=01 00 00 00 1e.
+   * ScrDeathMessage carries uint16 killer, uint16 killee, then uint8 weapon/reason.
    */
-  killer_id = data[0U] == 0xFFU ? 0xFFFFU : static_cast<unsigned short>(data[0U]);
-  killee_id = data[1U] == 0xFFU ? 0xFFFFU : static_cast<unsigned short>(data[1U]);
-  reason = data[2U];
-  event = queue_death_window_event(action, killer_id, killee_id, reason);
+  event = queue_death_window_event(action, decoded.killer_id, decoded.killee_id, decoded.reason);
   trace_netf("rpc-state id=55 death_window seq=%u action=%s killer=%u killee=%u reason=%u bytes=%u "
-             "evidence=STATIC_037,TODO_VERIFY",
+             "evidence=PROBE_TRACE,OPENMP_REF",
              event->seq, action == SAMP_RAKNET_DEATH_WINDOW_ACTION_CLEAR ? "clear" : "add",
-             static_cast<unsigned int>(killer_id), static_cast<unsigned int>(killee_id),
-             static_cast<unsigned int>(reason), bytes);
+             static_cast<unsigned int>(decoded.killer_id), static_cast<unsigned int>(decoded.killee_id),
+             static_cast<unsigned int>(decoded.reason), bytes);
   return true;
 }
 
@@ -3754,6 +3783,84 @@ bool decode_give_player_weapon_payload(const unsigned char *data, unsigned int b
   return true;
 }
 
+bool decode_shop_name_payload(const unsigned char *data, unsigned int bytes) {
+  if (data == nullptr || bytes < 32U) {
+    return false;
+  }
+  std::memcpy(g_rpc_probe.shop_name, data, 32U);
+  g_rpc_probe.shop_name[32U] = '\0';
+  sanitize_3d_text_label_text(g_rpc_probe.shop_name);
+  const unsigned int seq = bump_seq(&g_rpc_probe.shop_name_seq);
+  trace_netf("rpc-state id=33 shop_name_seq=%u name='%s' apply_pending=1 "
+             "evidence=STATIC_037,TODO_VERIFY",
+             seq, g_rpc_probe.shop_name);
+  return true;
+}
+
+bool decode_play_audio_stream_payload(const unsigned char *data, unsigned int bytes) {
+  unsigned int offset = 0U;
+  char url[SAMP_RAKNET_AUDIO_STREAM_URL_BYTES] = {0};
+  float pos[3] = {0.0f, 0.0f, 0.0f};
+  float distance = 0.0f;
+
+  if (data == nullptr || bytes < 18U || data[0] >= sizeof(url) ||
+      !read_dynstr8_plain(data, bytes, &offset, url, sizeof(url)) || bytes - offset < 17U) {
+    return false;
+  }
+  read_vec3(data + offset, pos);
+  distance = read_le_float(data + offset + 12U);
+  const unsigned char use_pos = data[offset + 16U] != 0U ? 1U : 0U;
+  if (!std::isfinite(pos[0]) || !std::isfinite(pos[1]) || !std::isfinite(pos[2]) ||
+      !std::isfinite(distance) || distance < 0.0f || distance > 100000.0f) {
+    return false;
+  }
+  sanitize_3d_text_label_text(url);
+  copy_text(g_rpc_probe.audio_stream_url, sizeof(g_rpc_probe.audio_stream_url), url);
+  std::memcpy(g_rpc_probe.audio_stream_pos, pos, sizeof(pos));
+  g_rpc_probe.audio_stream_distance = distance;
+  g_rpc_probe.audio_stream_use_pos = use_pos;
+  const unsigned int seq = bump_seq(&g_rpc_probe.play_audio_stream_seq);
+  trace_netf("rpc-state id=41 play_audio_stream_seq=%u url_len=%u pos=%.3f %.3f %.3f "
+             "distance=%.3f use_pos=%u apply_pending=1 evidence=STATIC_037,OPENMP_REF,TODO_VERIFY",
+             seq, static_cast<unsigned int>(std::strlen(url)), static_cast<double>(pos[0]),
+             static_cast<double>(pos[1]), static_cast<double>(pos[2]), static_cast<double>(distance),
+             static_cast<unsigned int>(use_pos));
+  return true;
+}
+
+bool decode_chat_bubble_payload(const unsigned char *data, unsigned int bytes) {
+  unsigned int offset = 14U;
+  char text[SAMP_RAKNET_CHAT_BUBBLE_TEXT_BYTES] = {0};
+  if (data == nullptr || bytes < 15U || data[offset] >= sizeof(text) ||
+      !read_dynstr8_plain(data, bytes, &offset, text, sizeof(text))) {
+    return false;
+  }
+  const unsigned short player_id = read_le16(data);
+  const unsigned int color = read_le32(data + 2U);
+  const float draw_distance = read_le_float(data + 6U);
+  const unsigned int duration_ms = read_le32(data + 10U);
+  if (player_id >= SAMP_RAKNET_MAX_PLAYERS || !std::isfinite(draw_distance) || draw_distance < 0.0f ||
+      draw_distance > 10000.0f) {
+    return false;
+  }
+  sanitize_3d_text_label_text(text);
+  const unsigned int seq = bump_seq(&g_rpc_probe.chat_bubble_event_seq);
+  samp_raknet_chat_bubble_event &event =
+      g_rpc_probe.chat_bubble_events[(seq - 1U) % SAMP_RAKNET_CHAT_BUBBLE_EVENT_RING];
+  std::memset(&event, 0, sizeof(event));
+  event.seq = seq;
+  event.player_id = player_id;
+  event.color = color;
+  event.duration_ms = duration_ms;
+  event.draw_distance = draw_distance;
+  copy_text(event.text, sizeof(event.text), text);
+  trace_netf("rpc-state id=59 chat_bubble seq=%u player=%u color=0x%08x distance=%.3f duration=%u "
+             "text_len=%u apply_pending=1 evidence=OPENMP_REF,TODO_VERIFY",
+             seq, static_cast<unsigned int>(player_id), color, static_cast<double>(draw_distance), duration_ms,
+             static_cast<unsigned int>(std::strlen(text)));
+  return true;
+}
+
 bool decode_play_sound_payload(const unsigned char *data, unsigned int bytes) {
   if (data == nullptr || bytes < 16U) {
     return false;
@@ -3779,8 +3886,13 @@ bool decode_player_team_payload(const unsigned char *data, unsigned int bytes) {
   }
   g_rpc_probe.player_team_player_id = read_le16(data);
   g_rpc_probe.player_team = data[2U];
+  if (g_rpc_probe.player_team_player_id >= SAMP_RAKNET_MAX_PLAYERS) {
+    return false;
+  }
+  queue_player_pool_event(SAMP_RAKNET_PLAYER_POOL_ACTION_TEAM, g_rpc_probe.player_team_player_id, 0U, 0U,
+                          g_rpc_probe.player_team, "");
   const unsigned int seq = bump_seq(&g_rpc_probe.player_team_seq);
-  trace_netf("rpc-state id=69 player_team_seq=%u player=%u team=%u decoded_only=1", seq,
+  trace_netf("rpc-state id=69 player_team_seq=%u player=%u team=%u apply_pending=1 evidence=STATIC_037", seq,
              static_cast<unsigned int>(g_rpc_probe.player_team_player_id),
              static_cast<unsigned int>(g_rpc_probe.player_team));
   return true;
@@ -3792,8 +3904,13 @@ bool decode_player_color_payload(const unsigned char *data, unsigned int bytes) 
   }
   g_rpc_probe.player_color_player_id = read_le16(data);
   g_rpc_probe.player_color = read_le32(data + 2U);
+  if (g_rpc_probe.player_color_player_id >= SAMP_RAKNET_MAX_PLAYERS) {
+    return false;
+  }
+  queue_player_pool_event(SAMP_RAKNET_PLAYER_POOL_ACTION_COLOR, g_rpc_probe.player_color_player_id,
+                          g_rpc_probe.player_color, 0U, 0U, "");
   const unsigned int seq = bump_seq(&g_rpc_probe.player_color_seq);
-  trace_netf("rpc-state id=72 player_color_seq=%u player=%u color=0x%08x decoded_only=1", seq,
+  trace_netf("rpc-state id=72 player_color_seq=%u player=%u color=0x%08x apply_pending=1 evidence=STATIC_037", seq,
              static_cast<unsigned int>(g_rpc_probe.player_color_player_id), g_rpc_probe.player_color);
   return true;
 }
@@ -5648,9 +5765,20 @@ void rpc_observer(RakNet::RPCParameters *rpc_params, void *extra) {
     if (rpc_params == nullptr || !decode_delete_3d_text_label_payload(rpc_params->input, bytes)) {
       trace_netf("rpc-state id=64 delete_3d_text_label decode_failed bytes=%u", bytes);
     }
+  } else if (rpc_id == 28U) {
+    const unsigned int seq = bump_seq(&g_rpc_probe.cancel_edit_seq);
+    trace_netf("rpc-state id=28 cancel_edit_seq=%u apply_pending=1 evidence=OPENMP_REF,TODO_VERIFY", seq);
+  } else if (rpc_id == 33U) {
+    if (rpc_params == nullptr || !decode_shop_name_payload(rpc_params->input, bytes)) {
+      trace_netf("rpc-state id=33 shop_name decode_failed bytes=%u", bytes);
+    }
+  } else if (rpc_id == 41U) {
+    if (rpc_params == nullptr || !decode_play_audio_stream_payload(rpc_params->input, bytes)) {
+      trace_netf("rpc-state id=41 play_audio_stream decode_failed bytes=%u", bytes);
+    }
   } else if (rpc_id == 42U) {
     const unsigned int seq = bump_seq(&g_rpc_probe.stop_audio_stream_seq);
-    trace_netf("rpc-state id=42 stop_audio_stream_seq=%u decoded_only=1", seq);
+    trace_netf("rpc-state id=42 stop_audio_stream_seq=%u apply_pending=1 evidence=STATIC_037", seq);
   } else if (rpc_id == 43U) {
     if (rpc_params == nullptr || !decode_remove_building_payload(rpc_params->input, bytes)) {
       trace_netf("rpc-state id=43 remove_building decode_failed bytes=%u", bytes);
@@ -5658,6 +5786,10 @@ void rpc_observer(RakNet::RPCParameters *rpc_params, void *extra) {
   } else if (rpc_id == 55U) {
     if (rpc_params == nullptr || !decode_death_message_payload(rpc_params->input, bytes)) {
       trace_netf("rpc-state id=55 death_window decode_failed bytes=%u", bytes);
+    }
+  } else if (rpc_id == 59U) {
+    if (rpc_params == nullptr || !decode_chat_bubble_payload(rpc_params->input, bytes)) {
+      trace_netf("rpc-state id=59 chat_bubble decode_failed bytes=%u", bytes);
     }
   } else if (rpc_id == 135U) {
     if (rpc_params == nullptr || !decode_textdraw_hide_payload(rpc_params->input, bytes)) {
@@ -6825,6 +6957,8 @@ int samp_raknet_client_get_rpc_probe_snapshot(void *client, samp_raknet_rpc_prob
       g_rpc_probe.checkpoint_seq > 0U || g_rpc_probe.disable_checkpoint_seq > 0U ||
       g_rpc_probe.race_checkpoint_seq > 0U || g_rpc_probe.disable_race_checkpoint_seq > 0U ||
       g_rpc_probe.pickup_event_seq > 0U || g_rpc_probe.explosion_event_seq > 0U ||
+      g_rpc_probe.chat_bubble_event_seq > 0U || g_rpc_probe.cancel_edit_seq > 0U ||
+      g_rpc_probe.shop_name_seq > 0U || g_rpc_probe.play_audio_stream_seq > 0U ||
       g_rpc_probe.play_sound_seq > 0U || g_rpc_probe.stop_audio_stream_seq > 0U ||
       g_rpc_probe.player_color_seq > 0U || g_rpc_probe.player_team_seq > 0U ||
       g_rpc_probe.apply_animation_seq > 0U || g_rpc_probe.world_bounds_seq > 0U ||
@@ -6890,6 +7024,7 @@ int samp_raknet_client_get_rpc_probe_snapshot(void *client, samp_raknet_rpc_prob
   out_snapshot->give_money_event_count = 0U;
   out_snapshot->pickup_event_count = 0U;
   out_snapshot->explosion_event_count = 0U;
+  out_snapshot->chat_bubble_event_count = 0U;
   out_snapshot->player_pool_event_count = 0U;
   out_snapshot->score_ping_count = 0U;
   out_snapshot->textdraw_select_active = g_rpc_probe.textdraw_select_active;
@@ -6960,6 +7095,10 @@ int samp_raknet_client_get_rpc_probe_snapshot(void *client, samp_raknet_rpc_prob
   out_snapshot->checkpoint_event_seq = g_rpc_probe.checkpoint_event_seq;
   out_snapshot->pickup_event_seq = g_rpc_probe.pickup_event_seq;
   out_snapshot->explosion_event_seq = g_rpc_probe.explosion_event_seq;
+  out_snapshot->chat_bubble_event_seq = g_rpc_probe.chat_bubble_event_seq;
+  out_snapshot->cancel_edit_seq = g_rpc_probe.cancel_edit_seq;
+  out_snapshot->shop_name_seq = g_rpc_probe.shop_name_seq;
+  out_snapshot->play_audio_stream_seq = g_rpc_probe.play_audio_stream_seq;
   out_snapshot->play_sound_seq = g_rpc_probe.play_sound_seq;
   out_snapshot->stop_audio_stream_seq = g_rpc_probe.stop_audio_stream_seq;
   out_snapshot->player_color_seq = g_rpc_probe.player_color_seq;
@@ -7017,6 +7156,13 @@ int samp_raknet_client_get_rpc_probe_snapshot(void *client, samp_raknet_rpc_prob
               sizeof(out_snapshot->race_checkpoint_next));
   out_snapshot->race_checkpoint_size = g_rpc_probe.race_checkpoint_size;
   out_snapshot->checkpoint_event_type = g_rpc_probe.checkpoint_event_type;
+  std::memcpy(out_snapshot->shop_name, g_rpc_probe.shop_name, sizeof(out_snapshot->shop_name));
+  std::memcpy(out_snapshot->audio_stream_url, g_rpc_probe.audio_stream_url,
+              sizeof(out_snapshot->audio_stream_url));
+  std::memcpy(out_snapshot->audio_stream_pos, g_rpc_probe.audio_stream_pos,
+              sizeof(out_snapshot->audio_stream_pos));
+  out_snapshot->audio_stream_distance = g_rpc_probe.audio_stream_distance;
+  out_snapshot->audio_stream_use_pos = g_rpc_probe.audio_stream_use_pos;
   std::memcpy(out_snapshot->game_text, g_rpc_probe.game_text, sizeof(out_snapshot->game_text));
   if (g_rpc_probe.player_given_weapon_seq > 0U) {
     const unsigned int available = g_rpc_probe.player_given_weapon_seq < SAMP_RAKNET_GIVE_WEAPON_EVENT_RING
@@ -7067,6 +7213,19 @@ int samp_raknet_client_get_rpc_probe_snapshot(void *client, samp_raknet_rpc_prob
           g_rpc_probe.explosion_events[(seq - 1U) % SAMP_RAKNET_EXPLOSION_EVENT_RING];
       if (event.seq == seq && out_snapshot->explosion_event_count < SAMP_RAKNET_EXPLOSION_EVENT_RING) {
         out_snapshot->explosion_events[out_snapshot->explosion_event_count++] = event;
+      }
+    }
+  }
+  if (g_rpc_probe.chat_bubble_event_seq > 0U) {
+    const unsigned int available = g_rpc_probe.chat_bubble_event_seq < SAMP_RAKNET_CHAT_BUBBLE_EVENT_RING
+                                       ? g_rpc_probe.chat_bubble_event_seq
+                                       : SAMP_RAKNET_CHAT_BUBBLE_EVENT_RING;
+    const unsigned int first_seq = g_rpc_probe.chat_bubble_event_seq - available + 1U;
+    for (unsigned int seq = first_seq; seq <= g_rpc_probe.chat_bubble_event_seq; ++seq) {
+      const samp_raknet_chat_bubble_event &event =
+          g_rpc_probe.chat_bubble_events[(seq - 1U) % SAMP_RAKNET_CHAT_BUBBLE_EVENT_RING];
+      if (event.seq == seq && out_snapshot->chat_bubble_event_count < SAMP_RAKNET_CHAT_BUBBLE_EVENT_RING) {
+        out_snapshot->chat_bubble_events[out_snapshot->chat_bubble_event_count++] = event;
       }
     }
   }
@@ -7531,6 +7690,30 @@ int samp_raknet_client_request_class_delta(void *client, int delta) {
     g_rpc_probe.request_class_outcome = 0U;
   }
   schedule_request_class(next_class, step < 0 ? "ui_left" : "ui_right");
+  return 0;
+}
+
+int samp_raknet_client_request_spawn(void *client) {
+  if (client == nullptr || client != g_rpc_probe.client) {
+    return -1;
+  }
+  const bool forced_selection = g_rpc_probe.class_selection_after_death_consumed != 0;
+  if (!class_selection_manual_ready() && !forced_selection) {
+    return -1;
+  }
+  if (g_rpc_probe.pending_request_class || g_rpc_probe.waiting_for_request_class_reply ||
+      !g_rpc_probe.saw_request_class_reply || g_rpc_probe.request_class_outcome == 0U) {
+    return -2;
+  }
+
+  /* INFERRED + OPENMP_REF:
+   * This is the mouse equivalent of the existing SHIFT confirmation path.
+   * The normal service loop remains the single owner that serializes and
+   * sends RPC 129.
+   */
+  g_rpc_probe.pending_request_spawn = 1;
+  g_rpc_probe.next_request_spawn_time = 0;
+  trace_netf("rpc-manual: scheduled RequestSpawn from class-selection UI evidence=INFERRED,OPENMP_REF");
   return 0;
 }
 

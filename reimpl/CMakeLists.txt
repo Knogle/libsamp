@@ -166,6 +166,12 @@ if(SAMPDLL_BUILD_TESTS)
   include(CTest)
   enable_testing()
 
+  add_executable(test_death_message_codec
+    tests/test_death_message_codec.cpp
+  )
+
+  add_test(NAME death_message_codec COMMAND test_death_message_codec)
+
   add_executable(test_dual_stack
     tests/test_dual_stack.c
   )

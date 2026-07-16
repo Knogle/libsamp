@@ -43,6 +43,46 @@ GTA SA exe SHA256=`a559aa772fd136379155efa71f00c47aad34bbfeae6196b0fe1047d0645cb
 The replacement keeps a D3DX fallback for preview-model placeholders and
 unverified edge cases.
 
+### Early class-selection phase
+
+`OBSERVED_037` + `PROBE_TRACE`: `ENABLE_HUD` is not an original-client
+readiness signal for normal TextDraws. In
+`analysis/generated/textdraw_probe_037_verbose_20260706/samp_probe_verbose_slice.log`,
+the original R5 client is at `entry=9`, `game_started=0`, `hud=0` at line
+57455 and starts the complete normal `CFont` sequence at line 57512, nine
+milliseconds later.
+
+The replacement therefore permits the register-preserving GameProcess path in
+that exact early state. It does not relax the EndScene or graphics-callback
+paths, because their earlier `ip=0` failures remain `TODO_VERIFY`. When the
+GameProcess hook is unavailable or has not actually drawn during the recent
+frame window, normal TextDraws fall back to D3DX instead of disappearing merely
+because GameProcess mode is configured.
+
+`PROBE_TRACE` + `INFERRED` + `TODO_VERIFY`: the safe normal-font path and the
+Font 5 compatibility renderer currently run in different phases. A normal
+foreground label rendered in GameProcess is therefore already on the
+backbuffer when EndScene later composites the earlier Font 5 slot, including
+its transmitted translucent `0xaa464646` camera-clear background. This makes
+the opaque gold `0xff008caa` foreground look like a dark olive colour even
+though the decoder and `CFont::SetColor` value are correct.
+
+The 2026-07-16 13:11 replacement run tested deferring overlapping normal slots
+to the EndScene D3DX fallback. That is not compatible: centred labels collapsed
+into `GZombieNo caigas`, the counter moved to the viewport edge, and the run
+ended without `process_detach`. Normal slots therefore remain exclusively in
+the GTA `CFont` path. In split GameProcess mode, only the alpha of the preview
+camera clear is suppressed before EndScene composition; its RGB and the model
+render remain unchanged. This avoids covering the earlier foreground without
+changing its renderer or geometry. It is a scoped phase bridge until the
+complete original TextDraw renderer can execute normal and Font 5 slots in one
+safe phase.
+
+`TODO_VERIFY`: the next replacement run must confirm a
+`textdraw_gta_font: prespawn_ready` marker and a successful
+`textdraw_gta_font_gameprocess` marker before `spawn_finalize_begin`, with no
+duplicate fallback rendering or `exception_filter`.
+
 Important GTA addresses:
 
 - `0x719380`: `CFont::SetScale`
@@ -98,23 +138,77 @@ Stable default path:
   background boxes until it is moved out of the EndScene overlay
 - preserve SAMP color/newline tags on the GTA `CFont` path and normalize `_` to
   spaces before `PrintString`
-- render font `5` preview-model textdraws through a visible D3D proxy until the
-  GTA/RenderWare model-preview path is implemented separately
+- render font `5` preview-model textdraws through a cached GTA/RenderWare
+  camera texture, retaining the visible D3D proxy only while the requested
+  model is not safely resident or preview resource creation fails
 - keep generic font `4` sprite/TXD textdraws as a placeholder path, with only
   common solid `LD_SPAC:white`/`LD_SPAC:black` sprites special-cased
 
 Model-preview note:
 
-`OPENMP_REF` + `INFERRED` + `TODO_VERIFY`: open.mp documents font `5`
+`OPENMP_REF`: open.mp documents font `5`
 textdraws as model previews configured by `TextDrawSetPreviewModel`,
 `TextDrawSetPreviewRot`, and `TextDrawSetPreviewVehCol`. The replacement
 decodes these fields from the open.mp textdraw transmit block and now also
 extracts the classic 0.3.7 preview tail when a compact font `5` payload carries
-one. The current render path uses `preview_model` to choose a
-vehicle/skin/object-shaped D3D proxy so UFW-style menu and car-shop slots no
-longer render as empty boxes. This proxy is not evidence for original-DLL
-rendering; true parity still needs a focused 0.3.7 trace and a
-GTA/RenderWare-backed preview renderer.
+one.
+
+`OBSERVED_037` + `PROBE_TRACE` + `STATIC_037` + `GTA_REVERSED_REF`: the
+2026-07-15 original-R5 run established the preview dispatcher at
+`samp.dll+0x000b34a0`. Atomic/CObject models route to
+`samp.dll+0x0006c140`, vehicles `400..611` to `samp.dll+0x0006c3c0`, and
+remaining model-info instances to `samp.dll+0x0006c9b0`. All three create 256x256
+A8R8G8B8 camera-texture rasters, use one shared 256x256 Z raster and ambient
+light, clear with the transmitted background colour, render a model instance
+using the transmitted rotation/zoom, then draws the cached D3D texture as a
+screen quad. The replacement now follows that shape using GTA SA 1.0 US
+RenderWare entry points. It snapshots and restores the active D3D render
+target, depth-stencil surface, and viewport around each cache fill so the
+EndScene fallback cannot leave the backbuffer replaced by the preview target.
+
+Model streaming is deliberately guarded. A preview is created only when its
+`CModelInfo`, streaming row, resident RenderWare object, instance factory, and
+render callback are readable. A missing vanilla model is requested once per
+retry interval; a custom SA-MP model must first pass the existing custom-model
+registration and archive-mapping checks. Until then, the old shaped D3D proxy
+remains visible. This avoids reproducing the known replacement crash from
+blindly registering models beyond the vanilla atomic store.
+
+`STATIC_037` + `GTA_REVERSED_REF`: the replacement preserves those three
+placement policies. Atomic/CObject previews use `{0, -2.25 * zoom, 50.05}`;
+normal vehicles use `{0, (-1 - 2 * collisionRadius) * zoom, 50}`; the generic
+path retains collision-centre placement. It also leaves the created root frame
+intact, matching the absence of `RwFrameSetIdentity` in the original generic
+renderer. Vehicle previews choose GTA's four default colours, override the
+first two when both transmitted colours are present, and bracket rendering with
+`CVehicleModelInfo::SetEditableMaterials`/`ResetEditableMaterials`.
+
+`TODO_VERIFY`: the replacement still uses guarded model-info instances rather
+than constructing SA-MP's complete CObject/CVehicle/ped wrappers. Ped preview
+animation and wrapper-only lighting/component state remain parity gaps, not
+decoder gaps.
+
+Viewport note:
+
+`OBSERVED_037`: the 2560x1440 original/replacement image comparison shows that
+the original chat stays anchored to the physical left edge and that TextDraw X
+coordinates span the complete client width (`screenWidth / 640`). The former
+centred 1920x1440 4:3 sub-viewport compressed the six Font-5 cards horizontally
+around the screen centre by 25 percent. The replacement now uses the full
+client rectangle for TextDraw geometry and hit-testing while retaining the
+independent `screenHeight / 448` Y scale. Its class-selection fallback mirrors
+the observed compact bottom-centre `<<`, `>>`, `Spawn` control group. Chat and
+scoreboard panels intentionally reuse that fallback's translucent black,
+single-pixel white-border visual style (`INFERRED`, user-requested replacement
+UI rather than an original-R5 parity claim).
+
+A dedicated original-R5 Font 5 probe is available behind
+`SAMP_PROBE_FONT5_HOOKS=1` / `samp_probe_font5_hooks.flag`. It traces the
+validated SA-MP preview dispatch boundary together with render-target,
+depth-stencil, viewport, clear, texture-surface, and draw activity. This probe
+is opt-in and guarded by the R5 PE identity proxy plus exact prologues; its
+output is evidence gathering, not a replacement renderer. The supported DLL
+hash is documented for the run, but is not recomputed by the runtime guard.
 
 Sprite note:
 
