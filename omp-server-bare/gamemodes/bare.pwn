@@ -33,6 +33,11 @@ static const TEST_MELEE_AMMO = 1;
 static const Float:DEFAULT_GRAVITY = 0.008;
 static const Float:SMALL_RPC_TEST_GRAVITY = 0.002;
 
+// Live-checked 2026-07-16: HTTP 200, Content-Type audio/mpeg, 128 kbit/s stereo.
+static const gRpcAudioTestUrl[] = "http://stream.radioparadise.com/mp3-128";
+static const Float:RPC_AUDIO_TEST_OFFSET_X = 5.0;
+static const Float:RPC_AUDIO_TEST_RADIUS = 30.0;
+
 static const CLASS_SELECTION_INTERIOR = 14;
 static const Float:CLASS_SELECTION_X = 258.4893;
 static const Float:CLASS_SELECTION_Y = -41.4008;
@@ -236,9 +241,32 @@ stock ResetSmallRpcTest(playerid)
 /// Lists the focused commands for RPCs 28, 33, 41, 42, 59, 69, 72, 75, 137 and 138.
 stock SendPlayerAudioChatRpcHelp(playerid)
 {
-	SendClientMessage(playerid, 0xFFFFFFFF, "[bare-rpctest] /rpcedit, /rpccanceledit, /rpcshop, /rpcaudio <url>, /rpcaudiopos <url>, /rpcstopaudio");
+	SendClientMessage(playerid, 0xFFFFFFFF, "[bare-rpctest] /rpcaudiotest, /rpcaudiotestpos, /rpcstopaudio (fixed direct MP3 test)");
+	SendClientMessage(playerid, 0xFFFFFFFF, "[bare-rpctest] /rpcedit, /rpccanceledit, /rpcshop, /rpcaudio <url>, /rpcaudiopos <url>");
 	SendClientMessage(playerid, 0xFFFFFFFF, "[bare-rpctest] /rpcbubble <other player id>, /rpcteam <0-255>, /rpccolor, /rpcattach, /rpcattachoff");
 	SendClientMessage(playerid, 0xFFCC66FF, "[bare-rpctest] RPC137/138 join/quit are automatic; RPC59 needs a second client/NPC as the visible target.");
+	return 1;
+}
+
+/// Starts the fixed direct-MP3 RPC41 probe, globally or five metres east of the player.
+/// Reference: https://open.mp/docs/scripting/functions/PlayAudioStreamForPlayer
+stock StartRpcAudioTest(playerid, bool:positional)
+{
+	new Float:x, Float:y, Float:z;
+	GetPlayerPos(playerid, x, y, z);
+	PlayAudioStreamForPlayer(
+		playerid,
+		gRpcAudioTestUrl,
+		x + RPC_AUDIO_TEST_OFFSET_X,
+		y,
+		z,
+		RPC_AUDIO_TEST_RADIUS,
+		positional
+	);
+	SendClientMessage(playerid, 0x66FF66FF, positional ?
+		"[bare-rpctest] RPC41 fixed positional MP3 started five metres east; walk away to test attenuation." :
+		"[bare-rpctest] RPC41 fixed non-positional MP3 started.");
+	printf("[bare-rpctest] RPC41 fixed player=%d positional=%d url=%s", playerid, positional, gRpcAudioTestUrl);
 	return 1;
 }
 
@@ -776,6 +804,16 @@ public OnPlayerCommandText(playerid, cmdtext[])
 			"[bare-rpctest] RPC33 shop FDPIZA loaded." : "[bare-rpctest] RPC33 shop unloaded.");
 		printf("[bare-rpctest] RPC33 player=%d enabled=%d shop=FDPIZA", playerid, gRpcShopEnabled[playerid]);
 		return 1;
+	}
+
+	if (!strcmp(cmdtext, "/rpcaudiotest", true))
+	{
+		return StartRpcAudioTest(playerid, false);
+	}
+
+	if (!strcmp(cmdtext, "/rpcaudiotestpos", true))
+	{
+		return StartRpcAudioTest(playerid, true);
 	}
 
 	if ((!strcmp(cmdtext, "/rpcaudio", true, 9) && (cmdtext[9] == ' ' || cmdtext[9] == '\t')) ||
