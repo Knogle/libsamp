@@ -56,16 +56,9 @@ constexpr const char *kDefaultClientVersion = "0.3.7";
 constexpr unsigned long kGpciFactor = 0x3e9UL;
 constexpr unsigned int kRpcTraceMaxBytes = 32U;
 constexpr unsigned int kRpcRegisterMax = 200U;
-constexpr RakNet::RakNetTime kInitialSpawnDelayMs = 2200U;
-constexpr RakNet::RakNetTime kClassSelectionManualDelayMs = 2000U;
 constexpr RakNet::RakNetTime kClassSelectionReselectDelayMs = 250U;
-constexpr RakNet::RakNetTime kPostDialogSpawnDelayMs = 450U;
-constexpr RakNet::RakNetTime kSpawnRetryDelayMs = 1600U;
-constexpr RakNet::RakNetTime kSelectModeClickDelayMs = 250U;
 constexpr RakNet::RakNetTime kScorePingUpdateMs = 3000U;
 constexpr float kRadiansToDegrees = 57.29577951308232f;
-constexpr unsigned int kMaxSpawnRetries = 4U;
-constexpr unsigned short kDefaultFreeroamTextDrawId = 24U;
 constexpr unsigned int kGtaModelInfoCount = 20000U;
 constexpr unsigned int kObjectMaterialTextBudgetBytes = 8U * 1024U * 1024U;
 constexpr unsigned int kObservedPlayerSpawnInfoBytes = 45U;
@@ -167,15 +160,12 @@ struct RpcProbeState {
   int saw_vehicle_event;
   int pending_request_class;
   int pending_request_spawn;
-  int pending_select_mode_freeroam_click;
   int pending_dialog_response;
   int pending_request_class_id;
   int sent_request_class;
   int waiting_for_request_class_reply;
   int sent_dialog_response;
-  int sent_select_mode_freeroam_click;
   unsigned int request_spawn_send_count;
-  unsigned int request_spawn_retry_count;
   int sent_spawn_notify;
   unsigned int sent_spawn_notify_seq;
   int manual_spawn_shift_down;
@@ -412,10 +402,7 @@ struct RpcProbeState {
   std::int32_t game_text_style;
   std::int32_t game_text_time_ms;
   char game_text[SAMP_RAKNET_GAMETEXT_TEXT_BYTES];
-  RakNet::RakNetTime class_selection_ready_time;
   RakNet::RakNetTime last_request_class_time;
-  RakNet::RakNetTime next_request_spawn_time;
-  RakNet::RakNetTime select_mode_click_ready_time;
   RakNet::RakNetTime next_score_ping_update_time;
 #ifdef _WIN32
   int dialog_window_active;
@@ -438,57 +425,6 @@ void trace_netf(const char *fmt, ...) {
   va_end(args);
   std::fputc('\n', file);
   std::fclose(file);
-}
-
-bool env_bool_enabled(const char *name, bool default_value) {
-#ifdef _WIN32
-  char ini_path[MAX_PATH];
-  char module_path[MAX_PATH];
-  char config_value[64];
-  char *slash = nullptr;
-  DWORD path_len = 0U;
-  DWORD chars = 0U;
-  int written = 0;
-#endif
-  const char *value = std::getenv(name);
-
-#ifdef _WIN32
-  if (name != nullptr && name[0] != '\0') {
-    path_len = GetModuleFileNameA(nullptr, module_path, static_cast<DWORD>(sizeof(module_path)));
-    if (path_len != 0U && path_len < sizeof(module_path)) {
-      slash = std::strrchr(module_path, '\\');
-      if (slash != nullptr) {
-        slash[1] = '\0';
-        written = std::snprintf(ini_path, sizeof(ini_path), "%ssampdll.ini", module_path);
-        if (written > 0 && static_cast<size_t>(written) < sizeof(ini_path)) {
-          chars = GetPrivateProfileStringA("sampdll", name, "", config_value, static_cast<DWORD>(sizeof(config_value)),
-                                           ini_path);
-          if (chars == 0U) {
-            chars = GetPrivateProfileStringA("env", name, "", config_value, static_cast<DWORD>(sizeof(config_value)),
-                                             ini_path);
-          }
-          config_value[sizeof(config_value) - 1U] = '\0';
-          if (chars > 0U && config_value[0] != '\0') {
-            value = config_value;
-          }
-        }
-      }
-    }
-  }
-#endif
-
-  if (value == nullptr || value[0] == '\0') {
-    return default_value;
-  }
-  return value[0] != '0' && value[0] != 'n' && value[0] != 'N' && value[0] != 'f' && value[0] != 'F';
-}
-
-bool auto_request_spawn_enabled() {
-  return env_bool_enabled("SAMPDLL_AUTO_REQUEST_SPAWN", false);
-}
-
-bool auto_select_freeroam_enabled() {
-  return env_bool_enabled("SAMPDLL_AUTO_SELECT_FREEROAM", false);
 }
 
 int clamp_class_id(int selected_class) {
@@ -521,8 +457,7 @@ void schedule_request_class(int selected_class, const char *reason) {
 bool class_selection_manual_ready(void) {
   return !g_rpc_probe.saw_dialog && !g_rpc_probe.pending_request_spawn && !g_rpc_probe.pending_request_class &&
          !g_rpc_probe.waiting_for_request_class_reply && g_rpc_probe.saw_request_class_reply &&
-         g_rpc_probe.request_class_outcome != 0U && g_rpc_probe.request_spawn_send_count == 0U &&
-         g_rpc_probe.class_selection_ready_time != 0U && RakNet::GetTime() >= g_rpc_probe.class_selection_ready_time;
+         g_rpc_probe.request_class_outcome != 0U && g_rpc_probe.request_spawn_send_count == 0U;
 }
 
 bool debug_dialog_window_enabled() {
@@ -540,58 +475,6 @@ bool debug_dialog_window_enabled() {
   }
 #endif
   return false;
-}
-
-void schedule_request_spawn_if_ready(const char *reason, RakNet::RakNetTime delay_ms) {
-  RakNet::RakNetTime now = RakNet::GetTime();
-  RakNet::RakNetTime ready_time = now + delay_ms;
-
-  if (!auto_request_spawn_enabled()) {
-    trace_netf("rpc-state RequestSpawn not scheduled reason=%s auto_disabled=1 observe_only=1",
-               reason != nullptr ? reason : "unknown");
-    return;
-  }
-  if (g_rpc_probe.pending_request_spawn || g_rpc_probe.request_spawn_send_count != 0U) {
-    return;
-  }
-  if (!g_rpc_probe.saw_request_class_reply || g_rpc_probe.request_class_outcome == 0U) {
-    return;
-  }
-  if (g_rpc_probe.saw_dialog) {
-    trace_netf("rpc-state RequestSpawn delayed reason=%s pending_dialog id=%u observe_only=1",
-               reason != nullptr ? reason : "unknown", static_cast<unsigned int>(g_rpc_probe.last_dialog_id));
-    return;
-  }
-
-  if (g_rpc_probe.class_selection_ready_time != 0U && g_rpc_probe.class_selection_ready_time > ready_time) {
-    ready_time = g_rpc_probe.class_selection_ready_time;
-  }
-  g_rpc_probe.pending_request_spawn = 1;
-  g_rpc_probe.next_request_spawn_time = ready_time;
-  trace_netf("rpc-state RequestSpawn scheduled reason=%s delay_ms=%u ready_in_ms=%u",
-             reason != nullptr ? reason : "unknown", static_cast<unsigned int>(delay_ms),
-             static_cast<unsigned int>(ready_time > now ? ready_time - now : 0U));
-}
-
-void schedule_select_mode_freeroam_click(const char *reason) {
-  if (!auto_select_freeroam_enabled()) {
-    trace_netf("rpc-state SelectMode Freeroam click not scheduled reason=%s auto_disabled=1 observe_only=1",
-               reason != nullptr ? reason : "unknown");
-    return;
-  }
-  if (g_rpc_probe.sent_select_mode_freeroam_click || g_rpc_probe.pending_select_mode_freeroam_click) {
-    return;
-  }
-  if (g_rpc_probe.request_spawn_send_count == 0U || !g_rpc_probe.saw_request_class_reply ||
-      g_rpc_probe.request_class_outcome == 0U || g_rpc_probe.saw_dialog) {
-    return;
-  }
-
-  g_rpc_probe.pending_select_mode_freeroam_click = 1;
-  g_rpc_probe.select_mode_click_ready_time = RakNet::GetTime() + kSelectModeClickDelayMs;
-  trace_netf("rpc-state SelectMode Freeroam click scheduled reason=%s textdraw=%u delay_ms=%u",
-             reason != nullptr ? reason : "unknown", static_cast<unsigned int>(kDefaultFreeroamTextDrawId),
-             static_cast<unsigned int>(kSelectModeClickDelayMs));
 }
 
 enum RpcLocalStatus {
@@ -1077,15 +960,12 @@ void reset_rpc_probe_runtime(RakNet::RakClientInterface *client) {
   g_rpc_probe.saw_vehicle_event = 0;
   g_rpc_probe.pending_request_class = 0;
   g_rpc_probe.pending_request_spawn = 0;
-  g_rpc_probe.pending_select_mode_freeroam_click = 0;
   g_rpc_probe.pending_dialog_response = 0;
   g_rpc_probe.pending_request_class_id = 0;
   g_rpc_probe.sent_request_class = 0;
   g_rpc_probe.waiting_for_request_class_reply = 0;
   g_rpc_probe.sent_dialog_response = 0;
-  g_rpc_probe.sent_select_mode_freeroam_click = 0;
   g_rpc_probe.request_spawn_send_count = 0;
-  g_rpc_probe.request_spawn_retry_count = 0;
   g_rpc_probe.sent_spawn_notify = 0;
   g_rpc_probe.sent_spawn_notify_seq = 0U;
   g_rpc_probe.manual_spawn_shift_down = 0;
@@ -1322,10 +1202,7 @@ void reset_rpc_probe_runtime(RakNet::RakClientInterface *client) {
   g_rpc_probe.score_ping_seq = 0U;
   g_rpc_probe.score_ping_count = 0U;
   std::memset(g_rpc_probe.score_ping_entries, 0, sizeof(g_rpc_probe.score_ping_entries));
-  g_rpc_probe.class_selection_ready_time = 0;
   g_rpc_probe.last_request_class_time = 0;
-  g_rpc_probe.next_request_spawn_time = 0;
-  g_rpc_probe.select_mode_click_ready_time = 0;
   g_rpc_probe.next_score_ping_update_time = 0;
 #ifdef _WIN32
   g_rpc_probe.dialog_window_active = 0;
@@ -5328,13 +5205,6 @@ void service_rpc_probe_actions(RakNet::RakClientInterface *rak_client) {
     g_rpc_probe.sent_dialog_response = sent;
     if (sent) {
       g_rpc_probe.saw_dialog = 0;
-      if (g_rpc_probe.pending_request_spawn) {
-        g_rpc_probe.next_request_spawn_time = RakNet::GetTime() + kPostDialogSpawnDelayMs;
-        trace_netf("rpc-state RequestSpawn rescheduled reason=dialog_response_pending delay_ms=%u",
-                   static_cast<unsigned int>(kPostDialogSpawnDelayMs));
-      } else {
-        schedule_request_spawn_if_ready("dialog_response", kPostDialogSpawnDelayMs);
-      }
     }
     trace_netf("rpc-manual-out id=62 name=DialogResponse dialog=%u response=%u listitem=%d input='%s' sent=%d",
                static_cast<unsigned int>(g_rpc_probe.dialog_response_id),
@@ -5372,7 +5242,6 @@ void service_rpc_probe_actions(RakNet::RakClientInterface *rak_client) {
 
     if (shift_down && !g_rpc_probe.manual_spawn_shift_down) {
       g_rpc_probe.pending_request_spawn = 1;
-      g_rpc_probe.next_request_spawn_time = 0;
       trace_netf("rpc-manual: scheduled RequestSpawn from SHIFT key");
     } else if ((left_down || right_down) && class_elapsed >= kClassSelectionReselectDelayMs) {
       const int next_class = clamp_class_id(g_rpc_probe.selected_class + (left_down ? -1 : 1));
@@ -5387,41 +5256,9 @@ void service_rpc_probe_actions(RakNet::RakClientInterface *rak_client) {
   }
 #endif
 
-  if (g_rpc_probe.pending_select_mode_freeroam_click) {
-    RakNet::RakNetTime now = RakNet::GetTime();
-    if (g_rpc_probe.saw_dialog) {
-      return;
-    }
-    if (g_rpc_probe.select_mode_click_ready_time != 0 && now < g_rpc_probe.select_mode_click_ready_time) {
-      return;
-    }
-
-    RakNet::BitStream bs_send;
-    const unsigned short clicked_textdraw = kDefaultFreeroamTextDrawId;
-    bs_send.Write(clicked_textdraw);
-    const int sent = rak_client->RPC(kRpcClickTextDraw, &bs_send, RakNet::HIGH_PRIORITY, RakNet::RELIABLE, 0, false,
-                                    RakNet::UNASSIGNED_NETWORK_ID, nullptr)
-                         ? 1
-                         : 0;
-    g_rpc_probe.pending_select_mode_freeroam_click = 0;
-    g_rpc_probe.select_mode_click_ready_time = 0;
-    if (sent) {
-      g_rpc_probe.sent_select_mode_freeroam_click = 1;
-      g_rpc_probe.textdraw_select_active = 0U;
-      g_rpc_probe.pending_request_spawn = 0;
-      g_rpc_probe.next_request_spawn_time = 0;
-      g_rpc_probe.request_spawn_retry_count = kMaxSpawnRetries;
-    }
-    trace_netf("rpc-auto-out id=83 name=ClickTextDraw textdraw=%u purpose=select_freeroam sent=%d",
-               static_cast<unsigned int>(clicked_textdraw), sent);
-  }
-
   if (g_rpc_probe.pending_request_spawn) {
-    RakNet::RakNetTime now = RakNet::GetTime();
+    unsigned int attempt = 0U;
     if (g_rpc_probe.saw_dialog) {
-      return;
-    }
-    if (g_rpc_probe.next_request_spawn_time != 0 && now < g_rpc_probe.next_request_spawn_time) {
       return;
     }
     RakNet::BitStream bs_send;
@@ -5429,11 +5266,11 @@ void service_rpc_probe_actions(RakNet::RakClientInterface *rak_client) {
                                     RakNet::UNASSIGNED_NETWORK_ID, nullptr)
                          ? 1
                          : 0;
-    ++g_rpc_probe.request_spawn_send_count;
+    attempt = g_rpc_probe.request_spawn_send_count + 1U;
+    g_rpc_probe.request_spawn_send_count = sent != 0 ? attempt : 0U;
     g_rpc_probe.pending_request_spawn = 0;
-    g_rpc_probe.next_request_spawn_time = 0;
-    trace_netf("rpc-auto-out id=129 name=RequestSpawn attempt=%u retry=%u sent=%d",
-               g_rpc_probe.request_spawn_send_count, g_rpc_probe.request_spawn_retry_count, sent);
+    trace_netf("rpc-manual-out id=129 name=RequestSpawn attempt=%u sent=%d evidence=OPENMP_REF",
+               attempt, sent);
   }
 
   if (g_rpc_probe.saw_init_game) {
@@ -5605,16 +5442,7 @@ void rpc_observer(RakNet::RPCParameters *rpc_params, void *extra) {
         read_spawn_info(rpc_params->input + 1, bytes - 1U, "RequestClass");
         g_rpc_probe.class_selection_after_death_requested = 0;
         g_rpc_probe.class_selection_after_death_consumed = 0;
-        if (g_rpc_probe.class_selection_ready_time == 0U) {
-          g_rpc_probe.class_selection_ready_time = RakNet::GetTime() + kClassSelectionManualDelayMs;
-        }
-      }
-    }
-    if (g_rpc_probe.request_spawn_send_count == 0U) {
-      if (g_rpc_probe.saw_dialog) {
-        schedule_request_spawn_if_ready("request_class_pending_dialog", kInitialSpawnDelayMs);
-      } else {
-        schedule_request_spawn_if_ready("request_class", kInitialSpawnDelayMs);
+        trace_netf("rpc-state class_selection manual_controls_ready=1 auto_spawn=0 evidence=OPENMP_REF");
       }
     }
   } else if (rpc_id == 129U) {
@@ -5624,20 +5452,10 @@ void rpc_observer(RakNet::RPCParameters *rpc_params, void *extra) {
       trace_netf("rpc-state id=129 request_spawn_outcome=%u", static_cast<unsigned int>(g_rpc_probe.request_spawn_outcome));
       if (g_rpc_probe.request_spawn_outcome == 2U || g_rpc_probe.request_spawn_outcome == 1U) {
         g_rpc_probe.pending_request_spawn = 0;
-        g_rpc_probe.next_request_spawn_time = 0;
-        g_rpc_probe.request_spawn_retry_count = kMaxSpawnRetries;
         trace_netf("rpc-state id=129 spawn allowed outcome=%u waiting_for_local_finalize=1",
                    static_cast<unsigned int>(g_rpc_probe.request_spawn_outcome));
-      } else if (!g_rpc_probe.saw_dialog && auto_request_spawn_enabled() &&
-                 g_rpc_probe.request_spawn_retry_count < kMaxSpawnRetries) {
-        ++g_rpc_probe.request_spawn_retry_count;
-        g_rpc_probe.pending_request_spawn = 1;
-        g_rpc_probe.next_request_spawn_time = RakNet::GetTime() + kSpawnRetryDelayMs;
-        trace_netf("rpc-state id=129 scheduled RequestSpawn retry=%u delay_ms=%u",
-                   g_rpc_probe.request_spawn_retry_count, static_cast<unsigned int>(kSpawnRetryDelayMs));
       } else {
         g_rpc_probe.pending_request_spawn = 0;
-        g_rpc_probe.next_request_spawn_time = 0;
         g_rpc_probe.request_spawn_send_count = 0U;
         trace_netf("rpc-state id=129 spawn denied outcome=%u manual_retry_enabled=1 evidence=INFERRED",
                    static_cast<unsigned int>(g_rpc_probe.request_spawn_outcome));
@@ -5655,9 +5473,6 @@ void rpc_observer(RakNet::RPCParameters *rpc_params, void *extra) {
       g_rpc_probe.textdraw_select_color = select_color;
       trace_netf("rpc-state id=83 select_textdraw active=%u color=0x%08x bits=%u bytes=%u observe_only=1",
                  static_cast<unsigned int>(select_enabled), g_rpc_probe.textdraw_select_color, bits, bytes);
-      if (select_enabled != 0U) {
-        schedule_select_mode_freeroam_click("select_textdraw");
-      }
     } else {
       g_rpc_probe.textdraw_select_active = 0U;
       g_rpc_probe.textdraw_select_color = 0U;
@@ -5920,14 +5735,6 @@ void rpc_observer(RakNet::RPCParameters *rpc_params, void *extra) {
   } else if (rpc_id == 68U) {
     if (rpc_params != nullptr && bytes >= kObservedPlayerSpawnInfoBytes) {
       read_spawn_info(rpc_params->input, bytes, "ScrSetSpawnInfo");
-      if (g_rpc_probe.sent_select_mode_freeroam_click && g_rpc_probe.request_spawn_outcome == 0U) {
-        g_rpc_probe.saw_request_spawn_reply = 1;
-        g_rpc_probe.request_spawn_outcome = 2U;
-        g_rpc_probe.pending_request_spawn = 0;
-        g_rpc_probe.next_request_spawn_time = 0;
-        g_rpc_probe.request_spawn_retry_count = kMaxSpawnRetries;
-        trace_netf("rpc-state id=68 spawn_ready inferred_from=select_freeroam_textdraw outcome=2");
-      }
     } else {
       g_rpc_probe.saw_spawn_info = 1;
     }
@@ -7647,10 +7454,7 @@ int samp_raknet_client_request_class_selection_after_death(void *client) {
   g_rpc_probe.saw_request_spawn_reply = 0;
   g_rpc_probe.request_spawn_outcome = 0U;
   g_rpc_probe.pending_request_spawn = 0;
-  g_rpc_probe.next_request_spawn_time = 0;
   g_rpc_probe.request_spawn_send_count = 0U;
-  g_rpc_probe.request_spawn_retry_count = kMaxSpawnRetries;
-  g_rpc_probe.class_selection_ready_time = 0;
   g_rpc_probe.manual_spawn_shift_down = 0;
   schedule_request_class(g_rpc_probe.selected_class, "f4_after_death");
   trace_netf("rpc-manual: f4_after_death_request_class selected_class=%d evidence=INFERRED,TODO_VERIFY",
@@ -7712,7 +7516,6 @@ int samp_raknet_client_request_spawn(void *client) {
    * sends RPC 129.
    */
   g_rpc_probe.pending_request_spawn = 1;
-  g_rpc_probe.next_request_spawn_time = 0;
   trace_netf("rpc-manual: scheduled RequestSpawn from class-selection UI evidence=INFERRED,OPENMP_REF");
   return 0;
 }
