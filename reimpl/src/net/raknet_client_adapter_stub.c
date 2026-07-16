@@ -54,6 +54,12 @@ int samp_raknet_client_send_server_command(void *client, const char *command) {
   return -1;
 }
 
+int samp_raknet_client_send_rcon_command(void *client, const char *command) {
+  (void)client;
+  (void)command;
+  return -1;
+}
+
 int samp_raknet_client_send_textdraw_click(void *client, uint16_t textdraw_id) {
   (void)client;
   (void)textdraw_id;

@@ -18,6 +18,7 @@ int samp_raknet_client_is_connected(void *client);
 int samp_raknet_client_mark_logged_on(void *client);
 int samp_raknet_client_send_chat(void *client, const char *text);
 int samp_raknet_client_send_server_command(void *client, const char *command);
+int samp_raknet_client_send_rcon_command(void *client, const char *command);
 int samp_raknet_client_send_spawn_notification(void *client);
 int samp_raknet_client_send_spawn_notification_for_seq(void *client, uint32_t spawn_info_seq);
 int samp_raknet_client_send_death_notification(void *client, uint8_t death_reason, uint8_t responsible_player);

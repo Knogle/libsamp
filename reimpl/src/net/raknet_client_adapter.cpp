@@ -32,6 +32,7 @@ extern "C" const char *samp_raknet_knogle_auth_response(const char *challenge);
 namespace {
 constexpr unsigned char kPacketIdInvalid = 0xFFu;
 constexpr unsigned char kPacketVehicleSync = 200u;
+constexpr unsigned char kPacketRconCommand = 201u;
 constexpr unsigned char kPacketAimSync = 203u;
 constexpr unsigned char kPacketBulletSync = 206u;
 constexpr unsigned char kPacketPlayerSync = 207u;
@@ -6469,6 +6470,44 @@ int samp_raknet_client_send_server_command(void *client, const char *command) {
     return -1;
   }
   return send_chat_rpc_internal(static_cast<RakNet::RakClientInterface *>(client), command, 1);
+}
+
+int samp_raknet_client_send_rcon_command(void *client, const char *command) {
+  RakNet::BitStream bs_send;
+  std::size_t command_len = 0U;
+  std::uint32_t command_len32 = 0U;
+  int sent = 0;
+
+  if (client == nullptr || command == nullptr || client != g_rpc_probe.client) {
+    return -1;
+  }
+
+  command_len = std::strlen(command);
+  if (command_len > kChatInputBytes) {
+    return -1;
+  }
+  command_len32 = static_cast<std::uint32_t>(command_len);
+
+  /*
+   * STATIC_037:
+   * Original SA-MP 0.3.7-R5 cmdRcon at samp.dll+0x00069030 writes packet
+   * ID 0xC9, a 32-bit command length, then the command bytes. The send at
+   * samp.dll+0x000690DA uses HIGH_PRIORITY, RELIABLE, ordering channel 0.
+   */
+  bs_send.Write(kPacketRconCommand);
+  bs_send.Write(command_len32);
+  if (command_len32 != 0U) {
+    bs_send.Write(command, static_cast<int>(command_len32));
+  }
+  sent = static_cast<RakNet::RakClientInterface *>(client)
+             ->Send(&bs_send, RakNet::HIGH_PRIORITY, RakNet::RELIABLE, 0)
+             ? 1
+             : 0;
+
+  /* Never place an RCON password or command payload in the network trace. */
+  trace_netf("packet-user-out id=%u name=RconCommand len=%u sent=%d payload_redacted=1 evidence=STATIC_037",
+             static_cast<unsigned int>(kPacketRconCommand), static_cast<unsigned int>(command_len32), sent);
+  return sent ? 0 : -2;
 }
 
 int samp_raknet_client_send_textdraw_click(void *client, uint16_t textdraw_id) {

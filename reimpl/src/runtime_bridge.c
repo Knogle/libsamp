@@ -397,11 +397,16 @@
 #define SAMP_GTA_PLAYER_LOCAL_ID 0
 #define SAMP_PICKUP_COMPAT_MAX 4096u
 #define SAMP_DEG_TO_RAD 0.01745329251994329577f
-#define SAMP_CHAT_COMPAT_MAX_LINES 8
+#define SAMP_CHAT_COMPAT_MAX_LINES 20
 #define SAMP_CHAT_COMPAT_LINE_BYTES 256
 #define SAMP_CHAT_COMPAT_BASE_X 30
 #define SAMP_CHAT_COMPAT_BASE_Y 145
 #define SAMP_CHAT_COMPAT_LINE_HEIGHT 18
+#define SAMP_CHAT_COMPAT_DEFAULT_PAGE_SIZE 10
+#define SAMP_CHAT_COMPAT_MIN_PAGE_SIZE 10
+#define SAMP_CHAT_COMPAT_MAX_PAGE_SIZE 20
+#define SAMP_CHAT_COMPAT_MIN_FONT_ADJUSTMENT -3
+#define SAMP_CHAT_COMPAT_MAX_FONT_ADJUSTMENT 5
 #define SAMP_CHAT_COMPAT_COLOR_INFO 0xFFECECECu
 #define SAMP_MODERN_UI_PANEL_COLOR 0x70000000u
 #define SAMP_MODERN_UI_PANEL_FALLBACK 0xB0000000u
@@ -428,6 +433,8 @@
 #define SAMP_CHAT_INPUT_DRAW_BYTES 160
 #define SAMP_CHAT_QUIT_DISCONNECT_BLOCK_MS 500u
 #define SAMP_CHAT_QUIT_DISCONNECT_CHANNEL 0u
+#define SAMP_CLIENT_DEBUG_MAX_LEVEL 3
+#define SAMP_CLIENT_DEBUG_COLOR 0xFF66D9EFu
 #define SAMP_D3D9_END_SCENE_INDEX 42u
 #define SAMP_D3D9_SET_CURSOR_POSITION_INDEX 11u
 #define SAMP_D3D9_SHOW_CURSOR_INDEX 12u
@@ -1799,6 +1806,7 @@ typedef struct samp_runtime_state {
   LONG script_hook_installed;
   LONG net_mgr_connected;
   LONG netgame_state;
+  LONG network_terminal_packet_id;
   LONG raknet_pump_calls;
   LONG raknet_pump_saturated_count;
   LONG raknet_join_sent;
@@ -1827,6 +1835,15 @@ typedef struct samp_runtime_state {
   LONG chat_overlay_draw_logged;
   LONG chat_overlay_line_count;
   LONG chat_client_message_seq;
+  LONG chat_page_size;
+  LONG chat_font_adjustment;
+  LONG chat_timestamp_enabled;
+  LONG audio_messages_enabled;
+  LONG audio_log_urls_enabled;
+  LONG remote_headmove_enabled;
+  LONG name_tag_status_enabled;
+  LONG client_fps_limit;
+  DWORD client_fps_last_tick;
   LONG chat_d3d_hooked;
   LONG chat_d3d_hook_install_logged;
   LONG chat_d3d_draw_logged;
@@ -1841,6 +1858,9 @@ typedef struct samp_runtime_state {
   LONG chat_input_command_send_count;
   LONG chat_input_send_failures;
   LONG chat_input_hook_logged;
+  LONG client_debug_level;
+  LONG client_debug_last_net_state;
+  DWORD client_debug_last_tick;
   LONG scoreboard_offset;
   LONG scoreboard_logged;
   LONG scoreboard_d3d_font_fail_logged;
@@ -2085,6 +2105,7 @@ typedef struct samp_runtime_state {
   char raknet_world_visual_material_texture[SAMP_RAKNET_WORLD_VISUAL_NAME_BYTES];
   HFONT chat_overlay_font;
   DWORD chat_overlay_colors[SAMP_CHAT_COMPAT_MAX_LINES];
+  char chat_overlay_timestamps[SAMP_CHAT_COMPAT_MAX_LINES][11];
   char chat_overlay_lines[SAMP_CHAT_COMPAT_MAX_LINES][SAMP_CHAT_COMPAT_LINE_BYTES];
   HWND chat_input_hwnd;
   WNDPROC chat_input_old_wndproc;
@@ -2285,6 +2306,8 @@ static LONG read_game_entry_gate_value(void);
 static int gta_code_ptr_compat(uintptr_t ptr);
 static int game_pointer_plausible_compat(uintptr_t ptr);
 static HRESULT WINAPI chat_compat_end_scene_hook(void *device);
+static void chat_compat_release_d3dx_font(void);
+static int chat_compat_font_size(void);
 static void chat_compat_viewport_rect(int *out_x, int *out_y, int *out_w, int *out_h);
 static int scoreboard_compat_active(void);
 static int scoreboard_compat_draw_d3dx_overlay(void *device);
@@ -2404,6 +2427,7 @@ static void remote_player_compat_apply_health_state(samp_remote_player_slot_comp
 static int remote_player_compat_apply_weapon_state(samp_remote_player_slot_compat *slot);
 static int remote_player_compat_apply_special_action_state(samp_remote_player_slot_compat *slot);
 static uintptr_t vehicle_compat_game_pool_get_at(uint32_t gta_id);
+static int vehicle_compat_find_id_from_gta_ptr(uintptr_t vehicle, uint16_t *vehicle_id);
 static void gta_streaming_request_model_compat(int32_t model_id, int32_t flags);
 static void gta_streaming_load_all_requested_compat(int only_priority_requests);
 static int screenshot_compat_resolve_d3dx_save_surface(void);
@@ -2820,6 +2844,8 @@ static void chat_compat_strip_samp_color_tags(char *line) {
 
 static void chat_compat_add_colored_line(DWORD argb_color, const char *text) {
   char line[SAMP_CHAT_COMPAT_LINE_BYTES];
+  char timestamp[11];
+  SYSTEMTIME local_time;
   LONG count = 0;
   LONG index = 0;
 
@@ -2833,6 +2859,11 @@ static void chat_compat_add_colored_line(DWORD argb_color, const char *text) {
   if (line[0] == '\0') {
     return;
   }
+  memset(&local_time, 0, sizeof(local_time));
+  GetLocalTime(&local_time);
+  (void)snprintf(timestamp, sizeof(timestamp), "[%02u:%02u:%02u]", (unsigned)local_time.wHour,
+                 (unsigned)local_time.wMinute, (unsigned)local_time.wSecond);
+  timestamp[sizeof(timestamp) - 1u] = '\0';
 
   count = InterlockedCompareExchange(&g_runtime.chat_overlay_line_count, 0, 0);
   if (count > 0 && count <= SAMP_CHAT_COMPAT_MAX_LINES &&
@@ -2848,19 +2879,41 @@ static void chat_compat_add_colored_line(DWORD argb_color, const char *text) {
     }
     strncpy(g_runtime.chat_overlay_lines[index], line, SAMP_CHAT_COMPAT_LINE_BYTES - 1u);
     g_runtime.chat_overlay_lines[index][SAMP_CHAT_COMPAT_LINE_BYTES - 1u] = '\0';
+    memcpy(g_runtime.chat_overlay_timestamps[index], timestamp, sizeof(timestamp));
     g_runtime.chat_overlay_colors[index] = argb_color;
   } else {
     int i = 0;
     for (i = 1; i < SAMP_CHAT_COMPAT_MAX_LINES; ++i) {
       memcpy(g_runtime.chat_overlay_lines[i - 1], g_runtime.chat_overlay_lines[i], SAMP_CHAT_COMPAT_LINE_BYTES);
+      memcpy(g_runtime.chat_overlay_timestamps[i - 1], g_runtime.chat_overlay_timestamps[i],
+             sizeof(g_runtime.chat_overlay_timestamps[i - 1]));
       g_runtime.chat_overlay_colors[i - 1] = g_runtime.chat_overlay_colors[i];
     }
     strncpy(g_runtime.chat_overlay_lines[SAMP_CHAT_COMPAT_MAX_LINES - 1], line, SAMP_CHAT_COMPAT_LINE_BYTES - 1u);
     g_runtime.chat_overlay_lines[SAMP_CHAT_COMPAT_MAX_LINES - 1][SAMP_CHAT_COMPAT_LINE_BYTES - 1u] = '\0';
+    memcpy(g_runtime.chat_overlay_timestamps[SAMP_CHAT_COMPAT_MAX_LINES - 1], timestamp, sizeof(timestamp));
     g_runtime.chat_overlay_colors[SAMP_CHAT_COMPAT_MAX_LINES - 1] = argb_color;
   }
 
   runtime_tracef("chat_compat: color=0x%08lx %s", (unsigned long)argb_color, line);
+}
+
+static void chat_compat_format_stored_line(LONG index, char *output, size_t output_size) {
+  if (output == NULL || output_size == 0u) {
+    return;
+  }
+  output[0] = '\0';
+  if (index < 0 || index >= SAMP_CHAT_COMPAT_MAX_LINES) {
+    return;
+  }
+  if (InterlockedCompareExchange(&g_runtime.chat_timestamp_enabled, 0, 0) != 0 &&
+      g_runtime.chat_overlay_timestamps[index][0] != '\0') {
+    (void)snprintf(output, output_size, "%s %s", g_runtime.chat_overlay_timestamps[index],
+                   g_runtime.chat_overlay_lines[index]);
+  } else {
+    strncpy(output, g_runtime.chat_overlay_lines[index], output_size - 1u);
+    output[output_size - 1u] = '\0';
+  }
 }
 
 static void chat_compat_add_message(const char *fmt, ...) {
@@ -3045,6 +3098,15 @@ static int audio_stream_compat_start(const char *url, const float pos[3], float 
                  "flags=0x%08lx evidence=STATIC_037,OPENMP_REF,TODO_VERIFY",
                  (unsigned long)handle, (unsigned long)strlen(url), positional, (double)distance,
                  (unsigned long)flags);
+  if (InterlockedCompareExchange(&g_runtime.audio_log_urls_enabled, 0, 0) != 0) {
+    runtime_tracef("audio_stream: url='%s' evidence=STATIC_037,INFERRED", url);
+  }
+  if (InterlockedCompareExchange(&g_runtime.audio_messages_enabled, 0, 0) != 0) {
+    /* STATIC_037: samp.dll+0x66A3C formats the accepted stream as
+     * "Audio stream: %s" unless the audiomsgoff setting is active.
+     */
+    chat_compat_add_message("Audio stream: %s", url);
+  }
   return 1;
 }
 
@@ -3283,6 +3345,39 @@ static int chat_input_only_spaces_compat(const char *text) {
   return *text == '\0';
 }
 
+static int chat_input_match_local_command_compat(const char *line, const char *command,
+                                                 const char **arguments) {
+  const char *cursor = line;
+  const char *name = command;
+
+  if (arguments != NULL) {
+    *arguments = NULL;
+  }
+  if (cursor == NULL || name == NULL || name[0] == '\0') {
+    return 0;
+  }
+  while (*cursor == ' ' || *cursor == '\t') {
+    ++cursor;
+  }
+  if (*cursor++ != '/') {
+    return 0;
+  }
+  while (*name != '\0' && *cursor != '\0' && chat_input_ascii_ieq_compat(*cursor, *name)) {
+    ++cursor;
+    ++name;
+  }
+  if (*name != '\0' || (*cursor != '\0' && *cursor != ' ' && *cursor != '\t')) {
+    return 0;
+  }
+  while (*cursor == ' ' || *cursor == '\t') {
+    ++cursor;
+  }
+  if (arguments != NULL) {
+    *arguments = cursor;
+  }
+  return 1;
+}
+
 static int chat_input_is_local_quit_command_compat(const char *line) {
   const char *cursor = line;
 
@@ -3368,8 +3463,452 @@ static void chat_input_toggle_vehicle_debug_labels_compat(const char *line) {
                  (long)enabled, line != NULL ? line : "");
 }
 
+static void client_debug_message_compat(int level, const char *fmt, ...) {
+  char payload[SAMP_CHAT_COMPAT_LINE_BYTES];
+  char line[SAMP_CHAT_COMPAT_LINE_BYTES];
+  va_list args;
+
+  if (fmt == NULL || level < 1 ||
+      InterlockedCompareExchange(&g_runtime.client_debug_level, 0, 0) < level) {
+    return;
+  }
+  va_start(args, fmt);
+  if (vsnprintf(payload, sizeof(payload), fmt, args) < 0) {
+    va_end(args);
+    return;
+  }
+  va_end(args);
+  payload[sizeof(payload) - 1u] = '\0';
+  (void)snprintf(line, sizeof(line), "[debug:%d] %s", level, payload);
+  line[sizeof(line) - 1u] = '\0';
+  chat_compat_add_colored_line(SAMP_CLIENT_DEBUG_COLOR, line);
+}
+
+static void chat_input_set_debug_level_compat(const char *arguments) {
+  char *end = NULL;
+  long level = -1;
+
+  if (arguments == NULL || arguments[0] == '\0') {
+    chat_compat_add_message("Debug level: %ld (usage: /debug 0-%d)",
+                            (long)InterlockedCompareExchange(&g_runtime.client_debug_level, 0, 0),
+                            SAMP_CLIENT_DEBUG_MAX_LEVEL);
+    chat_compat_add_message("1=session, 2=pools/sync, 3=verbose local state");
+    return;
+  }
+  level = strtol(arguments, &end, 10);
+  if (end == arguments || !chat_input_only_spaces_compat(end) || level < 0 ||
+      level > SAMP_CLIENT_DEBUG_MAX_LEVEL) {
+    chat_compat_add_message("Usage: /debug 0-%d", SAMP_CLIENT_DEBUG_MAX_LEVEL);
+    return;
+  }
+
+  InterlockedExchange(&g_runtime.client_debug_level, (LONG)level);
+  InterlockedExchange(&g_runtime.client_debug_last_net_state, -1);
+  g_runtime.client_debug_last_tick = 0u;
+  if (level == 0) {
+    chat_compat_add_message("Client debug output disabled.");
+  } else {
+    chat_compat_add_colored_line(SAMP_CLIENT_DEBUG_COLOR,
+                                 level == 1 ? "Client debug level 1: session state."
+                                 : level == 2 ? "Client debug level 2: pools and sync."
+                                              : "Client debug level 3: verbose local state.");
+  }
+  runtime_tracef("chat_input: local debug command level=%ld evidence=INFERRED", level);
+}
+
+static int gta_entity_read_heading_degrees_compat(uintptr_t entity, float *heading) {
+  uintptr_t matrix = 0u;
+  float forward_x = 0.0f;
+  float forward_y = 0.0f;
+  float value = 0.0f;
+
+  if (heading == NULL || entity < 0x10000u || entity >= 0x80000000u ||
+      !memory_is_readable_compat((const void *)(entity + SAMP_PED_OFFSET_MATRIX), sizeof(matrix))) {
+    return 0;
+  }
+  memcpy(&matrix, (const void *)(entity + SAMP_PED_OFFSET_MATRIX), sizeof(matrix));
+  if (matrix < 0x10000u || matrix >= 0x80000000u ||
+      !memory_is_readable_compat((const void *)(matrix + SAMP_MATRIX_OFFSET_FORWARD), sizeof(float) * 2u)) {
+    return 0;
+  }
+  memcpy(&forward_x, (const void *)(matrix + SAMP_MATRIX_OFFSET_FORWARD), sizeof(forward_x));
+  memcpy(&forward_y, (const void *)(matrix + SAMP_MATRIX_OFFSET_FORWARD + sizeof(float)), sizeof(forward_y));
+  if (!isfinite(forward_x) || !isfinite(forward_y)) {
+    return 0;
+  }
+  value = atan2f(-forward_x, forward_y) * 57.29577951308232f;
+  if (value < 0.0f) {
+    value += 360.0f;
+  }
+  *heading = value;
+  return 1;
+}
+
+static void chat_input_save_position_compat(const char *arguments) {
+  char path[MAX_PATH];
+  char comment[SAMP_CHAT_INPUT_MAX + 1];
+  uintptr_t ped = gta_find_player_ped_compat();
+  uintptr_t entity = ped;
+  uintptr_t vehicle = 0u;
+  float position[3] = {0.0f, 0.0f, 0.0f};
+  float heading = 0.0f;
+  uint16_t model = 0u;
+  uint16_t vehicle_id = 0xFFFFu;
+  uint8_t color1 = 0u;
+  uint8_t color2 = 0u;
+  FILE *file = NULL;
+  int in_vehicle = 0;
+  int written = 0;
+  int close_result = 0;
+  size_t i = 0u;
+
+  if (ped == 0u) {
+    chat_compat_add_message("Cannot save position: player actor is unavailable.");
+    return;
+  }
+  in_vehicle = gta_ped_read_vehicle_compat(ped, &vehicle);
+  if (in_vehicle) {
+    entity = vehicle;
+  }
+  if (!gta_entity_read_position_compat(entity, &position[0], &position[1], &position[2]) ||
+      !isfinite(position[0]) || !isfinite(position[1]) || !isfinite(position[2]) ||
+      !memory_is_readable_compat((const void *)(entity + SAMP_ENTITY_OFFSET_MODEL_INDEX), sizeof(model))) {
+    chat_compat_add_message("Cannot save position: invalid player state.");
+    return;
+  }
+  memcpy(&model, (const void *)(entity + SAMP_ENTITY_OFFSET_MODEL_INDEX), sizeof(model));
+
+  strncpy(comment, arguments != NULL ? arguments : "", SAMP_CHAT_INPUT_MAX);
+  comment[SAMP_CHAT_INPUT_MAX] = '\0';
+  for (i = 0u; comment[i] != '\0'; ++i) {
+    if (comment[i] == '\r' || comment[i] == '\n') {
+      comment[i] = ' ';
+    }
+  }
+  written = snprintf(path, sizeof(path), "%ssavedpositions.txt",
+                     g_runtime.module_dir[0] != '\0' ? g_runtime.module_dir : "");
+  if (written <= 0 || (size_t)written >= sizeof(path)) {
+    chat_compat_add_message("Cannot save position: path is too long.");
+    return;
+  }
+  file = fopen(path, "a");
+  if (file == NULL) {
+    chat_compat_add_message("I can't open the savedpositions.txt file for append.");
+    runtime_tracef("chat_input: savepos open failed path='%s'", path);
+    return;
+  }
+
+  if (in_vehicle) {
+    if (vehicle_compat_find_id_from_gta_ptr(vehicle, &vehicle_id) &&
+        vehicle_id < SAMP_RAKNET_MAX_VEHICLES) {
+      samp_vehicle_slot_compat *slot = &g_runtime.vehicle_slots[vehicle_id];
+      if (slot->gta_id != 0u) {
+        (void)gta_script_command_compat(0x0174u, "iv", (int)slot->gta_id, &heading);
+      }
+    }
+    if (!isfinite(heading)) {
+      heading = 0.0f;
+    }
+    if (heading == 0.0f) {
+      (void)gta_entity_read_heading_degrees_compat(vehicle, &heading);
+    }
+    if (memory_is_readable_compat((const void *)(vehicle + SAMP_VEHICLE_OFFSET_COLOR1), 2u)) {
+      memcpy(&color1, (const void *)(vehicle + SAMP_VEHICLE_OFFSET_COLOR1), sizeof(color1));
+      memcpy(&color2, (const void *)(vehicle + SAMP_VEHICLE_OFFSET_COLOR2), sizeof(color2));
+    }
+    written = fprintf(file, "AddStaticVehicle(%u,%.4f,%.4f,%.4f,%.4f,%u,%u); // %s\n",
+                      (unsigned)model, (double)position[0], (double)position[1], (double)position[2],
+                      (double)heading, (unsigned)color1, (unsigned)color2, comment);
+  } else {
+    if (!gta_script_command_compat(0x0172u, "iv", SAMP_GTA_ACTOR_LOCAL_ID, &heading) ||
+        !isfinite(heading)) {
+      (void)gta_entity_read_heading_degrees_compat(ped, &heading);
+    }
+    written = fprintf(file, "AddPlayerClass(%u,%.4f,%.4f,%.4f,%.4f,0,0,0,0,0,0); // %s\n",
+                      (unsigned)model, (double)position[0], (double)position[1], (double)position[2],
+                      (double)heading, comment);
+  }
+  close_result = fclose(file);
+  if (written < 0 || close_result != 0) {
+    chat_compat_add_message("Cannot write savedpositions.txt.");
+    runtime_tracef("chat_input: savepos write failed path='%s' written=%d close=%d", path, written,
+                   close_result);
+    return;
+  }
+
+  chat_compat_add_message(in_vehicle ? "-> InCar position saved" : "-> OnFoot position saved");
+  runtime_tracef("chat_input: local savepos type=%s model=%u pos=(%.4f,%.4f,%.4f) heading=%.4f path='%s' "
+                 "comment='%s' evidence=STATIC_037",
+                 in_vehicle ? "vehicle" : "onfoot", (unsigned)model, (double)position[0],
+                 (double)position[1], (double)position[2], (double)heading, path, comment);
+}
+
+static int chat_input_parse_long_compat(const char *arguments, long *value) {
+  char *end = NULL;
+  long parsed = 0;
+
+  if (arguments == NULL || arguments[0] == '\0' || value == NULL) {
+    return 0;
+  }
+  parsed = strtol(arguments, &end, 10);
+  if (end == arguments || !chat_input_only_spaces_compat(end)) {
+    return 0;
+  }
+  *value = parsed;
+  return 1;
+}
+
+static void chat_input_toggle_timestamp_compat(void) {
+  LONG enabled = InterlockedCompareExchange(&g_runtime.chat_timestamp_enabled, 0, 0) != 0 ? 0 : 1;
+  InterlockedExchange(&g_runtime.chat_timestamp_enabled, enabled);
+  chat_compat_add_message("Timestamp: %s", enabled != 0 ? "On" : "Off");
+  runtime_tracef("chat_input: timestamp enabled=%ld evidence=STATIC_037", (long)enabled);
+}
+
+static void chat_input_set_page_size_compat(const char *arguments) {
+  long value = 0;
+  if (!chat_input_parse_long_compat(arguments, &value) || value < SAMP_CHAT_COMPAT_MIN_PAGE_SIZE ||
+      value > SAMP_CHAT_COMPAT_MAX_PAGE_SIZE) {
+    chat_compat_add_message("pagesize [10-20] (lines)");
+    return;
+  }
+  InterlockedExchange(&g_runtime.chat_page_size, (LONG)value);
+  runtime_tracef("chat_input: pagesize=%ld evidence=STATIC_037", value);
+}
+
+static void chat_input_set_font_size_compat(const char *arguments) {
+  long value = 0;
+  if (!chat_input_parse_long_compat(arguments, &value) || value < SAMP_CHAT_COMPAT_MIN_FONT_ADJUSTMENT ||
+      value > SAMP_CHAT_COMPAT_MAX_FONT_ADJUSTMENT) {
+    chat_compat_add_message("Valid fontsize: -3 to 5");
+    return;
+  }
+  InterlockedExchange(&g_runtime.chat_font_adjustment, (LONG)value);
+  chat_compat_release_d3dx_font();
+  if (g_runtime.chat_overlay_font != NULL) {
+    DeleteObject(g_runtime.chat_overlay_font);
+    g_runtime.chat_overlay_font = NULL;
+  }
+  runtime_tracef("chat_input: fontsize=%ld effective_px=%d evidence=STATIC_037,INFERRED", value,
+                 chat_compat_font_size());
+}
+
+static void chat_input_toggle_audio_messages_compat(void) {
+  LONG enabled = InterlockedCompareExchange(&g_runtime.audio_messages_enabled, 0, 0) != 0 ? 0 : 1;
+  InterlockedExchange(&g_runtime.audio_messages_enabled, enabled);
+  chat_compat_add_message("Audio messages: %s", enabled != 0 ? "On" : "Off");
+  runtime_tracef("chat_input: audiomsg enabled=%ld evidence=STATIC_037", (long)enabled);
+}
+
+static void chat_input_toggle_url_logging_compat(void) {
+  LONG enabled = InterlockedCompareExchange(&g_runtime.audio_log_urls_enabled, 0, 0) != 0 ? 0 : 1;
+  InterlockedExchange(&g_runtime.audio_log_urls_enabled, enabled);
+  chat_compat_add_message("URL messages: %s", enabled != 0 ? "On" : "Off");
+  runtime_tracef("chat_input: logurls enabled=%ld evidence=STATIC_037", (long)enabled);
+}
+
+static void chat_input_show_interior_compat(void) {
+  int interior = (int)g_runtime.raknet_interior;
+  /* STATIC_037:
+   * samp.dll+0x68FD0 invokes GTA script command 0x077E with one output
+   * variable before formatting "Current Interior: %u".
+   */
+  (void)gta_script_command_compat(0x077Eu, "v", &interior);
+  if (interior < 0) {
+    interior = 0;
+  }
+  chat_compat_add_message("Current Interior: %u", (unsigned)interior);
+  runtime_tracef("chat_input: interior=%u network_interior=%u evidence=STATIC_037", (unsigned)interior,
+                 (unsigned)g_runtime.raknet_interior);
+}
+
+static void chat_input_raw_save_position_compat(const char *arguments) {
+  char path[MAX_PATH];
+  char comment[SAMP_CHAT_INPUT_MAX + 1];
+  uintptr_t ped = gta_find_player_ped_compat();
+  uintptr_t entity = ped;
+  uintptr_t vehicle = 0u;
+  float position[3] = {0.0f, 0.0f, 0.0f};
+  float heading = 0.0f;
+  uint16_t model = 0u;
+  uint16_t vehicle_id = 0xFFFFu;
+  uint8_t color1 = 0u;
+  uint8_t color2 = 0u;
+  FILE *file = NULL;
+  int in_vehicle = 0;
+  int written = 0;
+  int close_result = 0;
+  size_t i = 0u;
+
+  if (ped == 0u) {
+    chat_compat_add_message("Cannot save position: player actor is unavailable.");
+    return;
+  }
+  in_vehicle = gta_ped_read_vehicle_compat(ped, &vehicle);
+  if (in_vehicle) {
+    entity = vehicle;
+  }
+  if (!gta_entity_read_position_compat(entity, &position[0], &position[1], &position[2]) ||
+      !isfinite(position[0]) || !isfinite(position[1]) || !isfinite(position[2])) {
+    chat_compat_add_message("Cannot save position: invalid player state.");
+    return;
+  }
+  strncpy(comment, arguments != NULL ? arguments : "", SAMP_CHAT_INPUT_MAX);
+  comment[SAMP_CHAT_INPUT_MAX] = '\0';
+  for (i = 0u; comment[i] != '\0'; ++i) {
+    if (comment[i] == '\r' || comment[i] == '\n') {
+      comment[i] = ' ';
+    }
+  }
+
+  if (in_vehicle) {
+    if (!memory_is_readable_compat((const void *)(vehicle + SAMP_ENTITY_OFFSET_MODEL_INDEX), sizeof(model))) {
+      chat_compat_add_message("Cannot save position: invalid vehicle model.");
+      return;
+    }
+    memcpy(&model, (const void *)(vehicle + SAMP_ENTITY_OFFSET_MODEL_INDEX), sizeof(model));
+    if (vehicle_compat_find_id_from_gta_ptr(vehicle, &vehicle_id) &&
+        vehicle_id < SAMP_RAKNET_MAX_VEHICLES && g_runtime.vehicle_slots[vehicle_id].gta_id != 0u) {
+      (void)gta_script_command_compat(0x0174u, "iv", (int)g_runtime.vehicle_slots[vehicle_id].gta_id, &heading);
+    }
+    if (!isfinite(heading) || heading == 0.0f) {
+      (void)gta_entity_read_heading_degrees_compat(vehicle, &heading);
+    }
+    if (memory_is_readable_compat((const void *)(vehicle + SAMP_VEHICLE_OFFSET_COLOR1), 2u)) {
+      memcpy(&color1, (const void *)(vehicle + SAMP_VEHICLE_OFFSET_COLOR1), sizeof(color1));
+      memcpy(&color2, (const void *)(vehicle + SAMP_VEHICLE_OFFSET_COLOR2), sizeof(color2));
+    }
+    written = snprintf(path, sizeof(path), "%srawvehicles.txt",
+                       g_runtime.module_dir[0] != '\0' ? g_runtime.module_dir : "");
+  } else {
+    if (!gta_script_command_compat(0x0172u, "iv", SAMP_GTA_ACTOR_LOCAL_ID, &heading) || !isfinite(heading)) {
+      (void)gta_entity_read_heading_degrees_compat(ped, &heading);
+    }
+    written = snprintf(path, sizeof(path), "%srawpositions.txt",
+                       g_runtime.module_dir[0] != '\0' ? g_runtime.module_dir : "");
+  }
+  if (written <= 0 || (size_t)written >= sizeof(path)) {
+    chat_compat_add_message("Cannot save position: path is too long.");
+    return;
+  }
+  file = fopen(path, "a");
+  if (file == NULL) {
+    chat_compat_add_message(in_vehicle ? "I can't open the rawvehicles.txt file for append."
+                                       : "I can't open the rawpositions.txt file for append.");
+    runtime_tracef("chat_input: rs open failed path='%s'", path);
+    return;
+  }
+  if (in_vehicle) {
+    written = fprintf(file, "%u,%.4f,%.4f,%.4f,%.4f,%u,%u ; %s\n", (unsigned)model,
+                      (double)position[0], (double)position[1], (double)position[2], (double)heading,
+                      (unsigned)color1, (unsigned)color2, comment);
+  } else {
+    written = fprintf(file, "%.4f,%.4f,%.4f,%.4f ; %s\n", (double)position[0], (double)position[1],
+                      (double)position[2], (double)heading, comment);
+  }
+  close_result = fclose(file);
+  if (written < 0 || close_result != 0) {
+    chat_compat_add_message("Cannot write raw position file.");
+    runtime_tracef("chat_input: rs write failed path='%s' written=%d close=%d", path, written, close_result);
+    return;
+  }
+  chat_compat_add_message(in_vehicle ? "-> InCar pos saved" : "-> OnFoot pos saved");
+  runtime_tracef("chat_input: rs type=%s path='%s' evidence=STATIC_037", in_vehicle ? "vehicle" : "onfoot",
+                 path);
+}
+
+static void chat_input_toggle_headmove_compat(void) {
+  LONG enabled = InterlockedCompareExchange(&g_runtime.remote_headmove_enabled, 0, 0) != 0 ? 0 : 1;
+  InterlockedExchange(&g_runtime.remote_headmove_enabled, enabled);
+  chat_compat_add_message(enabled != 0 ? "-> Head movements enabled" : "-> Head movements disabled");
+  runtime_tracef("chat_input: headmove enabled=%ld evidence=STATIC_037,TODO_VERIFY", (long)enabled);
+}
+
+static void chat_input_toggle_name_tag_status_compat(void) {
+  LONG enabled = InterlockedCompareExchange(&g_runtime.name_tag_status_enabled, 0, 0) != 0 ? 0 : 1;
+  InterlockedExchange(&g_runtime.name_tag_status_enabled, enabled);
+  chat_compat_add_message("NameTag Player Status: %s", enabled != 0 ? "ON" : "OFF");
+  runtime_tracef("chat_input: nametagstatus enabled=%ld evidence=STATIC_037,INFERRED,TODO_VERIFY", (long)enabled);
+}
+
+static void chat_input_set_fps_limit_compat(const char *arguments) {
+  long value = 0;
+  if (!chat_input_parse_long_compat(arguments, &value) || value < 20 || value > 90) {
+    chat_compat_add_message("-> Frame Limiter: valid amounts are 20-90");
+    return;
+  }
+  InterlockedExchange(&g_runtime.client_fps_limit, (LONG)value);
+  g_runtime.client_fps_last_tick = 0u;
+  chat_compat_add_message("-> Frame Limiter: %lu", (unsigned long)value);
+  runtime_tracef("chat_input: fpslimit=%ld evidence=STATIC_037,INFERRED", value);
+}
+
+static void client_debug_tick_compat(void) {
+  LONG level = InterlockedCompareExchange(&g_runtime.client_debug_level, 0, 0);
+  LONG net_state = InterlockedCompareExchange(&g_runtime.netgame_state, 0, 0);
+  LONG last_state = InterlockedCompareExchange(&g_runtime.client_debug_last_net_state, 0, 0);
+  DWORD now = GetTickCount();
+  DWORD interval = level >= 3 ? 750u : level == 2 ? 2000u : 5000u;
+  uintptr_t ped = 0u;
+  uintptr_t vehicle = 0u;
+  float position[3] = {0.0f, 0.0f, 0.0f};
+  float health = 0.0f;
+  float armour = 0.0f;
+  int connected = 0;
+  int have_position = 0;
+
+  if (level <= 0 ||
+      (last_state == net_state && g_runtime.client_debug_last_tick != 0u &&
+       (DWORD)(now - g_runtime.client_debug_last_tick) < interval)) {
+    return;
+  }
+  g_runtime.client_debug_last_tick = now;
+  InterlockedExchange(&g_runtime.client_debug_last_net_state, net_state);
+  if (g_runtime.net_mgr.raknet_client != NULL) {
+    connected = samp_raknet_client_is_connected(g_runtime.net_mgr.raknet_client);
+  }
+  ped = gta_find_player_ped_compat();
+  if (ped != 0u) {
+    have_position = gta_entity_read_position_compat(ped, &position[0], &position[1], &position[2]);
+  }
+  client_debug_message_compat(1, "net=%ld connected=%d spawned=%ld ped=%s pos=(%.2f,%.2f,%.2f)",
+                              (long)net_state, connected,
+                              (long)InterlockedCompareExchange(&g_runtime.mp_session_spawn_finalized, 0, 0),
+                              ped != 0u ? "yes" : "no", (double)(have_position ? position[0] : 0.0f),
+                              (double)(have_position ? position[1] : 0.0f),
+                              (double)(have_position ? position[2] : 0.0f));
+  if (level >= 2) {
+    client_debug_message_compat(2, "pools players=%ld vehicles=%ld objects=%ld sync foot=%ld/%ld car=%ld/%ld",
+                                (long)InterlockedCompareExchange(&g_runtime.remote_player_active_count, 0, 0),
+                                (long)InterlockedCompareExchange(&g_runtime.vehicle_active_count, 0, 0),
+                                (long)InterlockedCompareExchange(&g_runtime.object_active_count, 0, 0),
+                                (long)InterlockedCompareExchange(&g_runtime.onfoot_sync_send_count, 0, 0),
+                                (long)InterlockedCompareExchange(&g_runtime.onfoot_sync_failures, 0, 0),
+                                (long)InterlockedCompareExchange(&g_runtime.incar_sync_send_count, 0, 0),
+                                (long)InterlockedCompareExchange(&g_runtime.incar_sync_failures, 0, 0));
+  }
+  if (level >= 3 && ped != 0u) {
+    uint16_t vehicle_id = 0xFFFFu;
+    if (memory_is_readable_compat((const void *)(ped + SAMP_PED_OFFSET_HEALTH), sizeof(health))) {
+      memcpy(&health, (const void *)(ped + SAMP_PED_OFFSET_HEALTH), sizeof(health));
+    }
+    if (memory_is_readable_compat((const void *)(ped + SAMP_PED_OFFSET_ARMOUR), sizeof(armour))) {
+      memcpy(&armour, (const void *)(ped + SAMP_PED_OFFSET_ARMOUR), sizeof(armour));
+    }
+    if (gta_ped_read_vehicle_compat(ped, &vehicle)) {
+      (void)vehicle_compat_find_id_from_gta_ptr(vehicle, &vehicle_id);
+    }
+    client_debug_message_compat(3, "hp=%.1f armour=%.1f interior=%u weapon=%lu vehicle=%d lastpkt=%ld",
+                                (double)health, (double)armour, (unsigned)g_runtime.raknet_interior,
+                                (unsigned long)g_runtime.raknet_player_armed_weapon,
+                                vehicle_id != 0xFFFFu ? (int)vehicle_id : -1,
+                                (long)InterlockedCompareExchange(&g_runtime.raknet_last_packet_id, 0, 0));
+  }
+}
+
 static void chat_input_submit_compat(void) {
   char line[SAMP_CHAT_INPUT_MAX + 1];
+  const char *arguments = NULL;
   LONG len = InterlockedCompareExchange(&g_runtime.chat_input_len, 0, 0);
   int result = -1;
 
@@ -3387,6 +3926,32 @@ static void chat_input_submit_compat(void) {
     return;
   }
 
+  if (chat_input_match_local_command_compat(line, "rcon", &arguments)) {
+    /*
+     * STATIC_037:
+     * /rcon is registered locally at samp.dll+0x0006917A and dispatches to
+     * cmdRcon at samp.dll+0x00069030. Do not put credentials into command
+     * history or runtime traces.
+     */
+    if (g_runtime.net_mgr.raknet_client == NULL ||
+        !samp_raknet_client_is_connected(g_runtime.net_mgr.raknet_client)) {
+      chat_compat_add_message("RCON not connected.");
+      InterlockedIncrement(&g_runtime.chat_input_send_failures);
+      runtime_tracef("chat_input: rcon send skipped not connected payload_redacted=1 evidence=STATIC_037");
+      return;
+    }
+    result = samp_raknet_client_send_rcon_command(g_runtime.net_mgr.raknet_client,
+                                                   arguments != NULL ? arguments : "");
+    if (result == 0) {
+      InterlockedIncrement(&g_runtime.chat_input_command_send_count);
+    } else {
+      InterlockedIncrement(&g_runtime.chat_input_send_failures);
+      chat_compat_add_message("RCON send failed.");
+    }
+    runtime_tracef("chat_input: rcon submitted result=%d payload_redacted=1 evidence=STATIC_037", result);
+    return;
+  }
+
   chat_input_add_history_compat(line);
   if (chat_input_is_local_quit_command_compat(line)) {
     chat_input_request_quit_compat(line);
@@ -3394,6 +3959,55 @@ static void chat_input_submit_compat(void) {
   }
   if (chat_input_is_local_dl_command_compat(line)) {
     chat_input_toggle_vehicle_debug_labels_compat(line);
+    return;
+  }
+  if (chat_input_match_local_command_compat(line, "debug", &arguments)) {
+    chat_input_set_debug_level_compat(arguments);
+    return;
+  }
+  if (chat_input_match_local_command_compat(line, "savepos", &arguments) ||
+      chat_input_match_local_command_compat(line, "save", &arguments)) {
+    chat_input_save_position_compat(arguments);
+    return;
+  }
+  if (chat_input_match_local_command_compat(line, "rs", &arguments)) {
+    chat_input_raw_save_position_compat(arguments);
+    return;
+  }
+  if (chat_input_match_local_command_compat(line, "timestamp", &arguments)) {
+    chat_input_toggle_timestamp_compat();
+    return;
+  }
+  if (chat_input_match_local_command_compat(line, "pagesize", &arguments)) {
+    chat_input_set_page_size_compat(arguments);
+    return;
+  }
+  if (chat_input_match_local_command_compat(line, "fontsize", &arguments)) {
+    chat_input_set_font_size_compat(arguments);
+    return;
+  }
+  if (chat_input_match_local_command_compat(line, "audiomsg", &arguments)) {
+    chat_input_toggle_audio_messages_compat();
+    return;
+  }
+  if (chat_input_match_local_command_compat(line, "logurls", &arguments)) {
+    chat_input_toggle_url_logging_compat();
+    return;
+  }
+  if (chat_input_match_local_command_compat(line, "interior", &arguments)) {
+    chat_input_show_interior_compat();
+    return;
+  }
+  if (chat_input_match_local_command_compat(line, "headmove", &arguments)) {
+    chat_input_toggle_headmove_compat();
+    return;
+  }
+  if (chat_input_match_local_command_compat(line, "nametagstatus", &arguments)) {
+    chat_input_toggle_name_tag_status_compat();
+    return;
+  }
+  if (chat_input_match_local_command_compat(line, "fpslimit", &arguments)) {
+    chat_input_set_fps_limit_compat(arguments);
     return;
   }
   if (g_runtime.net_mgr.raknet_client == NULL || !samp_raknet_client_is_connected(g_runtime.net_mgr.raknet_client)) {
@@ -7716,14 +8330,26 @@ static int chat_compat_font_size(void) {
   const char *value = getenv("SAMPDLL_CHAT_FONT_SIZE");
   char *endptr = NULL;
   long parsed = 0;
+  int base_size = 14;
+  LONG adjustment = InterlockedCompareExchange(&g_runtime.chat_font_adjustment, 0, 0);
 
   if (value != NULL && *value != '\0') {
     parsed = strtol(value, &endptr, 10);
     if (endptr != value && *endptr == '\0' && parsed >= 8 && parsed <= 32) {
-      return (int)parsed;
+      base_size = (int)parsed;
     }
   }
-  return 14;
+  if (adjustment < SAMP_CHAT_COMPAT_MIN_FONT_ADJUSTMENT) {
+    adjustment = SAMP_CHAT_COMPAT_MIN_FONT_ADJUSTMENT;
+  } else if (adjustment > SAMP_CHAT_COMPAT_MAX_FONT_ADJUSTMENT) {
+    adjustment = SAMP_CHAT_COMPAT_MAX_FONT_ADJUSTMENT;
+  }
+  return base_size + (int)adjustment;
+}
+
+static int chat_compat_line_height(void) {
+  int height = chat_compat_font_size() + 4;
+  return height < 12 ? 12 : height;
 }
 
 static int preconnect_require_ped_compat(void) {
@@ -11068,14 +11694,21 @@ static int remote_player_compat_draw_name_tags_d3dx_overlay(void *device, samp_i
      * with health shifted down by one 8px row. The fill colors/outline match
      * the observed 0.3.7-compatible compatibility code path; 0.3.7 static confirmation is pending.
      */
-    bar_y = tag_y + 18;
-    if (slot->armour > 0u) {
-      remote_player_compat_draw_name_tag_bar(device, tag_x, bar_y, slot->armour, SAMP_NAME_TAG_ARMOUR_FILL,
-                                             SAMP_NAME_TAG_ARMOUR_BACK);
-      bar_y += 8;
+    if (InterlockedCompareExchange(&g_runtime.name_tag_status_enabled, 0, 0) != 0) {
+      /* INFERRED + TODO_VERIFY:
+       * The replacement does not yet reproduce the original AFK/status icon
+       * pass. Gate the existing health/armour status portion while preserving
+       * the player name itself, which is the closest safe local equivalent.
+       */
+      bar_y = tag_y + 18;
+      if (slot->armour > 0u) {
+        remote_player_compat_draw_name_tag_bar(device, tag_x, bar_y, slot->armour, SAMP_NAME_TAG_ARMOUR_FILL,
+                                               SAMP_NAME_TAG_ARMOUR_BACK);
+        bar_y += 8;
+      }
+      remote_player_compat_draw_name_tag_bar(device, tag_x, bar_y, slot->health, SAMP_NAME_TAG_HEALTH_FILL,
+                                             SAMP_NAME_TAG_HEALTH_BACK);
     }
-    remote_player_compat_draw_name_tag_bar(device, tag_x, bar_y, slot->health, SAMP_NAME_TAG_HEALTH_FILL,
-                                           SAMP_NAME_TAG_HEALTH_BACK);
     ++labels;
   }
 
@@ -14842,6 +15475,8 @@ static int dialog_compat_draw_d3dx_overlay(void *device, samp_id3dx_font_compat 
 
 static int chat_compat_draw_d3dx_overlay(void *device) {
   LONG count = 0;
+  LONG display_start = 0;
+  LONG display_count = 0;
   LONG input_active = 0;
   LONG dialog_active = 0;
   LONG textdraw_active = 0;
@@ -14861,12 +15496,14 @@ static int chat_compat_draw_d3dx_overlay(void *device) {
   int panel_y = 0;
   int panel_w = 0;
   int panel_h = 0;
+  int line_height = chat_compat_line_height();
   int i = 0;
 
   if (!chat_overlay_enabled_compat()) {
     return 0;
   }
   chat_input_try_install_wndproc_compat();
+  client_debug_tick_compat();
 
   /*
    * INFERRED + STATIC_037 + TODO_VERIFY:
@@ -14907,6 +15544,14 @@ static int chat_compat_draw_d3dx_overlay(void *device) {
   if (count > SAMP_CHAT_COMPAT_MAX_LINES) {
     count = SAMP_CHAT_COMPAT_MAX_LINES;
   }
+  display_count = InterlockedCompareExchange(&g_runtime.chat_page_size, 0, 0);
+  if (display_count < SAMP_CHAT_COMPAT_MIN_PAGE_SIZE || display_count > SAMP_CHAT_COMPAT_MAX_PAGE_SIZE) {
+    display_count = SAMP_CHAT_COMPAT_DEFAULT_PAGE_SIZE;
+  }
+  if (display_count > count) {
+    display_count = count;
+  }
+  display_start = count - display_count;
   if (!chat_compat_ensure_d3dx_font(device)) {
     return 0;
   }
@@ -14929,12 +15574,12 @@ static int chat_compat_draw_d3dx_overlay(void *device) {
   if (count > 0 || input_active != 0) {
     int measured_w = 0;
 
-    for (i = 0; i < count; ++i) {
-      char visible_line[SAMP_CHAT_COMPAT_LINE_BYTES];
+    for (i = 0; i < display_count; ++i) {
+      char visible_line[SAMP_CHAT_COMPAT_LINE_BYTES + 16];
       int line_w = 0;
+      LONG line_index = display_start + i;
 
-      strncpy(visible_line, g_runtime.chat_overlay_lines[i], sizeof(visible_line) - 1u);
-      visible_line[sizeof(visible_line) - 1u] = '\0';
+      chat_compat_format_stored_line(line_index, visible_line, sizeof(visible_line));
       chat_compat_strip_samp_color_tags(visible_line);
       line_w = chat_compat_d3dx_measure_text_width(g_runtime.chat_d3dx_font, visible_line,
                                                    (int)strlen(visible_line) * 8);
@@ -14963,9 +15608,9 @@ static int chat_compat_draw_d3dx_overlay(void *device) {
     if (panel_w > SAMP_CHAT_PANEL_MAX_WIDTH) {
       panel_w = SAMP_CHAT_PANEL_MAX_WIDTH;
     }
-    panel_h = (count * SAMP_CHAT_COMPAT_LINE_HEIGHT) + (SAMP_CHAT_PANEL_PADDING_Y * 2);
+    panel_h = (display_count * line_height) + (SAMP_CHAT_PANEL_PADDING_Y * 2);
     if (input_active != 0) {
-      panel_h += SAMP_CHAT_COMPAT_LINE_HEIGHT + 9;
+      panel_h += line_height + 9;
     }
     if (panel_x < 0) {
       panel_x = 0;
@@ -14974,21 +15619,25 @@ static int chat_compat_draw_d3dx_overlay(void *device) {
       dialog_compat_d3d_fill_rect(device, panel_x, panel_y, panel_w, panel_h, SAMP_MODERN_UI_PANEL_FALLBACK);
     }
     textdraw_compat_draw_rect_outline(device, panel_x, panel_y, panel_w, panel_h, SAMP_MODERN_UI_BORDER_COLOR);
-    if (input_active != 0 && count > 0) {
+    if (input_active != 0 && display_count > 0) {
       dialog_compat_d3d_fill_rect(device, panel_x + 1,
-                                  y + (count * SAMP_CHAT_COMPAT_LINE_HEIGHT) + 1, panel_w - 2, 1,
+                                  y + (display_count * line_height) + 1, panel_w - 2, 1,
                                   SAMP_MODERN_UI_DIVIDER_COLOR);
     }
   }
-  for (i = 0; i < count; ++i) {
+  for (i = 0; i < display_count; ++i) {
+    char display_line[SAMP_CHAT_COMPAT_LINE_BYTES + 16];
+    LONG line_index = display_start + i;
     RECT rect;
     rect.left = x;
-    rect.top = y + (i * SAMP_CHAT_COMPAT_LINE_HEIGHT);
+    rect.top = y + (i * line_height);
     rect.right = x + 900;
-    rect.bottom = rect.top + SAMP_CHAT_COMPAT_LINE_HEIGHT + 4;
+    rect.bottom = rect.top + line_height + 4;
+    chat_compat_format_stored_line(line_index, display_line, sizeof(display_line));
     chat_compat_d3dx_draw_text_outline_segments(
-        g_runtime.chat_d3dx_font, rect, g_runtime.chat_overlay_lines[i],
-        g_runtime.chat_overlay_colors[i] != 0u ? g_runtime.chat_overlay_colors[i] : SAMP_CHAT_COMPAT_COLOR_INFO);
+        g_runtime.chat_d3dx_font, rect, display_line,
+        g_runtime.chat_overlay_colors[line_index] != 0u ? g_runtime.chat_overlay_colors[line_index]
+                                                        : SAMP_CHAT_COMPAT_COLOR_INFO);
   }
   if (vehicle_debug_active != 0) {
     (void)vehicle_debug_labels_draw_d3dx_overlay(device, g_runtime.chat_d3dx_font);
@@ -15011,13 +15660,13 @@ static int chat_compat_draw_d3dx_overlay(void *device) {
   if (input_active != 0) {
     char input_line[SAMP_CHAT_INPUT_DRAW_BYTES];
     RECT rect;
-    int input_y = y + (count * SAMP_CHAT_COMPAT_LINE_HEIGHT) + 5;
+    int input_y = y + (display_count * line_height) + 5;
 
     chat_input_format_draw_line_compat(input_line, sizeof(input_line));
     rect.left = x;
     rect.top = input_y;
     rect.right = x + 900;
-    rect.bottom = rect.top + SAMP_CHAT_COMPAT_LINE_HEIGHT + 4;
+    rect.bottom = rect.top + line_height + 4;
     chat_compat_d3dx_draw_text_outline(g_runtime.chat_d3dx_font, rect, input_line, 0xFFFFFFFFu);
   }
   if (dialog_active != 0) {
@@ -15028,7 +15677,7 @@ static int chat_compat_draw_d3dx_overlay(void *device) {
 
   if (InterlockedCompareExchange(&g_runtime.chat_d3d_draw_logged, 1, 0) == 0) {
     runtime_tracef("chat_d3dx: drawing enabled device=0x%08lx lines=%ld dialog=%ld textdraws=%ld gametext=%d class_selection=%d scoreboard=%d labels=%d nametags=%d deathwindow=%d x=%d y=%d",
-                   (unsigned long)(uintptr_t)device, (long)count, (long)dialog_active, (long)textdraw_active,
+                   (unsigned long)(uintptr_t)device, (long)display_count, (long)dialog_active, (long)textdraw_active,
                    game_text_active, class_selection_active, scoreboard_active, text_labels_active, name_tags_active,
                    death_window_active, x, y);
   }
@@ -15037,6 +15686,7 @@ static int chat_compat_draw_d3dx_overlay(void *device) {
 
 static HRESULT WINAPI chat_compat_end_scene_hook(void *device) {
   samp_d3d9_end_scene_fn original = g_runtime.chat_end_scene_original;
+  HRESULT result = S_OK;
 
   if (InterlockedCompareExchange(&g_runtime.chat_d3d_draw_active, 1, 0) == 0) {
     (void)chat_compat_draw_d3dx_overlay(device);
@@ -15045,9 +15695,23 @@ static HRESULT WINAPI chat_compat_end_scene_hook(void *device) {
   }
 
   if (original != NULL) {
-    return original(device);
+    result = original(device);
   }
-  return S_OK;
+
+  {
+    LONG fps_limit = InterlockedCompareExchange(&g_runtime.client_fps_limit, 0, 0);
+    if (fps_limit >= 20 && fps_limit <= 90) {
+      DWORD now = GetTickCount();
+      DWORD target_ms = (DWORD)(1000 / fps_limit);
+      DWORD last = g_runtime.client_fps_last_tick;
+      if (last != 0u && (DWORD)(now - last) < target_ms) {
+        Sleep(target_ms - (DWORD)(now - last));
+        now = GetTickCount();
+      }
+      g_runtime.client_fps_last_tick = now;
+    }
+  }
+  return result;
 }
 
 static void chat_compat_try_install_d3d_hook(void) {
@@ -15149,12 +15813,15 @@ static void chat_compat_uninstall_d3d_hook(void) {
 
 static void chat_compat_draw_overlay(void) {
   LONG count = 0;
+  LONG display_start = 0;
+  LONG display_count = 0;
   LONG input_active = 0;
   HWND hwnd = NULL;
   HDC dc = NULL;
   HFONT old_font = NULL;
   int x = SAMP_CHAT_COMPAT_BASE_X;
   int y = (int)chat_overlay_y_compat();
+  int line_height = chat_compat_line_height();
   int i = 0;
 
   if (!chat_overlay_enabled_compat()) {
@@ -15181,6 +15848,14 @@ static void chat_compat_draw_overlay(void) {
   if (count > SAMP_CHAT_COMPAT_MAX_LINES) {
     count = SAMP_CHAT_COMPAT_MAX_LINES;
   }
+  display_count = InterlockedCompareExchange(&g_runtime.chat_page_size, 0, 0);
+  if (display_count < SAMP_CHAT_COMPAT_MIN_PAGE_SIZE || display_count > SAMP_CHAT_COMPAT_MAX_PAGE_SIZE) {
+    display_count = SAMP_CHAT_COMPAT_DEFAULT_PAGE_SIZE;
+  }
+  if (display_count > count) {
+    display_count = count;
+  }
+  display_start = count - display_count;
 
   hwnd = read_game_hwnd_compat();
   if (hwnd == NULL) {
@@ -15195,7 +15870,7 @@ static void chat_compat_draw_overlay(void) {
 
   if (g_runtime.chat_overlay_font == NULL) {
     g_runtime.chat_overlay_font =
-        CreateFontA(-14, 0, 0, 0, FW_BOLD, FALSE, FALSE, FALSE, DEFAULT_CHARSET, OUT_DEFAULT_PRECIS,
+        CreateFontA(-chat_compat_font_size(), 0, 0, 0, FW_BOLD, FALSE, FALSE, FALSE, DEFAULT_CHARSET, OUT_DEFAULT_PRECIS,
                     CLIP_DEFAULT_PRECIS, ANTIALIASED_QUALITY, DEFAULT_PITCH | FF_DONTCARE, "Arial");
   }
   if (g_runtime.chat_overlay_font != NULL) {
@@ -15203,15 +15878,18 @@ static void chat_compat_draw_overlay(void) {
   }
 
   SetBkMode(dc, TRANSPARENT);
-  for (i = 0; i < count; ++i) {
-    chat_compat_draw_text_outline_segments(dc, x, y + (i * SAMP_CHAT_COMPAT_LINE_HEIGHT),
-                                           g_runtime.chat_overlay_lines[i],
-                                           g_runtime.chat_overlay_colors[i] != 0u ? g_runtime.chat_overlay_colors[i]
-                                                                                  : SAMP_CHAT_COMPAT_COLOR_INFO);
+  for (i = 0; i < display_count; ++i) {
+    char display_line[SAMP_CHAT_COMPAT_LINE_BYTES + 16];
+    LONG line_index = display_start + i;
+    chat_compat_format_stored_line(line_index, display_line, sizeof(display_line));
+    chat_compat_draw_text_outline_segments(
+        dc, x, y + (i * line_height), display_line,
+        g_runtime.chat_overlay_colors[line_index] != 0u ? g_runtime.chat_overlay_colors[line_index]
+                                                        : SAMP_CHAT_COMPAT_COLOR_INFO);
   }
   if (input_active != 0) {
     char input_line[SAMP_CHAT_INPUT_DRAW_BYTES];
-    int input_y = y + (count * SAMP_CHAT_COMPAT_LINE_HEIGHT) + 5;
+    int input_y = y + (display_count * line_height) + 5;
     int input_w = 0;
     RECT input_box;
     HBRUSH input_brush = NULL;
@@ -15233,7 +15911,7 @@ static void chat_compat_draw_overlay(void) {
     input_box.left = x - 4;
     input_box.top = input_y - 2;
     input_box.right = input_box.left + input_w;
-    input_box.bottom = input_y + SAMP_CHAT_COMPAT_LINE_HEIGHT + 4;
+    input_box.bottom = input_y + line_height + 4;
     input_brush = CreateSolidBrush(RGB(0, 0, 0));
     if (input_brush != NULL) {
       FillRect(dc, &input_box, input_brush);
@@ -17908,6 +18586,51 @@ static void chat_add_connect_retry_message_compat(int packet_id, const char *rea
   chat_compat_add_message("%s", message);
   runtime_tracef("network_prepare: connect retry chat reason=%s packet=%d message='%s' evidence=STATIC_037,INFERRED",
                  reason != NULL ? reason : "unknown", packet_id, message);
+}
+
+static void network_enter_terminal_disconnect_compat(int packet_id) {
+  const char *message = "Server closed the connection.";
+  LONG first_packet = 0;
+
+  /*
+   * STATIC_037:
+   * Original SA-MP 0.3.7-R5, SHA256=b72b5dbe725f81864ca3f78bc7063bda56cc05fc7188af822fa7a754432553a2:
+   * - ID_DISCONNECTION_NOTIFICATION uses "Server closed the connection." at
+   *   samp.dll+0x00008de6 and disconnects without entering WAIT_CONNECT.
+   * - ID_CONNECTION_BANNED uses "You are banned from this server." at
+   *   samp.dll+0x0000b321 and does not enter WAIT_CONNECT.
+   * - ID_INVALID_PASSWORD uses "Wrong server password." at samp.dll+0x0000b367
+   *   and disconnects without entering WAIT_CONNECT.
+   * Keep this terminal for the lifetime of the DLL; restarting GTA/SA-MP is the
+   * only way to clear the zero-initialized latch.
+   */
+  if (packet_id == 36) {
+    message = "You are banned from this server.";
+  } else if (packet_id == 37) {
+    message = "Wrong server password.";
+  }
+
+  first_packet = InterlockedCompareExchange(&g_runtime.network_terminal_packet_id, (LONG)packet_id, 0);
+  if (first_packet == 0) {
+    chat_compat_add_message("%s", message);
+  }
+
+  if ((packet_id == 32 || packet_id == 37) && InterlockedCompareExchange(&g_runtime.net_mgr_inited, 0, 0) &&
+      samp_net_mgr_uses_raknet(&g_runtime.net_mgr) && g_runtime.net_mgr.raknet_client != NULL) {
+    samp_raknet_client_disconnect(g_runtime.net_mgr.raknet_client, 0U, 0U);
+  }
+
+  InterlockedExchange(&g_runtime.net_mgr_connected, 0);
+  InterlockedExchange(&g_runtime.raknet_join_sent, 0);
+  InterlockedExchange(&g_runtime.raknet_logon_marked, 0);
+  InterlockedExchange(&g_runtime.raknet_rpc_flags, 0);
+  InterlockedExchange(&g_runtime.raknet_game_rpc_flags, 0);
+  InterlockedExchange(&g_runtime.raknet_request_class_outcome, 0);
+  InterlockedExchange(&g_runtime.raknet_request_spawn_outcome, 0);
+  InterlockedExchange(&g_runtime.netgame_state, SAMP_NETGAME_FAILED);
+  runtime_tracef("network_prepare: terminal disconnect latched packet=%d (%s) first_packet=%ld state=FAILED "
+                 "restart_required=1 evidence=STATIC_037",
+                 packet_id, raknet_packet_name(packet_id), (long)first_packet);
 }
 
 static void copy_runtime_token(const char *src, char *dst, size_t dst_size) {
@@ -26047,6 +26770,10 @@ static int phase_runtime_guard_attach(HINSTANCE instance) {
   g_runtime.entry_gate = resolve_initial_entry_gate();
   g_runtime.netgame_state = SAMP_NETGAME_WAIT_CONNECT;
   InterlockedExchange(&g_runtime.death_window_enabled, 1);
+  InterlockedExchange(&g_runtime.chat_page_size, SAMP_CHAT_COMPAT_DEFAULT_PAGE_SIZE);
+  InterlockedExchange(&g_runtime.audio_messages_enabled, 1);
+  InterlockedExchange(&g_runtime.remote_headmove_enabled, 1);
+  InterlockedExchange(&g_runtime.name_tag_status_enabled, 1);
   runtime_tracef("process_attach guard: entry_gate_target=%ld entry_mem=%ld", (long)g_runtime.entry_gate,
                  (long)read_game_entry_gate_value());
   runtime_tracef("build: %s", kSampDllBuildId);
@@ -26236,6 +26963,10 @@ static void launch_prepare_network_compat(void) {
 
   if (!g_runtime.settings.play_online) {
     runtime_tracef("network_prepare: skipped (play_online=0)");
+    return;
+  }
+  if (InterlockedCompareExchange(&g_runtime.network_terminal_packet_id, 0, 0) != 0) {
+    InterlockedExchange(&g_runtime.netgame_state, SAMP_NETGAME_FAILED);
     return;
   }
   if (!InterlockedCompareExchange(&g_runtime.network_inited, 0, 0)) {
@@ -26641,10 +27372,12 @@ static void launch_prepare_network_compat(void) {
           runtime_tracef("network_prepare: RakNet connect not ready -> state=WAIT_CONNECT");
           break;
         case 32: /* ID_DISCONNECTION_NOTIFICATION */
+          network_enter_terminal_disconnect_compat(last_packet_id);
+          disconnect_packet = 1;
+          runtime_tracef("network_prepare: RakNet server close -> terminal state=FAILED");
+          break;
         case 33: /* ID_CONNECTION_LOST */
-          if (last_packet_id == 33) {
-            chat_add_connect_retry_message_compat(last_packet_id, "connection_lost");
-          }
+          chat_add_connect_retry_message_compat(last_packet_id, "connection_lost");
           disconnect_packet = 1;
           InterlockedExchange(&g_runtime.net_mgr_connected, 0);
           InterlockedExchange(&g_runtime.raknet_join_sent, 0);
@@ -26662,9 +27395,8 @@ static void launch_prepare_network_compat(void) {
           break;
         case 36: /* ID_CONNECTION_BANNED */
         case 37: /* ID_INVALID_PASSWORD */
-          InterlockedExchange(&g_runtime.net_mgr_connected, 0);
-          InterlockedExchange(&g_runtime.netgame_state, SAMP_NETGAME_FAILED);
-          runtime_tracef("network_prepare: RakNet terminal packet -> state=FAILED");
+          network_enter_terminal_disconnect_compat(last_packet_id);
+          disconnect_packet = 1;
           break;
         case 38: /* ID_MODIFIED_PACKET */
           /*
