@@ -14,7 +14,7 @@ All addresses below are RVAs relative to `samp.dll`.
 | RPC | Name | Original handler | Evidence | Replacement path |
 |---:|---|---|---|---|
 | 28 | CancelEdit | not mapped in the inspected registration block | `OPENMP_REF`, `TODO_VERIFY` | Empty payload is sequenced and logged; no speculative edit-state mutation is applied. |
-| 33 | SetPlayerShopName | `samp.dll+0x17E50` | `STATIC_037`, `TODO_VERIFY` | Fixed 32-byte name is bounded, stored and logged. Original internal shop-object calls still need a focused runtime probe. |
+| 33 | SetPlayerShopName | `samp.dll+0x17E50`, helpers `+0xAE380`/`+0xAE300` | `STATIC_037`, `GTA_REVERSED_REF`, `TODO_VERIFY` | Fixed 32-byte name is bounded; the local ped entry/exit pointer and GTA `CShopping::LoadShop` (`0x49BBE0`) are applied. Empty names load `s004`. `game_sa` and the legacy SCM show that vendor/marker creation belongs to the SA-MP `main.scm` interior manager and its `script.img` streamed scripts, not RPC 33. The replacement still needs generic `samp.saa` ArchiveFS virtualization; the local test prefix can use the corresponding full SCM files meanwhile. |
 | 41 | PlayAudioStream | `samp.dll+0x1D3C0` | `STATIC_037`, `OPENMP_REF`, `TODO_VERIFY` | URL, position, radius and positional flag are bounded; playback uses the optional `BASS.dll` backend. |
 | 42 | StopAudioStream | `samp.dll+0x180F0` | `STATIC_037`, `OPENMP_REF` | Active compatibility BASS stream is stopped and freed. |
 | 59 | ChatBubble | not mapped in the inspected registration block | `OPENMP_REF`, `TODO_VERIFY` | Per-player, expiring bubble state is queued and rendered above the player. |

@@ -181,6 +181,7 @@
 #define SAMP_GTA_FUNC_CPED_GIVE_WEAPON 0x5E6080u
 #define SAMP_GTA_FUNC_CPED_CLEAR_WEAPONS 0x5E6320u
 #define SAMP_GTA_FUNC_CCHEAT_WEAPON_SKILLS 0x439940u
+#define SAMP_GTA_FUNC_CSHOPPING_LOAD_SHOP 0x49BBE0u
 #define SAMP_GTA_HOOK_DAMAGE_RESPONSE 0x4B5AC0u
 #define SAMP_GTA_HOOK_DAMAGE_RESPONSE_RVA 0x0B5AC0u
 #define SAMP_GTA_HOOK_DAMAGE_RESPONSE_SIZE 6u
@@ -382,6 +383,7 @@
 #define SAMP_PED_OFFSET_VEHICLE 1420u
 #define SAMP_PED_OFFSET_WEAPON_SLOTS 1440u
 #define SAMP_PED_OFFSET_CURRENT_WEAPON_SLOT 1816u
+#define SAMP_PED_OFFSET_ENTRY_EXIT 0x78Cu
 #define SAMP_PED_INTELLIGENCE_TASK_MANAGER_OFFSET 4u
 #define SAMP_TASK_MANAGER_PRIMARY_COUNT 5u
 #define SAMP_TASK_MANAGER_ROOT_COUNT 11u
@@ -2122,6 +2124,7 @@ typedef struct samp_runtime_state {
   LONG mp_session_applied_player_skin_seq;
   LONG mp_session_applied_player_skill_seq;
   LONG mp_session_default_weapon_skills_applied;
+  LONG mp_session_applied_shop_name_seq;
   LONG mp_session_applied_player_drunk_seq;
   LONG mp_session_applied_player_fighting_style_seq;
   LONG mp_session_applied_player_pos_find_z_seq;
@@ -23687,6 +23690,50 @@ static int gta_apply_default_weapon_skills_compat(void) {
   return 1;
 }
 
+static int gta_apply_shop_name_compat(const char *shop_name) {
+  typedef void(__cdecl *gta_shopping_load_shop_fn)(const char *);
+  static char current_shop_name[32];
+  gta_shopping_load_shop_fn load_shop =
+      (gta_shopping_load_shop_fn)(uintptr_t)SAMP_GTA_FUNC_CSHOPPING_LOAD_SHOP;
+  uintptr_t ped = gta_find_player_ped_compat();
+  uint32_t entry_exit_ptr = (uint32_t)(uintptr_t)current_shop_name;
+  size_t shop_len = shop_name != NULL ? strlen(shop_name) : 0u;
+
+  if (ped == 0u || shop_len >= sizeof(current_shop_name) ||
+      !gta_code_ptr_compat(SAMP_GTA_FUNC_CSHOPPING_LOAD_SHOP) ||
+      !memory_is_writable_compat((void *)(ped + SAMP_PED_OFFSET_ENTRY_EXIT), sizeof(entry_exit_ptr))) {
+    return 0;
+  }
+
+  memset(current_shop_name, 0, sizeof(current_shop_name));
+  if (shop_len != 0u) {
+    memcpy(current_shop_name, shop_name, shop_len);
+  }
+  memcpy((void *)(ped + SAMP_PED_OFFSET_ENTRY_EXIT), &entry_exit_ptr, sizeof(entry_exit_ptr));
+
+  /*
+   * STATIC_037 + GTA_REVERSED_REF:
+   * RPC 33 at samp.dll+0x17E50 first calls samp.dll+0xAE380, which points the
+   * local GTA ped's CPed+0x78C entry/exit name at persistent storage.  It then
+   * calls samp.dll+0xAE300, whose only GTA call is CShopping::LoadShop at
+   * 0x49BBE0.  An empty RPC name loads the original fallback section "s004".
+   * Vendor/marker creation is not part of this RPC handler: the SA-MP main.scm
+   * interior manager requests and starts the matching script.img streamed
+   * script (for example JUNKFUD).  Keep that responsibility out of this path.
+   */
+  if (shop_len == 0u) {
+    load_shop("s004");
+  } else if (shop_len <= 8u) {
+    load_shop(current_shop_name);
+  }
+  runtime_tracef("shop_compat: name='%s' ped=0x%08lx enex=0x%08lx shopping='%s' "
+                 "vendor_owner=main.scm/script.img evidence=STATIC_037:samp.dll+0x17E50,"
+                 "STATIC_037:samp.dll+0xAE300,STATIC_037:samp.dll+0xAE380,GTA_REVERSED_REF",
+                 current_shop_name, (unsigned long)ped, (unsigned long)entry_exit_ptr,
+                 shop_len == 0u ? "s004" : current_shop_name);
+  return 1;
+}
+
 static int gta_apply_player_drunk_compat(uint32_t level) {
   if (level > 50000u) {
     return 0;
@@ -24037,6 +24084,7 @@ static void game_mode_restart_compat_update_from_snapshot(const samp_raknet_rpc_
   gta_disable_checkpoint_marker_compat(&g_runtime.checkpoint_marker_id);
   gta_disable_race_checkpoint_compat();
   (void)audio_stream_compat_stop(reason);
+  (void)gta_apply_shop_name_compat("");
   (void)gta_script_command_compat(0x03B8u, "i", SAMP_GTA_PLAYER_LOCAL_ID);
   (void)apply_wanted_level_patch_compat(0u, reason);
 
@@ -24060,6 +24108,7 @@ static void game_mode_restart_compat_update_from_snapshot(const samp_raknet_rpc_
   InterlockedExchange(&g_runtime.mp_session_applied_player_skin_seq, 0);
   InterlockedExchange(&g_runtime.mp_session_applied_player_skill_seq, 0);
   InterlockedExchange(&g_runtime.mp_session_default_weapon_skills_applied, 0);
+  InterlockedExchange(&g_runtime.mp_session_applied_shop_name_seq, 0);
   InterlockedExchange(&g_runtime.mp_session_applied_player_drunk_seq, 0);
   InterlockedExchange(&g_runtime.mp_session_applied_player_fighting_style_seq, 0);
   InterlockedExchange(&g_runtime.mp_session_applied_player_pos_find_z_seq, 0);
@@ -24862,18 +24911,24 @@ static uint32_t refresh_raknet_rpc_snapshot_compat(void) {
   }
   {
     static uint32_t cancel_edit_seq = 0u;
-    static uint32_t shop_name_seq = 0u;
     if (snapshot.cancel_edit_seq != 0u && snapshot.cancel_edit_seq != cancel_edit_seq) {
       cancel_edit_seq = snapshot.cancel_edit_seq;
       runtime_tracef("network_prepare: cancel_edit seq=%lu state_observed=1 "
                      "evidence=OPENMP_REF,TODO_VERIFY",
                      (unsigned long)cancel_edit_seq);
     }
-    if (snapshot.shop_name_seq != 0u && snapshot.shop_name_seq != shop_name_seq) {
-      shop_name_seq = snapshot.shop_name_seq;
-      runtime_tracef("network_prepare: shop_name seq=%lu name='%s' stored=1 "
-                     "evidence=STATIC_037,TODO_VERIFY",
-                     (unsigned long)shop_name_seq, snapshot.shop_name);
+    LONG previous_shop_name_seq =
+        InterlockedCompareExchange(&g_runtime.mp_session_applied_shop_name_seq, 0, 0);
+    if (snapshot.shop_name_seq != 0u &&
+        snapshot.shop_name_seq != (uint32_t)previous_shop_name_seq) {
+      int applied = gta_apply_shop_name_compat(snapshot.shop_name);
+      if (applied) {
+        InterlockedExchange(&g_runtime.mp_session_applied_shop_name_seq, (LONG)snapshot.shop_name_seq);
+      }
+      runtime_tracef("network_prepare: shop_name seq=%lu previous=%ld name='%s' applied=%d "
+                     "evidence=STATIC_037:samp.dll+0x17E50,GTA_REVERSED_REF,TODO_VERIFY",
+                     (unsigned long)snapshot.shop_name_seq, (long)previous_shop_name_seq,
+                     snapshot.shop_name, applied);
     }
   }
   previous_wanted_level_seq =
@@ -31329,6 +31384,7 @@ static void launch_prepare_network_compat(void) {
     InterlockedExchange(&g_runtime.mp_session_applied_player_skin_seq, 0);
     InterlockedExchange(&g_runtime.mp_session_applied_player_skill_seq, 0);
     InterlockedExchange(&g_runtime.mp_session_default_weapon_skills_applied, 0);
+    InterlockedExchange(&g_runtime.mp_session_applied_shop_name_seq, 0);
     InterlockedExchange(&g_runtime.mp_session_applied_player_drunk_seq, 0);
     InterlockedExchange(&g_runtime.mp_session_applied_player_fighting_style_seq, 0);
     InterlockedExchange(&g_runtime.mp_session_applied_player_pos_find_z_seq, 0);
