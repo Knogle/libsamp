@@ -6,6 +6,7 @@ Determine whether the replacement dialog/menu desync comes from the outgoing
 wire contract or from local client UI/state handling. The focused probe records
 the original client's outgoing:
 
+- RPC 50 `ServerCommand` as scenario correlation;
 - RPC 62 `DialogResponse`;
 - RPC 132 `MenuSelect`;
 - RPC 140 `MenuQuit`.
@@ -85,11 +86,13 @@ A usable trace contains:
 
 ```text
 dialog_menu_rpc_hook: installed
+dialog_menu_rpc: before rpc=50 name=ServerCommand
 dialog_menu_rpc: before rpc=62 name=DialogResponse
 dialog_menu_rpc: after rpc=62
 ```
 
-For a menu fixture it additionally contains RPC 132 and/or 140 records. Reject
+The RPC 50 record must contain `command='/attachments'`. For a menu fixture it
+additionally contains RPC 132 and/or 140 records. Reject
 the run if it contains `unsupported_identity`, `slot_target_outside_samp`,
 `vtable_changed`, or `exception:`.
 

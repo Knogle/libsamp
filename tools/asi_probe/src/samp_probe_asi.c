@@ -114,6 +114,7 @@
 #define PROBE_SAMP_R5_REMOTE_ACTOR_SET_POSITION_RVA 0x0009f040u
 #define PROBE_SAMP_R5_NETGAME_PTR_RVA 0x0026eb94u
 #define PROBE_RAKCLIENT_RPC_BITSTREAM_VTBL_INDEX 26u
+#define PROBE_SERVER_COMMAND_RPC 50u
 #define PROBE_DIALOG_RESPONSE_RPC 62u
 #define PROBE_MENU_SELECT_RPC 132u
 #define PROBE_MENU_QUIT_RPC 140u
@@ -3081,16 +3082,18 @@ static BYTE PROBE_THISCALL hook_rakclient_rpc_bitstream(
   int bytes = 0;
   const BYTE *data = NULL;
   char payload[PROBE_PAYLOAD_PREVIEW_BYTES * 3 + 8];
+  char command[129];
   void *caller = probe_return_address();
   int focused;
 
   if (memory_is_readable((uintptr_t)rpc_id_ptr, sizeof(*rpc_id_ptr))) {
     rpc_id = *rpc_id_ptr;
   }
-  focused = rpc_id == PROBE_DIALOG_RESPONSE_RPC || rpc_id == PROBE_MENU_SELECT_RPC ||
-            rpc_id == PROBE_MENU_QUIT_RPC;
+  focused = rpc_id == PROBE_SERVER_COMMAND_RPC || rpc_id == PROBE_DIALOG_RESPONSE_RPC ||
+            rpc_id == PROBE_MENU_SELECT_RPC || rpc_id == PROBE_MENU_QUIT_RPC;
 
   payload[0] = '\0';
+  command[0] = '\0';
   if (focused) {
     if (bitstream == NULL) {
       bits = 0;
@@ -3107,7 +3110,35 @@ static BYTE PROBE_THISCALL hook_rakclient_rpc_bitstream(
       snprintf(payload, sizeof(payload), "unreadable_bitstream");
     }
 
-    if (rpc_id == PROBE_DIALOG_RESPONSE_RPC && bytes >= 6 &&
+    if (rpc_id == PROBE_SERVER_COMMAND_RPC && bytes >= 4 &&
+        memory_is_readable((uintptr_t)data, (size_t)bytes)) {
+      int command_length;
+      size_t preview_length;
+      size_t i;
+      memcpy(&command_length, data, sizeof(command_length));
+      preview_length = command_length > 0 ? (size_t)command_length : 0u;
+      if (preview_length > (size_t)(bytes - 4)) {
+        preview_length = (size_t)(bytes - 4);
+      }
+      if (preview_length > sizeof(command) - 1) {
+        preview_length = sizeof(command) - 1;
+      }
+      memcpy(command, data + 4, preview_length);
+      command[preview_length] = '\0';
+      for (i = 0; i < preview_length; ++i) {
+        if ((unsigned char)command[i] < 0x20u || (unsigned char)command[i] > 0x7eu) {
+          command[i] = '.';
+        }
+      }
+      probe_log("dialog_menu_rpc: before rpc=%u name=ServerCommand caller=%p caller_samp_rva=0x%08lx "
+                "bits=%d bytes=%d command_length=%d command='%s' priority=%d reliability=%d "
+                "channel=%d shift_timestamp=%u payload='%s' rakclient=%p bitstream=%p "
+                "network_local=%u reply=%p evidence=OBSERVED_037,PROBE_TRACE,TODO_VERIFY",
+                (unsigned)rpc_id, caller, samp_rva_from_address(caller), bits, bytes,
+                command_length, command, priority, reliability, (int)ordering_channel,
+                (unsigned)shift_timestamp, payload, rakclient, bitstream,
+                (unsigned)network_id.local_system_id, reply_from_target);
+    } else if (rpc_id == PROBE_DIALOG_RESPONSE_RPC && bytes >= 6 &&
         memory_is_readable((uintptr_t)data, (size_t)bytes)) {
       short dialog_id;
       short list_item;

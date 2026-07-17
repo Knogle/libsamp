@@ -20,9 +20,9 @@ It is intended for local reverse-engineering and compatibility work:
     CPed snapshots, direct GTA calls, and actor-scoped SCM opcode dispatches.
 12. optionally trace RPC 43/112/113/116/117 through the original R5 remove-
     entity, crime-scanner, attached-object, and editor-begin helpers.
-13. optionally trace original-R5 outgoing DialogResponse/MenuSelect/MenuQuit
-    RPCs at RakClientInterface vtable slot 26, including payload, transport
-    parameters, original callsite, and send result.
+13. optionally trace original-R5 outgoing ServerCommand/DialogResponse/
+    MenuSelect/MenuQuit RPCs at RakClientInterface vtable slot 26, including
+    payload, transport parameters, original callsite, and send result.
 
 The first pass rewrites selected import slots inside `samp.dll`, so observed calls are attributable to `samp.dll` rather than process-global Wine/WinDbg noise.
 
@@ -322,9 +322,10 @@ For a focused original-R5 dialog/menu run, enable only
 the probe validates the exact R5 PE identity, reads the RakClient pointer from
 the first NetGame member, validates vtable slot 26 and requires its target to
 be inside `samp.dll` before patching it. Records use `dialog_menu_rpc_hook` for
-installation and `dialog_menu_rpc` for outgoing RPC 62, 132, and 140. RPC 62
-records decode dialog ID, response, list item, and input length; RPC 132 records
-the selected row. All three include bits, raw payload, priority, reliability,
+installation and `dialog_menu_rpc` for outgoing RPC 50, 62, 132, and 140. RPC
+50 records decode the command string, RPC 62 records decode dialog ID,
+response, list item, and input length, and RPC 132 records the selected row.
+All four include bits, raw payload, priority, reliability,
 ordering channel, shift-timestamp flag, SA-MP caller RVA, and the original
 RakNet call result. Run it process-bound and do not hot-unload the ASI.
 
