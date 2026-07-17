@@ -2701,6 +2701,7 @@ static int text_label_compat_draw_d3dx_overlay(void *device, samp_id3dx_font_com
 static void text_label_compat_reset_pool(const char *reason);
 static void vehicle_compat_update_from_snapshot(const samp_raknet_rpc_probe_snapshot *snapshot);
 static void vehicle_compat_reset_pool(const char *reason);
+static void game_session_reset_to_preconnect_compat(const char *reason, int transport_connected);
 static void game_mode_restart_compat_update_from_snapshot(const samp_raknet_rpc_probe_snapshot *snapshot);
 static void client_control_compat_update_from_snapshot(const samp_raknet_rpc_probe_snapshot *snapshot);
 static void client_spectator_sync_compat(void);
@@ -23987,22 +23988,7 @@ static void gta_process_checkpoints_compat(void) {
   }
 }
 
-static void game_mode_restart_compat_update_from_snapshot(const samp_raknet_rpc_probe_snapshot *snapshot) {
-  static uint32_t handled_seq = 0u;
-  const char *reason = "gamemode_restart";
-  int transport_connected = 0;
-
-  if (snapshot == NULL || snapshot->game_mode_restart_seq == 0u ||
-      snapshot->game_mode_restart_seq == handled_seq) {
-    return;
-  }
-  handled_seq = snapshot->game_mode_restart_seq;
-
-  if (InterlockedCompareExchange(&g_runtime.net_mgr_inited, 0, 0) != 0 &&
-      samp_net_mgr_uses_raknet(&g_runtime.net_mgr) && g_runtime.net_mgr.raknet_client != NULL) {
-    transport_connected = samp_net_mgr_raknet_is_connected(&g_runtime.net_mgr);
-  }
-
+static void game_session_reset_to_preconnect_compat(const char *reason, int transport_connected) {
   /*
    * STATIC_037:
    * Original SA-MP 0.3.7-R5 samp.dll SHA256=
@@ -24204,16 +24190,38 @@ static void game_mode_restart_compat_update_from_snapshot(const samp_raknet_rpc_
   if (!transport_connected) {
     InterlockedExchange(&g_runtime.raknet_join_sent, 0);
     InterlockedExchange(&g_runtime.raknet_logon_marked, 0);
+    g_runtime.net_mgr_last_connect_attempt_tick = 0u;
   }
   InterlockedExchange(&g_runtime.netgame_state, SAMP_NETGAME_WAIT_CONNECT);
 
   apply_session_frontend_hold_flags_compat(reason);
-  chat_compat_add_message("The server is restarting..");
   apply_preconnect_frontend_compat();
-  runtime_tracef("client_control: gamemode_restart seq=%lu logical_state=WAIT_CONNECT transport_connected=%d "
+  runtime_tracef("client_control: session_reset reason=%s logical_state=WAIT_CONNECT transport_connected=%d "
                  "session_reset=complete preconnect_ready=%ld evidence=STATIC_037:samp.dll+0xA540,TODO_VERIFY",
-                 (unsigned long)handled_seq, transport_connected,
+                 reason != NULL ? reason : "unknown", transport_connected,
                  (long)InterlockedCompareExchange(&g_runtime.preconnect_ready, 0, 0));
+}
+
+static void game_mode_restart_compat_update_from_snapshot(const samp_raknet_rpc_probe_snapshot *snapshot) {
+  static uint32_t handled_seq = 0u;
+  int transport_connected = 0;
+
+  if (snapshot == NULL || snapshot->game_mode_restart_seq == 0u ||
+      snapshot->game_mode_restart_seq == handled_seq) {
+    return;
+  }
+  handled_seq = snapshot->game_mode_restart_seq;
+
+  if (InterlockedCompareExchange(&g_runtime.net_mgr_inited, 0, 0) != 0 &&
+      samp_net_mgr_uses_raknet(&g_runtime.net_mgr) && g_runtime.net_mgr.raknet_client != NULL) {
+    transport_connected = samp_net_mgr_raknet_is_connected(&g_runtime.net_mgr);
+  }
+
+  game_session_reset_to_preconnect_compat("gamemode_restart", transport_connected);
+  chat_compat_add_message("The server is restarting..");
+  runtime_tracef("client_control: gamemode_restart seq=%lu logical_state=WAIT_CONNECT transport_connected=%d "
+                 "evidence=STATIC_037:samp.dll+0xA540,TODO_VERIFY",
+                 (unsigned long)handled_seq, transport_connected);
 }
 
 static void client_control_compat_update_from_snapshot(const samp_raknet_rpc_probe_snapshot *snapshot) {
@@ -31583,6 +31591,7 @@ static void launch_prepare_network_compat(void) {
     int last_packet_id = -1;
     int connected_after_pump = 0;
     int disconnect_packet = 0;
+    int full_session_reset = 0;
     uint32_t rpc_flags = 0u;
     LONG state_before = InterlockedCompareExchange(&g_runtime.netgame_state, 0, 0);
 
@@ -31637,16 +31646,10 @@ static void launch_prepare_network_compat(void) {
         case 33: /* ID_CONNECTION_LOST */
           chat_add_connect_retry_message_compat(last_packet_id, "connection_lost");
           disconnect_packet = 1;
-          InterlockedExchange(&g_runtime.net_mgr_connected, 0);
-          InterlockedExchange(&g_runtime.raknet_join_sent, 0);
-          InterlockedExchange(&g_runtime.raknet_logon_marked, 0);
-          InterlockedExchange(&g_runtime.raknet_rpc_flags, 0);
-          InterlockedExchange(&g_runtime.raknet_game_rpc_flags, 0);
-          InterlockedExchange(&g_runtime.raknet_request_class_outcome, 0);
-          InterlockedExchange(&g_runtime.raknet_request_spawn_outcome, 0);
-          InterlockedExchange(&g_runtime.netgame_state, SAMP_NETGAME_WAIT_CONNECT);
+          full_session_reset = 1;
+          game_session_reset_to_preconnect_compat("connection_lost", 0);
           runtime_tracef("network_prepare: RakNet disconnected -> state=WAIT_CONNECT packet=%d drained=%d state_before=%ld "
-                         "pump_calls=%ld saturated=%ld",
+                         "pump_calls=%ld saturated=%ld session_reset=complete",
                          last_packet_id, drained, (long)state_before,
                          (long)InterlockedCompareExchange(&g_runtime.raknet_pump_calls, 0, 0),
                          (long)InterlockedCompareExchange(&g_runtime.raknet_pump_saturated_count, 0, 0));
@@ -31670,13 +31673,17 @@ static void launch_prepare_network_compat(void) {
       }
     }
 
-    if (disconnect_packet) {
+    if (disconnect_packet && !full_session_reset) {
       map_icon_compat_reset("network_disconnect");
       gang_zone_compat_reset("network_disconnect");
       actor_compat_reset_pool("network_disconnect");
       attached_object_compat_reset_pool("network_disconnect");
       remove_building_compat_reset();
       InterlockedExchange(&g_runtime.menu_overlay_active, 0);
+      rpc_flags = 0u;
+      connected_after_pump = 0;
+    }
+    if (disconnect_packet) {
       rpc_flags = 0u;
       connected_after_pump = 0;
     }
