@@ -180,6 +180,7 @@
 #define SAMP_GTA_FUNC_CPED_INTELLIGENCE_FLUSH_IMMEDIATELY 0x601640u
 #define SAMP_GTA_FUNC_CPED_GIVE_WEAPON 0x5E6080u
 #define SAMP_GTA_FUNC_CPED_CLEAR_WEAPONS 0x5E6320u
+#define SAMP_GTA_FUNC_CCHEAT_WEAPON_SKILLS 0x439940u
 #define SAMP_GTA_HOOK_DAMAGE_RESPONSE 0x4B5AC0u
 #define SAMP_GTA_HOOK_DAMAGE_RESPONSE_RVA 0x0B5AC0u
 #define SAMP_GTA_HOOK_DAMAGE_RESPONSE_SIZE 6u
@@ -2120,6 +2121,7 @@ typedef struct samp_runtime_state {
   LONG mp_session_applied_player_ammo_seq;
   LONG mp_session_applied_player_skin_seq;
   LONG mp_session_applied_player_skill_seq;
+  LONG mp_session_default_weapon_skills_applied;
   LONG mp_session_applied_player_drunk_seq;
   LONG mp_session_applied_player_fighting_style_seq;
   LONG mp_session_applied_player_pos_find_z_seq;
@@ -23666,6 +23668,25 @@ static int gta_apply_player_skill_compat(const samp_raknet_rpc_probe_snapshot *s
   return gta_script_command_compat(0x062Au, "if", (int)stat_id, (float)snapshot->player_skill_level);
 }
 
+static int gta_apply_default_weapon_skills_compat(void) {
+  typedef void(__cdecl *gta_weapon_skills_cheat_fn)(void);
+  gta_weapon_skills_cheat_fn apply_weapon_skills =
+      (gta_weapon_skills_cheat_fn)(uintptr_t)SAMP_GTA_FUNC_CCHEAT_WEAPON_SKILLS;
+
+  if (!gta_code_ptr_compat(SAMP_GTA_FUNC_CCHEAT_WEAPON_SKILLS)) {
+    return 0;
+  }
+  /*
+   * STATIC_037 + GTA_REVERSED_REF:
+   * CLocalPlayer::Spawn calls CGame::SetMaxStats, which calls GTA
+   * CCheat::WeaponSkillsCheat at 0x439940.  GTA sets all eleven weapon-skill
+   * stats to 1000.0.  Apply this session default before processing RPC 34 so
+   * an explicit SetPlayerSkillLevel remains the final value.
+   */
+  apply_weapon_skills();
+  return 1;
+}
+
 static int gta_apply_player_drunk_compat(uint32_t level) {
   if (level > 50000u) {
     return 0;
@@ -24038,6 +24059,7 @@ static void game_mode_restart_compat_update_from_snapshot(const samp_raknet_rpc_
   InterlockedExchange(&g_runtime.mp_session_applied_player_ammo_seq, 0);
   InterlockedExchange(&g_runtime.mp_session_applied_player_skin_seq, 0);
   InterlockedExchange(&g_runtime.mp_session_applied_player_skill_seq, 0);
+  InterlockedExchange(&g_runtime.mp_session_default_weapon_skills_applied, 0);
   InterlockedExchange(&g_runtime.mp_session_applied_player_drunk_seq, 0);
   InterlockedExchange(&g_runtime.mp_session_applied_player_fighting_style_seq, 0);
   InterlockedExchange(&g_runtime.mp_session_applied_player_pos_find_z_seq, 0);
@@ -24400,6 +24422,16 @@ static uint32_t refresh_raknet_rpc_snapshot_compat(void) {
   game_rpc_flags = snapshot.flags & SAMP_RAKNET_RPC_FLAG_GAME_STATE_MASK;
   previous_game_rpc_flags = InterlockedExchange(&g_runtime.raknet_game_rpc_flags, (LONG)game_rpc_flags);
   apply_raknet_init_game_settings_compat(&snapshot);
+  if ((snapshot.flags & SAMP_RAKNET_RPC_FLAG_INIT_GAME) != 0u &&
+      InterlockedCompareExchange(&g_runtime.mp_session_default_weapon_skills_applied, 1, 0) == 0) {
+    int applied = gta_apply_default_weapon_skills_compat();
+    if (!applied) {
+      InterlockedExchange(&g_runtime.mp_session_default_weapon_skills_applied, 0);
+    }
+    runtime_tracef("network_prepare: default_weapon_skills level=1000 applied=%d "
+                   "evidence=STATIC_037,GTA_REVERSED_REF",
+                   applied);
+  }
   if ((snapshot.flags & SAMP_RAKNET_RPC_FLAG_PLAYER_POS) != 0u && snapshot.player_pos_seq != 0u &&
       snapshot.player_pos_seq !=
           (uint32_t)InterlockedCompareExchange(&g_runtime.raknet_player_pos_seq, 0, 0) &&
@@ -31296,6 +31328,7 @@ static void launch_prepare_network_compat(void) {
     InterlockedExchange(&g_runtime.mp_session_applied_player_ammo_seq, 0);
     InterlockedExchange(&g_runtime.mp_session_applied_player_skin_seq, 0);
     InterlockedExchange(&g_runtime.mp_session_applied_player_skill_seq, 0);
+    InterlockedExchange(&g_runtime.mp_session_default_weapon_skills_applied, 0);
     InterlockedExchange(&g_runtime.mp_session_applied_player_drunk_seq, 0);
     InterlockedExchange(&g_runtime.mp_session_applied_player_fighting_style_seq, 0);
     InterlockedExchange(&g_runtime.mp_session_applied_player_pos_find_z_seq, 0);
