@@ -185,9 +185,10 @@ typedef HMODULE(WINAPI *probe_LoadLibraryW_fn)(LPCWSTR);
 typedef FARPROC(WINAPI *probe_GetProcAddress_fn)(HMODULE, LPCSTR);
 typedef HANDLE(WINAPI *probe_CreateThread_fn)(LPSECURITY_ATTRIBUTES, SIZE_T, LPTHREAD_START_ROUTINE, LPVOID, DWORD, LPDWORD);
 
-/* RAKNET_LEGACY + INFERRED + TODO_VERIFY:
- * The original client uses RakClientInterface::RPC(RPCID, BitStream*, ...),
- * vtable slot 26. These bounded prefixes mirror the 32-bit RakNet ABI only;
+/* STATIC_037:
+ * R5 vtable slot 26 is samp.dll+0x345b0 and returns with `ret 0x24`.
+ * Its forwarding wrapper dereferences RPCID* and copies the packed 8-byte
+ * NetworkID by value. These bounded prefixes mirror that 32-bit ABI only;
  * the probe never constructs or mutates either object. */
 typedef struct probe_raknet_bitstream_prefix {
   int number_of_bits_used;
@@ -197,6 +198,7 @@ typedef struct probe_raknet_bitstream_prefix {
   BYTE copy_data;
 } probe_raknet_bitstream_prefix;
 
+#pragma pack(push, 1)
 typedef struct probe_raknet_player_id {
   DWORD binary_address;
   unsigned short port;
@@ -206,13 +208,14 @@ typedef struct probe_raknet_network_id {
   probe_raknet_player_id player_id;
   unsigned short local_system_id;
 } probe_raknet_network_id;
+#pragma pack(pop)
 
 typedef char probe_assert_bitstream_prefix_size[(sizeof(probe_raknet_bitstream_prefix) == 20) ? 1 : -1];
-typedef char probe_assert_player_id_size[(sizeof(probe_raknet_player_id) == 8) ? 1 : -1];
-typedef char probe_assert_network_id_size[(sizeof(probe_raknet_network_id) == 12) ? 1 : -1];
+typedef char probe_assert_player_id_size[(sizeof(probe_raknet_player_id) == 6) ? 1 : -1];
+typedef char probe_assert_network_id_size[(sizeof(probe_raknet_network_id) == 8) ? 1 : -1];
 
 typedef BYTE(PROBE_THISCALL *probe_rakclient_rpc_bitstream_fn)(
-    void *, BYTE, probe_raknet_bitstream_prefix *, int, int, char, BYTE,
+    void *, const BYTE *, probe_raknet_bitstream_prefix *, int, int, char, BYTE,
     probe_raknet_network_id, probe_raknet_bitstream_prefix *);
 typedef HANDLE(WINAPI *probe_CreateFileA_fn)(LPCSTR, DWORD, DWORD, LPSECURITY_ATTRIBUTES, DWORD, DWORD, HANDLE);
 typedef HANDLE(WINAPI *probe_CreateFileW_fn)(LPCWSTR, DWORD, DWORD, LPSECURITY_ATTRIBUTES, DWORD, DWORD, HANDLE);
@@ -627,7 +630,7 @@ static void __cdecl hook_samp_rpc_set_attached_object(probe_samp_rpc_parameters_
 static void __cdecl hook_samp_rpc_edit_attached_object(probe_samp_rpc_parameters_prefix *rpc);
 static void __cdecl hook_samp_rpc_edit_object(probe_samp_rpc_parameters_prefix *rpc);
 static BYTE PROBE_THISCALL hook_rakclient_rpc_bitstream(
-    void *rakclient, BYTE rpc_id, probe_raknet_bitstream_prefix *bitstream,
+    void *rakclient, const BYTE *rpc_id_ptr, probe_raknet_bitstream_prefix *bitstream,
     int priority, int reliability, char ordering_channel, BYTE shift_timestamp,
     probe_raknet_network_id network_id, probe_raknet_bitstream_prefix *reply_from_target);
 static int install_dialog_menu_rpc_hook(int log_summary);
@@ -3069,17 +3072,23 @@ static int samp_r5_identity_matches(void) {
 }
 
 static BYTE PROBE_THISCALL hook_rakclient_rpc_bitstream(
-    void *rakclient, BYTE rpc_id, probe_raknet_bitstream_prefix *bitstream,
+    void *rakclient, const BYTE *rpc_id_ptr, probe_raknet_bitstream_prefix *bitstream,
     int priority, int reliability, char ordering_channel, BYTE shift_timestamp,
     probe_raknet_network_id network_id, probe_raknet_bitstream_prefix *reply_from_target) {
   BYTE result = 0;
+  BYTE rpc_id = 0xffu;
   int bits = -1;
   int bytes = 0;
   const BYTE *data = NULL;
   char payload[PROBE_PAYLOAD_PREVIEW_BYTES * 3 + 8];
   void *caller = probe_return_address();
-  int focused = rpc_id == PROBE_DIALOG_RESPONSE_RPC || rpc_id == PROBE_MENU_SELECT_RPC ||
-                rpc_id == PROBE_MENU_QUIT_RPC;
+  int focused;
+
+  if (memory_is_readable((uintptr_t)rpc_id_ptr, sizeof(*rpc_id_ptr))) {
+    rpc_id = *rpc_id_ptr;
+  }
+  focused = rpc_id == PROBE_DIALOG_RESPONSE_RPC || rpc_id == PROBE_MENU_SELECT_RPC ||
+            rpc_id == PROBE_MENU_QUIT_RPC;
 
   payload[0] = '\0';
   if (focused) {
@@ -3139,7 +3148,7 @@ static BYTE PROBE_THISCALL hook_rakclient_rpc_bitstream(
 
   if (g_orig_rakclient_rpc_bitstream != NULL) {
     result = ((probe_rakclient_rpc_bitstream_fn)g_orig_rakclient_rpc_bitstream)(
-        rakclient, rpc_id, bitstream, priority, reliability, ordering_channel,
+        rakclient, rpc_id_ptr, bitstream, priority, reliability, ordering_channel,
         shift_timestamp, network_id, reply_from_target);
   }
   if (focused) {
