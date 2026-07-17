@@ -354,7 +354,8 @@ stock ResetSmallRpcTest(playerid)
 stock SendPlayerAudioChatRpcHelp(playerid)
 {
 	SendClientMessage(playerid, 0xFFFFFFFF, "[bare-rpctest] /rpcaudiotest, /rpcaudiotestpos, /rpcstopaudio (fixed direct MP3 test)");
-	SendClientMessage(playerid, 0xFFFFFFFF, "[bare-rpctest] /rpcedit, /rpccanceledit, /rpcshop, /rpcaudio <url>, /rpcaudiopos <url>");
+	SendClientMessage(playerid, 0xFFFFFFFF, "[bare-rpctest] /rpcedit, /rpccanceledit, /enter, /rpcshop, /rpcaudio <url>, /rpcaudiopos <url>");
+	SendClientMessage(playerid, 0xFFFFFFFF, "[bare-rpctest] /rpccontrol0 freezes movement/camera; /rpccontrol1 restores player control.");
 	SendClientMessage(playerid, 0xFFFFFFFF, "[bare-rpctest] /rpcbubble <other player id>, /rpcteam <0-255>, /rpccolor, /rpcattach, /rpcattachoff");
 	SendClientMessage(playerid, 0xFFFFFFFF, "[bare-rpctest] /rpcpattach, /rpcpattachedit, /rpcpattachoff exercise RPC113/116; /rpccrime exercises RPC112.");
 	SendClientMessage(playerid, 0xFFFFFFFF, "[bare-rpctest] /rpcmapicons starts the 100-slot moving beacon; /rpcmapiconsoff removes it.");
@@ -1925,6 +1926,19 @@ public OnPlayerCommandText(playerid, cmdtext[])
 		return 1;
 	}
 
+	if (!strcmp(cmdtext, "/enter", true))
+	{
+		new bool:interiorResult = SetPlayerInterior(playerid, 5);
+		new bool:positionResult = SetPlayerPos(playerid, 372.5565, -131.3607, 1001.4922);
+		new bool:shopResult = SetPlayerShopName(playerid, "FDPIZA");
+
+		gRpcShopEnabled[playerid] = true;
+		SendClientMessage(playerid, 0xFFFFFFFF, "Welcome to Pizza Stack! RPC33 FDPIZA is active; use /rpcshop to unload it.");
+		printf("[bare-rpctest] RPC33 enter player=%d interior=5 pos=372.5565,-131.3607,1001.4922 shop=FDPIZA interior_result=%d position_result=%d shop_result=%d",
+			playerid, interiorResult, positionResult, shopResult);
+		return 1;
+	}
+
 	if (!strcmp(cmdtext, "/rpcshop", true))
 	{
 		gRpcShopEnabled[playerid] = !gRpcShopEnabled[playerid];
@@ -1932,6 +1946,27 @@ public OnPlayerCommandText(playerid, cmdtext[])
 		SendClientMessage(playerid, 0x66FF66FF, gRpcShopEnabled[playerid] ?
 			"[bare-rpctest] RPC33 shop FDPIZA loaded." : "[bare-rpctest] RPC33 shop unloaded.");
 		printf("[bare-rpctest] RPC33 player=%d enabled=%d shop=FDPIZA", playerid, gRpcShopEnabled[playerid]);
+		return 1;
+	}
+
+	/// References: https://open.mp/docs/scripting/functions/TogglePlayerControllable
+	if (!strcmp(cmdtext, "/rpccontrol0", true))
+	{
+		new bool:result = TogglePlayerControllable(playerid, false);
+		SendClientMessage(playerid, result ? 0x66FF66FF : 0xFF6666FF,
+			result ? "[bare-rpctest] Player control disabled (RPC15=false). Use /rpccontrol1 to restore it."
+			       : "[bare-rpctest] TogglePlayerControllable(false) failed.");
+		printf("[bare-rpctest] RPC15 TogglePlayerControllable player=%d controllable=0 result=%d", playerid, result);
+		return 1;
+	}
+
+	if (!strcmp(cmdtext, "/rpccontrol1", true))
+	{
+		new bool:result = TogglePlayerControllable(playerid, true);
+		SendClientMessage(playerid, result ? 0x66FF66FF : 0xFF6666FF,
+			result ? "[bare-rpctest] Player control enabled (RPC15=true)."
+			       : "[bare-rpctest] TogglePlayerControllable(true) failed.");
+		printf("[bare-rpctest] RPC15 TogglePlayerControllable player=%d controllable=1 result=%d", playerid, result);
 		return 1;
 	}
 
