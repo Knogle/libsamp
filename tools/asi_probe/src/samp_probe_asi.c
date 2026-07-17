@@ -21,6 +21,7 @@
 #define PROBE_ACTOR_HOOKS_FLAG "samp_probe_actor_hooks.flag"
 #define PROBE_ACTOR_HEAVY_FLAG "samp_probe_actor_heavy.flag"
 #define PROBE_RPC_GAP_HOOKS_FLAG "samp_probe_rpc_gap_hooks.flag"
+#define PROBE_DIALOG_MENU_RPC_HOOKS_FLAG "samp_probe_dialog_menu_rpc_hooks.flag"
 #define PROBE_MAX_IMPORT_LOGS 4096
 #define PROBE_WATCH_INTERVAL_MS 250
 #define PROBE_WAIT_FOR_SAMP_MS 30000
@@ -112,6 +113,11 @@
 #define PROBE_SAMP_R5_REMOTE_ACTOR_SET_INVULNERABLE_RVA 0x0009c700u
 #define PROBE_SAMP_R5_REMOTE_ACTOR_SET_POSITION_RVA 0x0009f040u
 #define PROBE_SAMP_R5_NETGAME_PTR_RVA 0x0026eb94u
+#define PROBE_RAKCLIENT_RPC_BITSTREAM_VTBL_INDEX 26u
+#define PROBE_DIALOG_RESPONSE_RPC 62u
+#define PROBE_MENU_SELECT_RPC 132u
+#define PROBE_MENU_QUIT_RPC 140u
+#define PROBE_DIALOG_MENU_RPC_MAX_BITS 8192u
 #define PROBE_SAMP_R5_NETGAME_POOLS_OFFSET 0x000003deu
 #define PROBE_SAMP_R5_POOLS_ACTOR_POOL_OFFSET 0x00000010u
 #define PROBE_SAMP_R5_ACTOR_POOL_SIZE 0x00004e24u
@@ -178,6 +184,36 @@ typedef HMODULE(WINAPI *probe_LoadLibraryA_fn)(LPCSTR);
 typedef HMODULE(WINAPI *probe_LoadLibraryW_fn)(LPCWSTR);
 typedef FARPROC(WINAPI *probe_GetProcAddress_fn)(HMODULE, LPCSTR);
 typedef HANDLE(WINAPI *probe_CreateThread_fn)(LPSECURITY_ATTRIBUTES, SIZE_T, LPTHREAD_START_ROUTINE, LPVOID, DWORD, LPDWORD);
+
+/* RAKNET_LEGACY + INFERRED + TODO_VERIFY:
+ * The original client uses RakClientInterface::RPC(RPCID, BitStream*, ...),
+ * vtable slot 26. These bounded prefixes mirror the 32-bit RakNet ABI only;
+ * the probe never constructs or mutates either object. */
+typedef struct probe_raknet_bitstream_prefix {
+  int number_of_bits_used;
+  int number_of_bits_allocated;
+  int read_offset;
+  BYTE *data;
+  BYTE copy_data;
+} probe_raknet_bitstream_prefix;
+
+typedef struct probe_raknet_player_id {
+  DWORD binary_address;
+  unsigned short port;
+} probe_raknet_player_id;
+
+typedef struct probe_raknet_network_id {
+  probe_raknet_player_id player_id;
+  unsigned short local_system_id;
+} probe_raknet_network_id;
+
+typedef char probe_assert_bitstream_prefix_size[(sizeof(probe_raknet_bitstream_prefix) == 20) ? 1 : -1];
+typedef char probe_assert_player_id_size[(sizeof(probe_raknet_player_id) == 8) ? 1 : -1];
+typedef char probe_assert_network_id_size[(sizeof(probe_raknet_network_id) == 12) ? 1 : -1];
+
+typedef BYTE(PROBE_THISCALL *probe_rakclient_rpc_bitstream_fn)(
+    void *, BYTE, probe_raknet_bitstream_prefix *, int, int, char, BYTE,
+    probe_raknet_network_id, probe_raknet_bitstream_prefix *);
 typedef HANDLE(WINAPI *probe_CreateFileA_fn)(LPCSTR, DWORD, DWORD, LPSECURITY_ATTRIBUTES, DWORD, DWORD, HANDLE);
 typedef HANDLE(WINAPI *probe_CreateFileW_fn)(LPCWSTR, DWORD, DWORD, LPSECURITY_ATTRIBUTES, DWORD, DWORD, HANDLE);
 typedef BOOL(WINAPI *probe_ReadFile_fn)(HANDLE, LPVOID, DWORD, LPDWORD, LPOVERLAPPED);
@@ -418,6 +454,7 @@ static void *g_orig_samp_crime_report_helper;
 static void *g_orig_samp_attached_object_helper;
 static void *g_orig_samp_edit_object_begin;
 static void *g_orig_samp_edit_attached_begin;
+static void *g_orig_rakclient_rpc_bitstream;
 static void *g_orig_samp_actor_pool_new;
 static void *g_orig_samp_actor_pool_delete;
 static void *g_orig_samp_remote_actor_apply_animation;
@@ -529,6 +566,7 @@ static int font5_hooks_enabled(void);
 static int actor_hooks_enabled(void);
 static int actor_heavy_enabled(void);
 static int rpc_gap_hooks_enabled(void);
+static int dialog_menu_rpc_hooks_enabled(void);
 static PIMAGE_NT_HEADERS get_samp_nt_headers(void);
 static LONG CALLBACK probe_exception_handler(PEXCEPTION_POINTERS info);
 static int WINAPI hook_WSAStartup(WORD version, LPWSADATA data);
@@ -588,6 +626,11 @@ static void __cdecl hook_samp_rpc_play_crime_report(probe_samp_rpc_parameters_pr
 static void __cdecl hook_samp_rpc_set_attached_object(probe_samp_rpc_parameters_prefix *rpc);
 static void __cdecl hook_samp_rpc_edit_attached_object(probe_samp_rpc_parameters_prefix *rpc);
 static void __cdecl hook_samp_rpc_edit_object(probe_samp_rpc_parameters_prefix *rpc);
+static BYTE PROBE_THISCALL hook_rakclient_rpc_bitstream(
+    void *rakclient, BYTE rpc_id, probe_raknet_bitstream_prefix *bitstream,
+    int priority, int reliability, char ordering_channel, BYTE shift_timestamp,
+    probe_raknet_network_id network_id, probe_raknet_bitstream_prefix *reply_from_target);
+static int install_dialog_menu_rpc_hook(int log_summary);
 static void __cdecl hook_samp_remove_object(void *entity);
 static void __cdecl hook_samp_remove_static(void *entity);
 static void WINAPI hook_samp_crime_report_helper(DWORD crime, const float *position, DWORD in_vehicle,
@@ -1256,7 +1299,7 @@ static int textdraw_render_enabled(void) {
 }
 
 static int font5_hooks_enabled(void) {
-  /* STATIC_037 + TODO_VERIFY:
+  /* INFERRED + TODO_VERIFY:
    * These internal samp.dll hooks are restricted to an exact R5 PE identity
    * proxy plus validated prologue bytes. The dedicated switch also enables the
    * D3D render tracer so one short run captures dispatch and RTT activity. */
@@ -1286,6 +1329,14 @@ static int rpc_gap_hooks_enabled(void) {
    * and their byte-validated R5 mutation helpers. It is kept independent from
    * the stale generic SA-MP network hook candidates. */
   return env_or_flag_enabled("SAMP_PROBE_RPC_GAP_HOOKS", PROBE_RPC_GAP_HOOKS_FLAG);
+}
+
+static int dialog_menu_rpc_hooks_enabled(void) {
+  /* STATIC_037 + TODO_VERIFY:
+   * Focused original-R5 capture of the three client-to-server dialog/menu
+   * RPCs. The installer additionally validates NetGame, RakClient, vtable,
+   * slot target and executable protection before changing the shared slot. */
+  return env_or_flag_enabled("SAMP_PROBE_DIALOG_MENU_RPC_HOOKS", PROBE_DIALOG_MENU_RPC_HOOKS_FLAG);
 }
 
 PROBE_ALWAYS_INLINE void *probe_return_address(void) {
@@ -3017,6 +3068,176 @@ static int samp_r5_identity_matches(void) {
          nt->OptionalHeader.SizeOfImage == PROBE_SAMP_R5_IMAGE_SIZE;
 }
 
+static BYTE PROBE_THISCALL hook_rakclient_rpc_bitstream(
+    void *rakclient, BYTE rpc_id, probe_raknet_bitstream_prefix *bitstream,
+    int priority, int reliability, char ordering_channel, BYTE shift_timestamp,
+    probe_raknet_network_id network_id, probe_raknet_bitstream_prefix *reply_from_target) {
+  BYTE result = 0;
+  int bits = -1;
+  int bytes = 0;
+  const BYTE *data = NULL;
+  char payload[PROBE_PAYLOAD_PREVIEW_BYTES * 3 + 8];
+  void *caller = probe_return_address();
+  int focused = rpc_id == PROBE_DIALOG_RESPONSE_RPC || rpc_id == PROBE_MENU_SELECT_RPC ||
+                rpc_id == PROBE_MENU_QUIT_RPC;
+
+  payload[0] = '\0';
+  if (focused) {
+    if (bitstream == NULL) {
+      bits = 0;
+    } else if (memory_is_readable((uintptr_t)bitstream, sizeof(*bitstream))) {
+      bits = bitstream->number_of_bits_used;
+      data = bitstream->data;
+      if (bits >= 0 && (unsigned)bits <= PROBE_DIALOG_MENU_RPC_MAX_BITS) {
+        bytes = (bits + 7) / 8;
+        payload_to_hex(data, bytes, payload, sizeof(payload));
+      } else {
+        snprintf(payload, sizeof(payload), "invalid_bits");
+      }
+    } else {
+      snprintf(payload, sizeof(payload), "unreadable_bitstream");
+    }
+
+    if (rpc_id == PROBE_DIALOG_RESPONSE_RPC && bytes >= 6 &&
+        memory_is_readable((uintptr_t)data, (size_t)bytes)) {
+      short dialog_id;
+      short list_item;
+      unsigned input_length = data[5];
+      memcpy(&dialog_id, data, sizeof(dialog_id));
+      memcpy(&list_item, data + 3, sizeof(list_item));
+      probe_log("dialog_menu_rpc: before rpc=%u name=DialogResponse caller=%p caller_samp_rva=0x%08lx "
+                "bits=%d bytes=%d dialog=%d response=%u list_item=%d input_length=%u "
+                "priority=%d reliability=%d channel=%d shift_timestamp=%u payload='%s' "
+                "rakclient=%p bitstream=%p network_local=%u reply=%p "
+                "evidence=OBSERVED_037,PROBE_TRACE,TODO_VERIFY",
+                (unsigned)rpc_id, caller, samp_rva_from_address(caller), bits, bytes,
+                (int)dialog_id, (unsigned)data[2], (int)list_item, input_length,
+                priority, reliability, (int)ordering_channel, (unsigned)shift_timestamp,
+                payload, rakclient, bitstream, (unsigned)network_id.local_system_id,
+                reply_from_target);
+    } else if (rpc_id == PROBE_MENU_SELECT_RPC && bytes >= 1 &&
+               memory_is_readable((uintptr_t)data, 1)) {
+      probe_log("dialog_menu_rpc: before rpc=%u name=MenuSelect caller=%p caller_samp_rva=0x%08lx "
+                "bits=%d bytes=%d row=%u priority=%d reliability=%d channel=%d "
+                "shift_timestamp=%u payload='%s' rakclient=%p bitstream=%p "
+                "network_local=%u reply=%p evidence=OBSERVED_037,PROBE_TRACE,TODO_VERIFY",
+                (unsigned)rpc_id, caller, samp_rva_from_address(caller), bits, bytes,
+                (unsigned)data[0], priority, reliability, (int)ordering_channel,
+                (unsigned)shift_timestamp, payload, rakclient, bitstream,
+                (unsigned)network_id.local_system_id, reply_from_target);
+    } else {
+      probe_log("dialog_menu_rpc: before rpc=%u name=%s caller=%p caller_samp_rva=0x%08lx "
+                "bits=%d bytes=%d priority=%d reliability=%d channel=%d shift_timestamp=%u "
+                "payload='%s' rakclient=%p bitstream=%p network_local=%u reply=%p "
+                "evidence=OBSERVED_037,PROBE_TRACE,TODO_VERIFY",
+                (unsigned)rpc_id, rpc_id == PROBE_MENU_QUIT_RPC ? "MenuQuit" : "focused_invalid",
+                caller, samp_rva_from_address(caller), bits, bytes, priority, reliability,
+                (int)ordering_channel, (unsigned)shift_timestamp, payload, rakclient,
+                bitstream, (unsigned)network_id.local_system_id, reply_from_target);
+    }
+  }
+
+  if (g_orig_rakclient_rpc_bitstream != NULL) {
+    result = ((probe_rakclient_rpc_bitstream_fn)g_orig_rakclient_rpc_bitstream)(
+        rakclient, rpc_id, bitstream, priority, reliability, ordering_channel,
+        shift_timestamp, network_id, reply_from_target);
+  }
+  if (focused) {
+    probe_log("dialog_menu_rpc: after rpc=%u caller_samp_rva=0x%08lx result=%u "
+              "evidence=OBSERVED_037,PROBE_TRACE,TODO_VERIFY",
+              (unsigned)rpc_id, samp_rva_from_address(caller), (unsigned)result);
+  }
+  return result;
+}
+
+static int install_dialog_menu_rpc_hook(int log_summary) {
+  DWORD netgame_value;
+  DWORD rakclient_value;
+  void *rakclient;
+  void **vtable;
+  void **slot;
+  void *current;
+  DWORD old_protect;
+  DWORD restore_protect;
+
+  if (!dialog_menu_rpc_hooks_enabled()) {
+    if (log_summary) {
+      probe_log("dialog_menu_rpc_hook: disabled; enable with SAMP_PROBE_DIALOG_MENU_RPC_HOOKS=1 or %s",
+                PROBE_DIALOG_MENU_RPC_HOOKS_FLAG);
+    }
+    return 0;
+  }
+  if (!samp_r5_identity_matches()) {
+    if (log_summary) {
+      probe_log("dialog_menu_rpc_hook: skip reason=unsupported_identity");
+    }
+    return 0;
+  }
+  if (g_samp_base == 0 || PROBE_SAMP_R5_NETGAME_PTR_RVA > g_samp_size - sizeof(DWORD)) {
+    return 0;
+  }
+  netgame_value = read_u32_or(g_samp_base + PROBE_SAMP_R5_NETGAME_PTR_RVA, 0u);
+  if (netgame_value < 0x10000u || !memory_is_readable((uintptr_t)netgame_value, sizeof(DWORD))) {
+    if (log_summary) {
+      probe_log("dialog_menu_rpc_hook: waiting reason=netgame_unavailable netgame=%p",
+                (void *)(uintptr_t)netgame_value);
+    }
+    return 0;
+  }
+  rakclient_value = read_u32_or((uintptr_t)netgame_value, 0u);
+  rakclient = (void *)(uintptr_t)rakclient_value;
+  if (rakclient_value < 0x10000u || !memory_is_readable((uintptr_t)rakclient, sizeof(void *))) {
+    if (log_summary) {
+      probe_log("dialog_menu_rpc_hook: waiting reason=rakclient_unavailable netgame=%p rakclient=%p",
+                (void *)(uintptr_t)netgame_value, rakclient);
+    }
+    return 0;
+  }
+  vtable = *(void ***)rakclient;
+  if (vtable == NULL || !memory_is_readable((uintptr_t)&vtable[PROBE_RAKCLIENT_RPC_BITSTREAM_VTBL_INDEX],
+                                            sizeof(void *))) {
+    return 0;
+  }
+  slot = &vtable[PROBE_RAKCLIENT_RPC_BITSTREAM_VTBL_INDEX];
+  current = *slot;
+  if (current == (void *)hook_rakclient_rpc_bitstream) {
+    return 1;
+  }
+  if (!address_in_samp(current)) {
+    if (log_summary) {
+      probe_log("dialog_menu_rpc_hook: skip reason=slot_target_outside_samp rakclient=%p vtable=%p "
+                "index=%u target=%p",
+                rakclient, vtable, (unsigned)PROBE_RAKCLIENT_RPC_BITSTREAM_VTBL_INDEX, current);
+    }
+    return 0;
+  }
+  if (g_orig_rakclient_rpc_bitstream != NULL && current != g_orig_rakclient_rpc_bitstream) {
+    if (log_summary) {
+      probe_log("dialog_menu_rpc_hook: skip reason=vtable_changed rakclient=%p current=%p original=%p",
+                rakclient, current, g_orig_rakclient_rpc_bitstream);
+    }
+    return 0;
+  }
+  if (!VirtualProtect(slot, sizeof(void *), PAGE_EXECUTE_READWRITE, &old_protect)) {
+    if (log_summary) {
+      probe_log("dialog_menu_rpc_hook: VirtualProtect failed slot=%p err=%lu", slot,
+                (unsigned long)GetLastError());
+    }
+    return 0;
+  }
+  g_orig_rakclient_rpc_bitstream = current;
+  *slot = (void *)hook_rakclient_rpc_bitstream;
+  FlushInstructionCache(GetCurrentProcess(), slot, sizeof(void *));
+  (void)VirtualProtect(slot, sizeof(void *), old_protect, &restore_protect);
+  probe_log("dialog_menu_rpc_hook: installed netgame=%p rakclient=%p vtable=%p index=%u "
+            "slot=%p original=%p original_samp_rva=0x%08lx replacement=%p "
+            "evidence=INFERRED,PROBE_TRACE,TODO_VERIFY",
+            (void *)(uintptr_t)netgame_value, rakclient, vtable,
+            (unsigned)PROBE_RAKCLIENT_RPC_BITSTREAM_VTBL_INDEX, slot, current,
+            samp_rva_from_address(current), (void *)hook_rakclient_rpc_bitstream);
+  return 1;
+}
+
 static int preflight_samp_font5_code_hooks(void) {
   size_t i;
 
@@ -4105,11 +4326,11 @@ static DWORD WINAPI probe_worker(LPVOID param) {
   probe_log("probe: attached build=%s %s", __DATE__, __TIME__);
   probe_log("probe: options asset_path_hooks=%d asset_read_hooks=%d samp_code_hooks=%d gta_asset_hooks=%d "
             "object_info=%d custom_object_heavy=%d textdraw_hooks=%d textdraw_verbose=%d textdraw_render=%d "
-            "font5_hooks=%d actor_hooks=%d actor_heavy=%d rpc_gap_hooks=%d",
+            "font5_hooks=%d actor_hooks=%d actor_heavy=%d rpc_gap_hooks=%d dialog_menu_rpc_hooks=%d",
             asset_path_hooks_enabled(), asset_read_hooks_enabled(), samp_code_hooks_enabled(), gta_asset_hooks_enabled(),
             object_info_enabled(), custom_object_heavy_enabled(), textdraw_hooks_enabled(), textdraw_verbose_enabled(),
             textdraw_render_enabled(), font5_hooks_enabled(), actor_hooks_enabled(), actor_heavy_enabled(),
-            rpc_gap_hooks_enabled());
+            rpc_gap_hooks_enabled(), dialog_menu_rpc_hooks_enabled());
   if (custom_object_heavy_enabled()) {
     probe_log("custom_object_heavy: store_addresses model_info_ptrs=0x%08lx atomic_count=0x%08lx "
               "time_count=0x%08lx clump_count=0x%08lx low_range=%u-%u high_range=%u-%u "
@@ -4165,6 +4386,7 @@ static DWORD WINAPI probe_worker(LPVOID param) {
     install_samp_font5_code_hooks(1);
     install_samp_actor_code_hooks(1);
     install_samp_rpc_gap_code_hooks(1);
+    install_dialog_menu_rpc_hook(1);
     install_samp_actor_heavy_code_hooks(1);
     install_gta_actor_heavy_code_hooks(1);
     install_gta_textdraw_code_hooks(1);
@@ -4182,6 +4404,7 @@ static DWORD WINAPI probe_worker(LPVOID param) {
       (void)install_samp_font5_code_hooks(0);
       (void)install_samp_actor_code_hooks(0);
       (void)install_samp_rpc_gap_code_hooks(0);
+      (void)install_dialog_menu_rpc_hook(0);
       (void)install_samp_actor_heavy_code_hooks(0);
       (void)install_gta_actor_heavy_code_hooks(0);
       (void)install_gta_textdraw_code_hooks(0);

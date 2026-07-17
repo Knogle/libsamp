@@ -20,6 +20,9 @@ It is intended for local reverse-engineering and compatibility work:
     CPed snapshots, direct GTA calls, and actor-scoped SCM opcode dispatches.
 12. optionally trace RPC 43/112/113/116/117 through the original R5 remove-
     entity, crime-scanner, attached-object, and editor-begin helpers.
+13. optionally trace original-R5 outgoing DialogResponse/MenuSelect/MenuQuit
+    RPCs at RakClientInterface vtable slot 26, including payload, transport
+    parameters, original callsite, and send result.
 
 The first pass rewrites selected import slots inside `samp.dll`, so observed calls are attributable to `samp.dll` rather than process-global Wine/WinDbg noise.
 
@@ -172,6 +175,7 @@ samp_probe_font5_hooks.flag
 samp_probe_actor_hooks.flag
 samp_probe_actor_heavy.flag
 samp_probe_rpc_gap_hooks.flag
+samp_probe_dialog_menu_rpc_hooks.flag
 ```
 
 Use `samp_probe_asset_paths.flag` for normal original-DLL golden traces. It logs interesting SA-MP asset opens, size queries, seeks, and closes. `samp_probe_file_hooks.flag` additionally hooks `ReadFile`; keep that for short, targeted runs only because original 0.3.7 performs large overlapped reads against the SAMP archives.
@@ -312,6 +316,17 @@ Run this mode process-bound and short. A valid trace starts with
 `rpc_gap_hook: set_preflight_ok hooks=11` and
 `rpc_gap_hook: summary installed=11 requested=11`. Discard the run on
 `set_preflight_failed`, `incomplete_install`, or `exception:`.
+
+For a focused original-R5 dialog/menu run, enable only
+`samp_probe_dialog_menu_rpc_hooks.flag`. After NetGame creates its RakClient,
+the probe validates the exact R5 PE identity, reads the RakClient pointer from
+the first NetGame member, validates vtable slot 26 and requires its target to
+be inside `samp.dll` before patching it. Records use `dialog_menu_rpc_hook` for
+installation and `dialog_menu_rpc` for outgoing RPC 62, 132, and 140. RPC 62
+records decode dialog ID, response, list item, and input length; RPC 132 records
+the selected row. All three include bits, raw payload, priority, reliability,
+ordering channel, shift-timestamp flag, SA-MP caller RVA, and the original
+RakNet call result. Run it process-bound and do not hot-unload the ASI.
 
 Run this focused probe process-bound: do not hot-unload the ASI. End the
 `gta_sa.exe` process after the short capture so its code and COM-vtable hooks
