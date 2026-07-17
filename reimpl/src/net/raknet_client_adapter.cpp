@@ -49,6 +49,8 @@ constexpr RakNet::RPCID kRpcMenuSelect = static_cast<RakNet::RPCID>(132u);
 constexpr RakNet::RPCID kRpcMenuQuit = static_cast<RakNet::RPCID>(140u);
 constexpr RakNet::RPCID kRpcGiveTakeDamage = static_cast<RakNet::RPCID>(115u);
 constexpr RakNet::RPCID kRpcActorDamage = static_cast<RakNet::RPCID>(177u);
+constexpr RakNet::RPCID kRpcEditAttachedObject = static_cast<RakNet::RPCID>(116u);
+constexpr RakNet::RPCID kRpcEditObject = static_cast<RakNet::RPCID>(117u);
 constexpr unsigned int kRpcScrDialogBox = 61U;
 constexpr RakNet::RPCID kRpcRequestClass = static_cast<RakNet::RPCID>(128u);
 constexpr RakNet::RPCID kRpcRequestSpawn = static_cast<RakNet::RPCID>(129u);
@@ -278,6 +280,14 @@ struct RpcProbeState {
   unsigned int chat_bubble_event_seq;
   samp_raknet_chat_bubble_event chat_bubble_events[SAMP_RAKNET_CHAT_BUBBLE_EVENT_RING];
   unsigned int cancel_edit_seq;
+  unsigned int attached_object_event_seq;
+  samp_raknet_attached_object_event attached_object_events[SAMP_RAKNET_ATTACHED_OBJECT_EVENT_RING];
+  unsigned int edit_event_seq;
+  samp_raknet_edit_event edit_event;
+  unsigned int crime_report_event_seq;
+  samp_raknet_crime_report_event crime_report_event;
+  unsigned int remove_building_event_seq;
+  samp_raknet_remove_building_event remove_building_events[SAMP_RAKNET_REMOVE_BUILDING_EVENT_RING];
   unsigned int shop_name_seq;
   unsigned int play_audio_stream_seq;
   unsigned int play_sound_seq;
@@ -452,6 +462,7 @@ struct RpcProbeState {
 };
 
 RpcProbeState g_rpc_probe = {};
+unsigned int g_game_mode_restart_generation = 0U;
 
 void release_all_object_material_states(const char *reason);
 
@@ -572,7 +583,7 @@ const RpcMeta kRpcMeta[] = {
     {40U, "ScrGameModeRestart", kRpcLocalImplemented, "STATIC_037:samp.dll+0xE650"},
     {41U, "ScrPlayAudioStream", kRpcLocalImplemented, "STATIC_037:samp.dll+0x1D3C0,OPENMP_REF,TODO_VERIFY"},
     {42U, "ScrStopAudioStream", kRpcLocalImplemented, "STATIC_037:samp.dll+0x180F0,OPENMP_REF"},
-    {43U, "ScrRemoveBuildingForPlayer", kRpcLocalDecoded, "OPENMP_REF"},
+    {43U, "ScrRemoveBuildingForPlayer", kRpcLocalImplemented, "STATIC_037:samp.dll+0x1D530,OPENMP_REF,TODO_VERIFY"},
     {44U, "ScrCreateObject", kRpcLocalImplemented, "PROBE_TRACE"},
     {45U, "ScrSetObjectPos", kRpcLocalImplemented, "PROBE_TRACE"},
     {46U, "ScrSetObjectRot", kRpcLocalImplemented, "PROBE_TRACE"},
@@ -632,11 +643,11 @@ const RpcMeta kRpcMeta[] = {
     {106U, "DamageVehicle", kRpcLocalOutgoing, "OPENMP_REF"},
     {107U, "ScrSetCheckpoint", kRpcLocalImplemented, "STATIC_037:samp.dll+0xEEF0"},
     {108U, "ScrGangZoneCreate", kRpcLocalImplemented, "STATIC_037:samp.dll+0x1D080"},
-    {112U, "ScrPlayCrimeReport", kRpcLocalDummy, "SAMPFUNCS_037"},
-    {113U, "ScrSetPlayerAttachedObject", kRpcLocalDummy, "SAMPFUNCS_037"},
+    {112U, "ScrPlayCrimeReport", kRpcLocalImplemented, "STATIC_037:samp.dll+0x19050,OPENMP_REF,TODO_VERIFY"},
+    {113U, "ScrSetPlayerAttachedObject", kRpcLocalImplemented, "STATIC_037:samp.dll+0x18F00,OPENMP_REF,TODO_VERIFY"},
     {115U, "GiveTakeDamage", kRpcLocalOutgoing, "OPENMP_REF"},
-    {116U, "EditAttachedObject", kRpcLocalOutgoing, "OPENMP_REF"},
-    {117U, "EditObject", kRpcLocalOutgoing, "OPENMP_REF"},
+    {116U, "EditAttachedObject", kRpcLocalImplemented, "OPENMP_REF,TODO_VERIFY"},
+    {117U, "EditObject", kRpcLocalImplemented, "OPENMP_REF,TODO_VERIFY"},
     {118U, "SetInteriorId", kRpcLocalOutgoing, "OPENMP_REF"},
     {119U, "MapMarker", kRpcLocalOutgoing, "OPENMP_REF"},
     {120U, "ScrGangZoneDestroy", kRpcLocalImplemented, "STATIC_037:samp.dll+0x1D1A0"},
@@ -1130,6 +1141,14 @@ void reset_rpc_probe_runtime(RakNet::RakClientInterface *client) {
   g_rpc_probe.explosion_event_seq = 0U;
   g_rpc_probe.chat_bubble_event_seq = 0U;
   g_rpc_probe.cancel_edit_seq = 0U;
+  g_rpc_probe.attached_object_event_seq = 0U;
+  std::memset(g_rpc_probe.attached_object_events, 0, sizeof(g_rpc_probe.attached_object_events));
+  g_rpc_probe.edit_event_seq = 0U;
+  std::memset(&g_rpc_probe.edit_event, 0, sizeof(g_rpc_probe.edit_event));
+  g_rpc_probe.crime_report_event_seq = 0U;
+  std::memset(&g_rpc_probe.crime_report_event, 0, sizeof(g_rpc_probe.crime_report_event));
+  g_rpc_probe.remove_building_event_seq = 0U;
+  std::memset(g_rpc_probe.remove_building_events, 0, sizeof(g_rpc_probe.remove_building_events));
   g_rpc_probe.shop_name_seq = 0U;
   g_rpc_probe.play_audio_stream_seq = 0U;
   g_rpc_probe.play_sound_seq = 0U;
@@ -1302,6 +1321,33 @@ void reset_rpc_probe_runtime(RakNet::RakClientInterface *client) {
 #ifdef _WIN32
   g_rpc_probe.dialog_window_active = 0;
 #endif
+}
+
+void reset_rpc_probe_for_game_mode_restart() {
+  RakNet::RakClientInterface *client = g_rpc_probe.client;
+  char nickname[sizeof(g_rpc_probe.local_nickname)] = {0};
+
+  std::strncpy(nickname, g_rpc_probe.local_nickname, sizeof(nickname) - 1U);
+  ++g_game_mode_restart_generation;
+  if (g_game_mode_restart_generation == 0U) {
+    ++g_game_mode_restart_generation;
+  }
+
+  /*
+   * STATIC_037:
+   * ScrGameModeRestart enters samp.dll+0xA540, which drops the complete
+   * per-gamemode state before a following InitGame is consumed.  Reset here,
+   * in RPC receive order, so RPCs dispatched after id 40 in the same RakNet
+   * pump belong to the new mode instead of being erased by the runtime bridge.
+   * The RakNet peer and the current nickname remain valid across a GMX.
+   */
+  reset_rpc_probe_runtime(client);
+  std::strncpy(g_rpc_probe.local_nickname, nickname, sizeof(g_rpc_probe.local_nickname) - 1U);
+  g_rpc_probe.local_nickname[sizeof(g_rpc_probe.local_nickname) - 1U] = '\0';
+  g_rpc_probe.game_mode_restart_seq = g_game_mode_restart_generation;
+  trace_netf("rpc-state id=40 game_mode_restart_seq=%u session_probe_reset=1 transport_preserved=1 "
+             "evidence=STATIC_037:samp.dll+0xA540",
+             g_rpc_probe.game_mode_restart_seq);
 }
 
 unsigned short read_le16(const unsigned char *data) {
@@ -3857,21 +3903,7 @@ samp_raknet_actor_event *queue_actor_event(unsigned char action, unsigned short 
 bool decode_client_control_payload(unsigned int rpc_id, const unsigned char *data, unsigned int bytes) {
   switch (rpc_id) {
     case 40U:
-      bump_seq(&g_rpc_probe.game_mode_restart_seq);
-      for (unsigned int actor_id = 0U; actor_id < SAMP_RAKNET_MAX_ACTORS; ++actor_id) {
-        if (g_rpc_probe.actor_states[actor_id].active == 0U) {
-          continue;
-        }
-        samp_raknet_actor_event *event =
-            queue_actor_event(SAMP_RAKNET_ACTOR_ACTION_DESTROY, static_cast<unsigned short>(actor_id));
-        samp_raknet_actor_state cleared = {};
-        cleared.revision = event->seq;
-        g_rpc_probe.actor_states[actor_id] = cleared;
-      }
-      g_rpc_probe.gang_zone_event_seq = 0U;
-      std::memset(g_rpc_probe.gang_zone_events, 0, sizeof(g_rpc_probe.gang_zone_events));
-      g_rpc_probe.gang_zone_state_seq = 0U;
-      std::memset(g_rpc_probe.gang_zone_states, 0, sizeof(g_rpc_probe.gang_zone_states));
+      reset_rpc_probe_for_game_mode_restart();
       return true;
     case 74U:
       bump_seq(&g_rpc_probe.force_class_selection_seq);
@@ -4551,11 +4583,110 @@ bool decode_remove_building_payload(const unsigned char *data, unsigned int byte
   const std::int32_t model = read_le_i32(data);
   read_vec3(data + 4U, pos);
   pos[3] = read_le_float(data + 16U);
-  if (!std::isfinite(pos[0]) || !std::isfinite(pos[1]) || !std::isfinite(pos[2]) || !std::isfinite(pos[3])) {
+  if (!std::isfinite(pos[0]) || !std::isfinite(pos[1]) || !std::isfinite(pos[2]) || !std::isfinite(pos[3]) ||
+      pos[3] < 0.0f || pos[3] > 20000.0f) {
     return false;
   }
+  const unsigned int seq = bump_seq(&g_rpc_probe.remove_building_event_seq);
+  samp_raknet_remove_building_event &event =
+      g_rpc_probe.remove_building_events[(seq - 1U) % SAMP_RAKNET_REMOVE_BUILDING_EVENT_RING];
+  std::memset(&event, 0, sizeof(event));
+  event.seq = seq;
+  event.model = model;
+  std::memcpy(event.position, pos, sizeof(event.position));
+  event.radius = pos[3];
   set_world_visual_event(SAMP_RAKNET_WORLD_VISUAL_REMOVE_BUILDING, 0U, model, 0U, pos,
                          "remove_building_for_player");
+  trace_netf("rpc-state id=43 remove_building seq=%u model=%d pos=%.3f %.3f %.3f radius=%.3f "
+             "evidence=STATIC_037:samp.dll+0x1D530,OPENMP_REF",
+             seq, static_cast<int>(model), static_cast<double>(pos[0]), static_cast<double>(pos[1]),
+             static_cast<double>(pos[2]), static_cast<double>(pos[3]));
+  return true;
+}
+
+bool decode_play_crime_report_payload(const unsigned char *data, unsigned int bytes) {
+  if (data == nullptr || bytes < 30U) {
+    return false;
+  }
+  samp_raknet_crime_report_event event{};
+  event.suspect_id = read_le16(data);
+  event.in_vehicle = read_le32(data + 2U);
+  event.vehicle_model = read_le32(data + 6U);
+  event.vehicle_color = read_le32(data + 10U);
+  event.crime_id = read_le32(data + 14U);
+  read_vec3(data + 18U, event.position);
+  if (!object_vec_plausible(event.position)) {
+    return false;
+  }
+  event.seq = bump_seq(&g_rpc_probe.crime_report_event_seq);
+  g_rpc_probe.crime_report_event = event;
+  trace_netf("rpc-state id=112 crime_report seq=%u suspect=%u in_vehicle=%u model=%u color=%u crime=%u "
+             "pos=%.3f %.3f %.3f evidence=STATIC_037:samp.dll+0x19050,OPENMP_REF",
+             event.seq, static_cast<unsigned int>(event.suspect_id), event.in_vehicle, event.vehicle_model,
+             event.vehicle_color, event.crime_id, static_cast<double>(event.position[0]),
+             static_cast<double>(event.position[1]), static_cast<double>(event.position[2]));
+  return true;
+}
+
+bool decode_set_player_attached_object_payload(const unsigned char *data, unsigned int bytes) {
+  if (data == nullptr || bytes < 7U) {
+    return false;
+  }
+  RakNet::BitStream bs(const_cast<unsigned char *>(data), bytes, false);
+  samp_raknet_attached_object_event event{};
+  bool create = false;
+  if (!bs.Read(event.player_id) || !bs.Read(event.index) || !bs.Read(create) ||
+      event.player_id >= SAMP_RAKNET_MAX_PLAYERS || event.index >= SAMP_RAKNET_MAX_ATTACHED_OBJECTS) {
+    return false;
+  }
+  event.action = create ? SAMP_RAKNET_ATTACHED_OBJECT_ACTION_SET : SAMP_RAKNET_ATTACHED_OBJECT_ACTION_REMOVE;
+  if (create) {
+    if (!bs.Read(event.model) || !bs.Read(event.bone) || !bs.Read(event.offset[0]) || !bs.Read(event.offset[1]) ||
+        !bs.Read(event.offset[2]) || !bs.Read(event.rotation[0]) || !bs.Read(event.rotation[1]) ||
+        !bs.Read(event.rotation[2]) || !bs.Read(event.scale[0]) || !bs.Read(event.scale[1]) ||
+        !bs.Read(event.scale[2]) || !bs.Read(event.color1) || !bs.Read(event.color2) || event.bone < 1U ||
+        event.bone > 18U || !object_vec_plausible(event.offset) || !object_rot_plausible(event.rotation) ||
+        !std::isfinite(event.scale[0]) || !std::isfinite(event.scale[1]) || !std::isfinite(event.scale[2]) ||
+        event.scale[0] <= 0.0f || event.scale[1] <= 0.0f || event.scale[2] <= 0.0f) {
+      return false;
+    }
+  }
+  event.seq = bump_seq(&g_rpc_probe.attached_object_event_seq);
+  g_rpc_probe.attached_object_events[(event.seq - 1U) % SAMP_RAKNET_ATTACHED_OBJECT_EVENT_RING] = event;
+  trace_netf("rpc-state id=113 attached_object seq=%u action=%u player=%u index=%u model=%u bone=%u "
+             "evidence=STATIC_037:samp.dll+0x18F00,OPENMP_REF",
+             event.seq, static_cast<unsigned int>(event.action), static_cast<unsigned int>(event.player_id),
+             event.index, event.model, event.bone);
+  return true;
+}
+
+bool decode_begin_edit_payload(unsigned int rpc_id, const unsigned char *data, unsigned int bytes) {
+  samp_raknet_edit_event event{};
+  if (data == nullptr) {
+    return false;
+  }
+  if (rpc_id == 116U) {
+    if (bytes < 4U) return false;
+    event.action = SAMP_RAKNET_EDIT_ACTION_ATTACHED_OBJECT;
+    event.attached_index = read_le32(data);
+    if (event.attached_index >= SAMP_RAKNET_MAX_ATTACHED_OBJECTS) return false;
+  } else if (rpc_id == 117U) {
+    if (bytes < 3U) return false;
+    RakNet::BitStream bs(const_cast<unsigned char *>(data), bytes, false);
+    bool player_object = false;
+    if (!bs.Read(player_object) || !bs.Read(event.object_id) || !object_id_valid(event.object_id)) return false;
+    event.action = SAMP_RAKNET_EDIT_ACTION_OBJECT;
+    event.player_object = player_object ? 1U : 0U;
+  } else {
+    return false;
+  }
+  event.seq = bump_seq(&g_rpc_probe.edit_event_seq);
+  g_rpc_probe.edit_event = event;
+  trace_netf("rpc-state id=%u edit_begin seq=%u action=%u player_object=%u object=%u index=%u "
+             "evidence=OPENMP_REF,TODO_VERIFY",
+             rpc_id, event.seq, static_cast<unsigned int>(event.action),
+             static_cast<unsigned int>(event.player_object), static_cast<unsigned int>(event.object_id),
+             event.attached_index);
   return true;
 }
 
@@ -5781,8 +5912,11 @@ void service_rpc_probe_actions(RakNet::RakClientInterface *rak_client) {
       bs_send.Write(g_rpc_probe.dialog_response_input, input_len);
     }
 
-    const int sent = rak_client->RPC(kRpcDialogResponse, &bs_send, RakNet::HIGH_PRIORITY, RakNet::RELIABLE, 0, false,
-                                    RakNet::UNASSIGNED_NETWORK_ID, nullptr)
+    // OPENMP_REF: RPC 62 is an OrderingChannel_SyncRPC response.  Keep it ordered with the
+    // dialog show/replace stream; an unordered response can leave the server-side dialog active.
+    // TODO_VERIFY: corroborate RELIABLE_ORDERED against the original 0.3.7 send call.
+    const int sent = rak_client->RPC(kRpcDialogResponse, &bs_send, RakNet::HIGH_PRIORITY,
+                                    RakNet::RELIABLE_ORDERED, 0, false, RakNet::UNASSIGNED_NETWORK_ID, nullptr)
                          ? 1
                          : 0;
     g_rpc_probe.pending_dialog_response = 0;
@@ -5790,10 +5924,13 @@ void service_rpc_probe_actions(RakNet::RakClientInterface *rak_client) {
     if (sent) {
       g_rpc_probe.saw_dialog = 0;
     }
-    trace_netf("rpc-manual-out id=62 name=DialogResponse dialog=%u response=%u listitem=%d input='%s' sent=%d",
+    trace_netf("rpc-manual-out id=62 name=DialogResponse dialog=%u response=%u listitem=%d input='%s' bits=%u "
+               "bytes=%u reliability=RELIABLE_ORDERED channel=0 sent=%d",
                static_cast<unsigned int>(g_rpc_probe.dialog_response_id),
                static_cast<unsigned int>(g_rpc_probe.dialog_response_button),
-               static_cast<int>(g_rpc_probe.dialog_response_listitem), g_rpc_probe.dialog_response_input, sent);
+               static_cast<int>(g_rpc_probe.dialog_response_listitem), g_rpc_probe.dialog_response_input,
+               static_cast<unsigned int>(bs_send.GetNumberOfBitsUsed()),
+               static_cast<unsigned int>(bs_send.GetNumberOfBytesUsed()), sent);
   }
 
   if (g_rpc_probe.pending_request_class && !g_rpc_probe.waiting_for_request_class_reply) {
@@ -6180,7 +6317,12 @@ void rpc_observer(RakNet::RPCParameters *rpc_params, void *extra) {
     }
   } else if (rpc_id == 28U) {
     const unsigned int seq = bump_seq(&g_rpc_probe.cancel_edit_seq);
-    trace_netf("rpc-state id=28 cancel_edit_seq=%u apply_pending=1 evidence=OPENMP_REF,TODO_VERIFY", seq);
+    samp_raknet_edit_event event{};
+    event.seq = bump_seq(&g_rpc_probe.edit_event_seq);
+    event.action = SAMP_RAKNET_EDIT_ACTION_CANCEL;
+    g_rpc_probe.edit_event = event;
+    trace_netf("rpc-state id=28 cancel_edit_seq=%u edit_seq=%u apply_pending=1 evidence=OPENMP_REF,TODO_VERIFY",
+               seq, event.seq);
   } else if (rpc_id == 33U) {
     if (rpc_params == nullptr || !decode_shop_name_payload(rpc_params->input, bytes)) {
       trace_netf("rpc-state id=33 shop_name decode_failed bytes=%u", bytes);
@@ -6195,6 +6337,18 @@ void rpc_observer(RakNet::RPCParameters *rpc_params, void *extra) {
   } else if (rpc_id == 43U) {
     if (rpc_params == nullptr || !decode_remove_building_payload(rpc_params->input, bytes)) {
       trace_netf("rpc-state id=43 remove_building decode_failed bytes=%u", bytes);
+    }
+  } else if (rpc_id == 112U) {
+    if (rpc_params == nullptr || !decode_play_crime_report_payload(rpc_params->input, bytes)) {
+      trace_netf("rpc-state id=112 crime_report decode_failed bytes=%u", bytes);
+    }
+  } else if (rpc_id == 113U) {
+    if (rpc_params == nullptr || !decode_set_player_attached_object_payload(rpc_params->input, bytes)) {
+      trace_netf("rpc-state id=113 attached_object decode_failed bytes=%u", bytes);
+    }
+  } else if (rpc_id == 116U || rpc_id == 117U) {
+    if (rpc_params == nullptr || !decode_begin_edit_payload(rpc_id, rpc_params->input, bytes)) {
+      trace_netf("rpc-state id=%u edit_begin decode_failed bytes=%u", rpc_id, bytes);
     }
   } else if (rpc_id == 55U) {
     if (rpc_params == nullptr || !decode_death_message_payload(rpc_params->input, bytes)) {
@@ -7405,6 +7559,57 @@ int samp_raknet_client_send_incar_sync(void *client, const samp_raknet_incar_syn
   return sent ? 0 : -2;
 }
 
+int samp_raknet_client_send_edit_object_response(void *client, uint8_t player_object, uint16_t object_id,
+                                                 uint32_t response, const float position[3],
+                                                 const float rotation[3]) {
+  if (client == nullptr || client != g_rpc_probe.client || response > SAMP_RAKNET_EDIT_RESPONSE_UPDATE ||
+      !object_id_valid(object_id) || !object_vec_plausible(position) || !object_rot_plausible(rotation)) {
+    return -1;
+  }
+  RakNet::BitStream bs;
+  bs.Write(player_object != 0U);
+  bs.Write(static_cast<unsigned short>(object_id));
+  bs.Write(static_cast<unsigned int>(response));
+  for (unsigned int i = 0U; i < 3U; ++i) bs.Write(position[i]);
+  for (unsigned int i = 0U; i < 3U; ++i) bs.Write(rotation[i]);
+  const int sent = static_cast<RakNet::RakClientInterface *>(client)
+                       ->RPC(kRpcEditObject, &bs, RakNet::HIGH_PRIORITY, RakNet::RELIABLE, 0, false,
+                             RakNet::UNASSIGNED_NETWORK_ID, nullptr)
+                       ? 1 : 0;
+  trace_netf("rpc-user-out id=117 name=EditObject response=%u player_object=%u object=%u sent=%d "
+             "evidence=OPENMP_REF,TODO_VERIFY",
+             response, static_cast<unsigned int>(player_object != 0U), static_cast<unsigned int>(object_id), sent);
+  return sent ? 0 : -2;
+}
+
+int samp_raknet_client_send_edit_attached_object_response(void *client, uint32_t response, uint32_t index,
+                                                          uint32_t model, uint32_t bone,
+                                                          const float offset[3], const float rotation[3],
+                                                          const float scale[3], uint32_t color1,
+                                                          uint32_t color2) {
+  if (client == nullptr || client != g_rpc_probe.client || response > SAMP_RAKNET_EDIT_RESPONSE_UPDATE ||
+      index >= SAMP_RAKNET_MAX_ATTACHED_OBJECTS || bone < 1U || bone > 18U ||
+      !object_vec_plausible(offset) || !object_rot_plausible(rotation) || scale == nullptr ||
+      !std::isfinite(scale[0]) || !std::isfinite(scale[1]) || !std::isfinite(scale[2]) ||
+      scale[0] <= 0.0f || scale[1] <= 0.0f || scale[2] <= 0.0f) {
+    return -1;
+  }
+  RakNet::BitStream bs;
+  bs.Write(response); bs.Write(index); bs.Write(model); bs.Write(bone);
+  for (unsigned int i = 0U; i < 3U; ++i) bs.Write(offset[i]);
+  for (unsigned int i = 0U; i < 3U; ++i) bs.Write(rotation[i]);
+  for (unsigned int i = 0U; i < 3U; ++i) bs.Write(scale[i]);
+  bs.Write(color1); bs.Write(color2);
+  const int sent = static_cast<RakNet::RakClientInterface *>(client)
+                       ->RPC(kRpcEditAttachedObject, &bs, RakNet::HIGH_PRIORITY, RakNet::RELIABLE, 0, false,
+                             RakNet::UNASSIGNED_NETWORK_ID, nullptr)
+                       ? 1 : 0;
+  trace_netf("rpc-user-out id=116 name=EditAttachedObject response=%u index=%u model=%u bone=%u sent=%d "
+             "evidence=OPENMP_REF,TODO_VERIFY",
+             response, index, model, bone, sent);
+  return sent ? 0 : -2;
+}
+
 int samp_raknet_client_drain_packets(void *client, int max_packets) {
   return drain_packets_internal(client, max_packets, nullptr, 0, nullptr, nullptr, nullptr);
 }
@@ -7541,6 +7746,8 @@ int samp_raknet_client_get_rpc_probe_snapshot(void *client, samp_raknet_rpc_prob
   out_snapshot->client_message_count = 0U;
   out_snapshot->textdraw_event_count = 0U;
   out_snapshot->object_event_count = 0U;
+  out_snapshot->attached_object_event_count = 0U;
+  out_snapshot->remove_building_event_count = 0U;
   out_snapshot->vehicle_event_count = 0U;
   out_snapshot->remote_player_event_count = 0U;
   out_snapshot->remote_player_sync_count = 0U;
@@ -7643,6 +7850,12 @@ int samp_raknet_client_get_rpc_probe_snapshot(void *client, samp_raknet_rpc_prob
   out_snapshot->explosion_event_seq = g_rpc_probe.explosion_event_seq;
   out_snapshot->chat_bubble_event_seq = g_rpc_probe.chat_bubble_event_seq;
   out_snapshot->cancel_edit_seq = g_rpc_probe.cancel_edit_seq;
+  out_snapshot->attached_object_event_seq = g_rpc_probe.attached_object_event_seq;
+  out_snapshot->edit_event_seq = g_rpc_probe.edit_event_seq;
+  out_snapshot->crime_report_event_seq = g_rpc_probe.crime_report_event_seq;
+  out_snapshot->remove_building_event_seq = g_rpc_probe.remove_building_event_seq;
+  out_snapshot->edit_event = g_rpc_probe.edit_event;
+  out_snapshot->crime_report_event = g_rpc_probe.crime_report_event;
   out_snapshot->shop_name_seq = g_rpc_probe.shop_name_seq;
   out_snapshot->play_audio_stream_seq = g_rpc_probe.play_audio_stream_seq;
   out_snapshot->play_sound_seq = g_rpc_probe.play_sound_seq;
@@ -7882,6 +8095,34 @@ int samp_raknet_client_get_rpc_probe_snapshot(void *client, samp_raknet_rpc_prob
       const unsigned int slot = (seq - 1U) % SAMP_RAKNET_OBJECT_EVENT_RING;
       if (g_rpc_probe.object_events[slot].seq == seq) {
         out_snapshot->object_events[out_snapshot->object_event_count++] = g_rpc_probe.object_events[slot];
+      }
+    }
+  }
+  std::memset(out_snapshot->attached_object_events, 0, sizeof(out_snapshot->attached_object_events));
+  if (g_rpc_probe.attached_object_event_seq > 0U) {
+    const unsigned int available = g_rpc_probe.attached_object_event_seq < SAMP_RAKNET_ATTACHED_OBJECT_EVENT_RING
+                                       ? g_rpc_probe.attached_object_event_seq
+                                       : SAMP_RAKNET_ATTACHED_OBJECT_EVENT_RING;
+    const unsigned int first_seq = g_rpc_probe.attached_object_event_seq - available + 1U;
+    for (unsigned int seq = first_seq; seq <= g_rpc_probe.attached_object_event_seq; ++seq) {
+      const samp_raknet_attached_object_event &event =
+          g_rpc_probe.attached_object_events[(seq - 1U) % SAMP_RAKNET_ATTACHED_OBJECT_EVENT_RING];
+      if (event.seq == seq) {
+        out_snapshot->attached_object_events[out_snapshot->attached_object_event_count++] = event;
+      }
+    }
+  }
+  std::memset(out_snapshot->remove_building_events, 0, sizeof(out_snapshot->remove_building_events));
+  if (g_rpc_probe.remove_building_event_seq > 0U) {
+    const unsigned int available = g_rpc_probe.remove_building_event_seq < SAMP_RAKNET_REMOVE_BUILDING_EVENT_RING
+                                       ? g_rpc_probe.remove_building_event_seq
+                                       : SAMP_RAKNET_REMOVE_BUILDING_EVENT_RING;
+    const unsigned int first_seq = g_rpc_probe.remove_building_event_seq - available + 1U;
+    for (unsigned int seq = first_seq; seq <= g_rpc_probe.remove_building_event_seq; ++seq) {
+      const samp_raknet_remove_building_event &event =
+          g_rpc_probe.remove_building_events[(seq - 1U) % SAMP_RAKNET_REMOVE_BUILDING_EVENT_RING];
+      if (event.seq == seq) {
+        out_snapshot->remove_building_events[out_snapshot->remove_building_event_count++] = event;
       }
     }
   }

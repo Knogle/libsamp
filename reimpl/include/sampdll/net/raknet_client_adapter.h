@@ -253,6 +253,17 @@ typedef struct samp_raknet_join_profile {
 #define SAMP_RAKNET_OBJECT_ATTACH_VEHICLE 1u
 #define SAMP_RAKNET_OBJECT_ATTACH_OBJECT 2u
 #define SAMP_RAKNET_OBJECT_ATTACH_PLAYER 3u
+#define SAMP_RAKNET_ATTACHED_OBJECT_EVENT_RING 64u
+#define SAMP_RAKNET_REMOVE_BUILDING_EVENT_RING 64u
+#define SAMP_RAKNET_MAX_ATTACHED_OBJECTS 10u
+#define SAMP_RAKNET_ATTACHED_OBJECT_ACTION_SET 1u
+#define SAMP_RAKNET_ATTACHED_OBJECT_ACTION_REMOVE 2u
+#define SAMP_RAKNET_EDIT_ACTION_OBJECT 1u
+#define SAMP_RAKNET_EDIT_ACTION_ATTACHED_OBJECT 2u
+#define SAMP_RAKNET_EDIT_ACTION_CANCEL 3u
+#define SAMP_RAKNET_EDIT_RESPONSE_CANCEL 0u
+#define SAMP_RAKNET_EDIT_RESPONSE_FINAL 1u
+#define SAMP_RAKNET_EDIT_RESPONSE_UPDATE 2u
 #define SAMP_RAKNET_VEHICLE_EVENT_RING 128u
 #define SAMP_RAKNET_MAX_VEHICLES 2000u
 #define SAMP_RAKNET_VEHICLE_MOD_SLOTS 14u
@@ -517,6 +528,45 @@ typedef struct samp_raknet_object_event {
   float draw_distance;
 } samp_raknet_object_event;
 
+typedef struct samp_raknet_attached_object_event {
+  uint32_t seq;
+  uint8_t action;
+  uint16_t player_id;
+  uint32_t index;
+  uint32_t model;
+  uint32_t bone;
+  float offset[3];
+  float rotation[3];
+  float scale[3];
+  uint32_t color1;
+  uint32_t color2;
+} samp_raknet_attached_object_event;
+
+typedef struct samp_raknet_edit_event {
+  uint32_t seq;
+  uint8_t action;
+  uint8_t player_object;
+  uint16_t object_id;
+  uint32_t attached_index;
+} samp_raknet_edit_event;
+
+typedef struct samp_raknet_crime_report_event {
+  uint32_t seq;
+  uint16_t suspect_id;
+  uint32_t in_vehicle;
+  uint32_t vehicle_model;
+  uint32_t vehicle_color;
+  uint32_t crime_id;
+  float position[3];
+} samp_raknet_crime_report_event;
+
+typedef struct samp_raknet_remove_building_event {
+  uint32_t seq;
+  int32_t model;
+  float position[3];
+  float radius;
+} samp_raknet_remove_building_event;
+
 typedef struct samp_raknet_vehicle_event {
   uint32_t seq;
   uint8_t action;
@@ -696,6 +746,12 @@ typedef struct samp_raknet_rpc_probe_snapshot {
   uint32_t explosion_event_seq;
   uint32_t chat_bubble_event_seq;
   uint32_t cancel_edit_seq;
+  uint32_t attached_object_event_seq;
+  uint32_t attached_object_event_count;
+  uint32_t edit_event_seq;
+  uint32_t crime_report_event_seq;
+  uint32_t remove_building_event_seq;
+  uint32_t remove_building_event_count;
   uint32_t shop_name_seq;
   uint32_t play_audio_stream_seq;
   uint32_t play_sound_seq;
@@ -818,6 +874,10 @@ typedef struct samp_raknet_rpc_probe_snapshot {
   samp_raknet_client_message_probe client_messages[SAMP_RAKNET_CLIENT_MESSAGE_RING];
   samp_raknet_textdraw_event textdraw_events[SAMP_RAKNET_TEXTDRAW_EVENT_RING];
   samp_raknet_object_event object_events[SAMP_RAKNET_OBJECT_EVENT_RING];
+  samp_raknet_attached_object_event attached_object_events[SAMP_RAKNET_ATTACHED_OBJECT_EVENT_RING];
+  samp_raknet_edit_event edit_event;
+  samp_raknet_crime_report_event crime_report_event;
+  samp_raknet_remove_building_event remove_building_events[SAMP_RAKNET_REMOVE_BUILDING_EVENT_RING];
   samp_raknet_vehicle_event vehicle_events[SAMP_RAKNET_VEHICLE_EVENT_RING];
   samp_raknet_player_pool_event player_pool_events[SAMP_RAKNET_PLAYER_POOL_EVENT_RING];
   samp_raknet_score_ping_entry score_ping_entries[SAMP_RAKNET_SCORE_PING_MAX_ENTRIES];
@@ -863,6 +923,14 @@ int samp_raknet_client_get_object_lifecycle(void *client, uint16_t object_id, ui
                                             samp_raknet_object_event *out_create_event);
 int samp_raknet_client_queue_dialog_response(void *client, uint16_t dialog_id, uint8_t button, int16_t listitem,
                                              const char *input);
+int samp_raknet_client_send_edit_object_response(void *client, uint8_t player_object, uint16_t object_id,
+                                                 uint32_t response, const float position[3],
+                                                 const float rotation[3]);
+int samp_raknet_client_send_edit_attached_object_response(void *client, uint32_t response, uint32_t index,
+                                                          uint32_t model, uint32_t bone,
+                                                          const float offset[3], const float rotation[3],
+                                                          const float scale[3], uint32_t color1,
+                                                          uint32_t color2);
 
 #ifdef __cplusplus
 }

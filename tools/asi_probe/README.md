@@ -18,6 +18,8 @@ It is intended for local reverse-engineering and compatibility work:
     decryption and before/after original handler execution,
 11. optionally correlate those RPCs through ActorPool/CActor into bounded
     CPed snapshots, direct GTA calls, and actor-scoped SCM opcode dispatches.
+12. optionally trace RPC 43/112/113/116/117 through the original R5 remove-
+    entity, crime-scanner, attached-object, and editor-begin helpers.
 
 The first pass rewrites selected import slots inside `samp.dll`, so observed calls are attributable to `samp.dll` rather than process-global Wine/WinDbg noise.
 
@@ -151,6 +153,7 @@ SAMP_PROBE_TEXTDRAW_RENDER=1
 SAMP_PROBE_FONT5_HOOKS=1
 SAMP_PROBE_ACTOR_HOOKS=1
 SAMP_PROBE_ACTOR_HEAVY=1
+SAMP_PROBE_RPC_GAP_HOOKS=1
 ```
 
 The asset trace can also be toggled through files next to the ASI:
@@ -168,6 +171,7 @@ samp_probe_textdraw_render.flag
 samp_probe_font5_hooks.flag
 samp_probe_actor_hooks.flag
 samp_probe_actor_heavy.flag
+samp_probe_rpc_gap_hooks.flag
 ```
 
 Use `samp_probe_asset_paths.flag` for normal original-DLL golden traces. It logs interesting SA-MP asset opens, size queries, seeks, and closes. `samp_probe_file_hooks.flag` additionally hooks `ReadFile`; keep that for short, targeted runs only because original 0.3.7 performs large overlapped reads against the SAMP archives.
@@ -283,6 +287,31 @@ instruction pointer, compare flag, and enclosing RPC/method sequence.
 Heavy mode is intentionally process-bound and noisy. Use it for one short
 `/rpcactors` cycle, exit the process cleanly, and discard any run that lacks
 all three `set_preflight_ok` markers or contains `incomplete_*`/`exception:`.
+
+For the focused RPC-gap run, enable `samp_probe_rpc_gap_hooks.flag` by itself.
+This atomically preflights and installs eleven original-R5 hooks:
+
+- RPC handlers 43, 112, 113, 116, and 117;
+- RemoveBuilding entity mutators at `samp.dll+0x9cff0/+0x9d020`;
+- crime-scanner helper at `samp.dll+0xa1790`;
+- player attachment helper at `samp.dll+0xb0b10`;
+- object/attached editor begin methods at `samp.dll+0x72420/+0x724e0`.
+
+The hook set requires original `samp.dll`
+SHA256=`b72b5dbe725f81864ca3f78bc7063bda56cc05fc7188af822fa7a754432553a2`,
+its matching PE identity proxy, complete-instruction prologues, and all eleven
+targets to pass before any target is modified. Records use the prefixes
+`rpc_gap`, `rpc_gap_remove`, `rpc_gap_crime`, `rpc_gap_attached`, and
+`rpc_gap_editor`. The remove records contain entity flag/Z values before and
+after the original mutator; attachment records contain the complete 52-byte
+input/stored slot and created object pointer; editor records contain the R5
+mode/active/target state before and after GUI setup. Audible scanner output and
+the visible 3D editor controls remain manual `OBSERVED_037` checks.
+
+Run this mode process-bound and short. A valid trace starts with
+`rpc_gap_hook: set_preflight_ok hooks=11` and
+`rpc_gap_hook: summary installed=11 requested=11`. Discard the run on
+`set_preflight_failed`, `incomplete_install`, or `exception:`.
 
 Run this focused probe process-bound: do not hot-unload the ASI. End the
 `gta_sa.exe` process after the short capture so its code and COM-vtable hooks

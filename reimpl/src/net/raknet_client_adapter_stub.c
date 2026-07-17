@@ -244,6 +244,23 @@ int samp_raknet_client_send_actor_damage(void *client, uint16_t actor_id, float 
   return -1;
 }
 
+int samp_raknet_client_send_edit_object_response(void *client, uint8_t player_object, uint16_t object_id,
+                                                 uint32_t response, const float position[3],
+                                                 const float rotation[3]) {
+  (void)client; (void)player_object; (void)object_id; (void)response; (void)position; (void)rotation;
+  return -1;
+}
+
+int samp_raknet_client_send_edit_attached_object_response(void *client, uint32_t response, uint32_t index,
+                                                          uint32_t model, uint32_t bone,
+                                                          const float offset[3], const float rotation[3],
+                                                          const float scale[3], uint32_t color1,
+                                                          uint32_t color2) {
+  (void)client; (void)response; (void)index; (void)model; (void)bone; (void)offset; (void)rotation;
+  (void)scale; (void)color1; (void)color2;
+  return -1;
+}
+
 int samp_raknet_client_queue_dialog_response(void *client, uint16_t dialog_id, uint8_t button, int16_t listitem,
                                              const char *input) {
   (void)client;

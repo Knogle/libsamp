@@ -20,6 +20,7 @@
 #define PROBE_FONT5_HOOKS_FLAG "samp_probe_font5_hooks.flag"
 #define PROBE_ACTOR_HOOKS_FLAG "samp_probe_actor_hooks.flag"
 #define PROBE_ACTOR_HEAVY_FLAG "samp_probe_actor_heavy.flag"
+#define PROBE_RPC_GAP_HOOKS_FLAG "samp_probe_rpc_gap_hooks.flag"
 #define PROBE_MAX_IMPORT_LOGS 4096
 #define PROBE_WATCH_INTERVAL_MS 250
 #define PROBE_WAIT_FOR_SAMP_MS 30000
@@ -91,6 +92,17 @@
 #define PROBE_SAMP_R5_ACTOR_SET_FACING_ANGLE_RVA 0x0001d9f0u
 #define PROBE_SAMP_R5_ACTOR_SET_POSITION_RVA 0x0001dad0u
 #define PROBE_SAMP_R5_ACTOR_SET_HEALTH_RVA 0x0001dbe0u
+#define PROBE_SAMP_R5_RPC_REMOVE_BUILDING_RVA 0x0001d530u
+#define PROBE_SAMP_R5_RPC_PLAY_CRIME_REPORT_RVA 0x00019050u
+#define PROBE_SAMP_R5_RPC_SET_ATTACHED_OBJECT_RVA 0x00018f00u
+#define PROBE_SAMP_R5_RPC_EDIT_ATTACHED_OBJECT_RVA 0x000117e0u
+#define PROBE_SAMP_R5_RPC_EDIT_OBJECT_RVA 0x000118a0u
+#define PROBE_SAMP_R5_REMOVE_OBJECT_RVA 0x0009cff0u
+#define PROBE_SAMP_R5_REMOVE_STATIC_RVA 0x0009d020u
+#define PROBE_SAMP_R5_CRIME_REPORT_HELPER_RVA 0x000a1790u
+#define PROBE_SAMP_R5_ATTACHED_OBJECT_HELPER_RVA 0x000b0b10u
+#define PROBE_SAMP_R5_EDIT_OBJECT_BEGIN_RVA 0x00072420u
+#define PROBE_SAMP_R5_EDIT_ATTACHED_BEGIN_RVA 0x000724e0u
 #define PROBE_SAMP_R5_ACTOR_POOL_DELETE_RVA 0x000016f0u
 #define PROBE_SAMP_R5_ACTOR_POOL_NEW_RVA 0x00001900u
 #define PROBE_SAMP_R5_REMOTE_ACTOR_APPLY_ANIMATION_RVA 0x0009c460u
@@ -132,6 +144,8 @@
 #define PROBE_SAMP_ACTOR_RPC_SET_POSITION 176u
 #define PROBE_SAMP_ACTOR_RPC_SET_HEALTH 178u
 #define PROBE_SAMP_ACTOR_RPC_MAX_BITS 8192u
+#define PROBE_SAMP_RPC_GAP_MAX_BITS 8192u
+#define PROBE_SAMP_ATTACHED_OBJECT_RECORD_SIZE 52u
 
 #if defined(__GNUC__)
 #define PROBE_ALWAYS_INLINE static __inline__ __attribute__((always_inline))
@@ -184,6 +198,11 @@ typedef struct probe_samp_rpc_parameters_prefix {
   int number_of_bits_of_data;
 } probe_samp_rpc_parameters_prefix;
 typedef void(__cdecl *probe_samp_rpc_handler_fn)(probe_samp_rpc_parameters_prefix *);
+typedef void(__cdecl *probe_samp_remove_entity_fn)(void *);
+typedef void(WINAPI *probe_samp_crime_report_helper_fn)(DWORD, const float *, DWORD, DWORD, DWORD);
+typedef void(PROBE_THISCALL *probe_samp_attached_object_helper_fn)(void *, DWORD, const void *);
+typedef void(PROBE_THISCALL *probe_samp_edit_object_begin_fn)(void *, DWORD, DWORD);
+typedef void(PROBE_THISCALL *probe_samp_edit_attached_begin_fn)(void *, DWORD);
 typedef int(PROBE_THISCALL *probe_samp_actor_pool_new_fn)(void *, const void *);
 typedef int(PROBE_THISCALL *probe_samp_actor_pool_delete_fn)(void *, DWORD);
 typedef void(PROBE_THISCALL *probe_samp_remote_actor_apply_animation_fn)(
@@ -388,6 +407,17 @@ static void *g_orig_samp_actor_clear_animations;
 static void *g_orig_samp_actor_set_facing_angle;
 static void *g_orig_samp_actor_set_position;
 static void *g_orig_samp_actor_set_health;
+static void *g_orig_samp_rpc_remove_building;
+static void *g_orig_samp_rpc_play_crime_report;
+static void *g_orig_samp_rpc_set_attached_object;
+static void *g_orig_samp_rpc_edit_attached_object;
+static void *g_orig_samp_rpc_edit_object;
+static void *g_orig_samp_remove_object;
+static void *g_orig_samp_remove_static;
+static void *g_orig_samp_crime_report_helper;
+static void *g_orig_samp_attached_object_helper;
+static void *g_orig_samp_edit_object_begin;
+static void *g_orig_samp_edit_attached_begin;
 static void *g_orig_samp_actor_pool_new;
 static void *g_orig_samp_actor_pool_delete;
 static void *g_orig_samp_remote_actor_apply_animation;
@@ -462,6 +492,9 @@ static PROBE_THREAD_LOCAL int g_actor_rpc_trace_depth;
 static PROBE_THREAD_LOCAL LONG g_actor_active_rpc_seq;
 static PROBE_THREAD_LOCAL unsigned g_actor_active_rpc_id;
 static PROBE_THREAD_LOCAL unsigned g_actor_active_id;
+static PROBE_THREAD_LOCAL int g_rpc_gap_trace_depth;
+static PROBE_THREAD_LOCAL LONG g_rpc_gap_active_seq;
+static PROBE_THREAD_LOCAL unsigned g_rpc_gap_active_id;
 static PROBE_THREAD_LOCAL int g_actor_heavy_scope_depth;
 static PROBE_THREAD_LOCAL LONG g_actor_heavy_scope_seq;
 static PROBE_THREAD_LOCAL unsigned g_actor_heavy_scope_id;
@@ -471,6 +504,8 @@ static LONG g_textdraw_render_call_count;
 static LONG g_font5_trace_call_count;
 static LONG g_actor_rpc_call_count;
 static LONG g_actor_heavy_call_count;
+static LONG g_rpc_gap_call_count;
+static LONG g_rpc_gap_downstream_call_count;
 static volatile LONG g_actor_heavy_global_scope_depth;
 static LONG g_textdraw_current_font_style = -1;
 static LONG g_d3d_device_hooks_installed;
@@ -493,6 +528,7 @@ static int textdraw_render_enabled(void);
 static int font5_hooks_enabled(void);
 static int actor_hooks_enabled(void);
 static int actor_heavy_enabled(void);
+static int rpc_gap_hooks_enabled(void);
 static PIMAGE_NT_HEADERS get_samp_nt_headers(void);
 static LONG CALLBACK probe_exception_handler(PEXCEPTION_POINTERS info);
 static int WINAPI hook_WSAStartup(WORD version, LPWSADATA data);
@@ -547,6 +583,18 @@ static void __cdecl hook_samp_actor_clear_animations(probe_samp_rpc_parameters_p
 static void __cdecl hook_samp_actor_set_facing_angle(probe_samp_rpc_parameters_prefix *rpc);
 static void __cdecl hook_samp_actor_set_position(probe_samp_rpc_parameters_prefix *rpc);
 static void __cdecl hook_samp_actor_set_health(probe_samp_rpc_parameters_prefix *rpc);
+static void __cdecl hook_samp_rpc_remove_building(probe_samp_rpc_parameters_prefix *rpc);
+static void __cdecl hook_samp_rpc_play_crime_report(probe_samp_rpc_parameters_prefix *rpc);
+static void __cdecl hook_samp_rpc_set_attached_object(probe_samp_rpc_parameters_prefix *rpc);
+static void __cdecl hook_samp_rpc_edit_attached_object(probe_samp_rpc_parameters_prefix *rpc);
+static void __cdecl hook_samp_rpc_edit_object(probe_samp_rpc_parameters_prefix *rpc);
+static void __cdecl hook_samp_remove_object(void *entity);
+static void __cdecl hook_samp_remove_static(void *entity);
+static void WINAPI hook_samp_crime_report_helper(DWORD crime, const float *position, DWORD in_vehicle,
+                                                 DWORD vehicle_model, DWORD vehicle_color);
+static void PROBE_THISCALL hook_samp_attached_object_helper(void *player_ped, DWORD index, const void *record);
+static void PROBE_THISCALL hook_samp_edit_object_begin(void *editor, DWORD object_id, DWORD player_object);
+static void PROBE_THISCALL hook_samp_edit_attached_begin(void *editor, DWORD index);
 static int PROBE_THISCALL hook_samp_actor_pool_new(void *actor_pool, const void *show_data);
 static int PROBE_THISCALL hook_samp_actor_pool_delete(void *actor_pool, DWORD actor_id);
 static void PROBE_THISCALL hook_samp_remote_actor_apply_animation(
@@ -797,6 +845,47 @@ static probe_code_hook g_samp_actor_code_hooks[] = {
     {"samp.Actor.SetHealth.RPC178", PROBE_SAMP_R5_ACTOR_SET_HEALTH_RVA,
      (void *)hook_samp_actor_set_health, &g_orig_samp_actor_set_health,
      {0x6a, 0xff, 0x68, 0xbb, 0x16, 0x0e, 0x10}, 7, NULL, NULL, {0}, 0, 0},
+};
+
+static probe_code_hook g_samp_rpc_gap_code_hooks[] = {
+    /* STATIC_037:
+     * Exact RegisterAsRemoteProcedureCall mappings and downstream helpers from
+     * original R5 samp.dll SHA256=
+     * b72b5dbe725f81864ca3f78bc7063bda56cc05fc7188af822fa7a754432553a2.
+     * The complete set is preflighted before the first target is patched. */
+    {"samp.RemoveBuildingForPlayer.RPC43", PROBE_SAMP_R5_RPC_REMOVE_BUILDING_RVA,
+     (void *)hook_samp_rpc_remove_building, &g_orig_samp_rpc_remove_building,
+     {0x6a, 0xff, 0x68, 0xfb, 0x15, 0x0e, 0x10}, 7, NULL, NULL, {0}, 0, 0},
+    {"samp.PlayCrimeReport.RPC112", PROBE_SAMP_R5_RPC_PLAY_CRIME_REPORT_RVA,
+     (void *)hook_samp_rpc_play_crime_report, &g_orig_samp_rpc_play_crime_report,
+     {0x6a, 0xff, 0x68, 0x3b, 0x0e, 0x0e, 0x10}, 7, NULL, NULL, {0}, 0, 0},
+    {"samp.SetPlayerAttachedObject.RPC113", PROBE_SAMP_R5_RPC_SET_ATTACHED_OBJECT_RVA,
+     (void *)hook_samp_rpc_set_attached_object, &g_orig_samp_rpc_set_attached_object,
+     {0x6a, 0xff, 0x68, 0x1b, 0x0e, 0x0e, 0x10}, 7, NULL, NULL, {0}, 0, 0},
+    {"samp.EditAttachedObject.RPC116", PROBE_SAMP_R5_RPC_EDIT_ATTACHED_OBJECT_RVA,
+     (void *)hook_samp_rpc_edit_attached_object, &g_orig_samp_rpc_edit_attached_object,
+     {0x6a, 0xff, 0x68, 0x4b, 0x0a, 0x0e, 0x10}, 7, NULL, NULL, {0}, 0, 0},
+    {"samp.EditObject.RPC117", PROBE_SAMP_R5_RPC_EDIT_OBJECT_RVA,
+     (void *)hook_samp_rpc_edit_object, &g_orig_samp_rpc_edit_object,
+     {0x6a, 0xff, 0x68, 0x6b, 0x0a, 0x0e, 0x10}, 7, NULL, NULL, {0}, 0, 0},
+    {"samp.RemoveBuilding.ObjectMutation", PROBE_SAMP_R5_REMOVE_OBJECT_RVA,
+     (void *)hook_samp_remove_object, &g_orig_samp_remove_object,
+     {0x8b, 0x44, 0x24, 0x04, 0xd9, 0x40, 0x0c}, 7, NULL, NULL, {0}, 0, 0},
+    {"samp.RemoveBuilding.StaticMutation", PROBE_SAMP_R5_REMOVE_STATIC_RVA,
+     (void *)hook_samp_remove_static, &g_orig_samp_remove_static,
+     {0x8b, 0x44, 0x24, 0x04, 0x85, 0xc0}, 6, NULL, NULL, {0}, 0, 0},
+    {"samp.PlayCrimeReport.ScannerHelper", PROBE_SAMP_R5_CRIME_REPORT_HELPER_RVA,
+     (void *)hook_samp_crime_report_helper, &g_orig_samp_crime_report_helper,
+     {0x55, 0x8b, 0xec, 0x64, 0xa1, 0x00, 0x00, 0x00, 0x00}, 9, NULL, NULL, {0}, 0, 0},
+    {"samp.CPlayerPed.SetAttachedObject", PROBE_SAMP_R5_ATTACHED_OBJECT_HELPER_RVA,
+     (void *)hook_samp_attached_object_helper, &g_orig_samp_attached_object_helper,
+     {0x6a, 0xff, 0x64, 0xa1, 0x00, 0x00, 0x00, 0x00}, 8, NULL, NULL, {0}, 0, 0},
+    {"samp.ObjectEditor.BeginObject", PROBE_SAMP_R5_EDIT_OBJECT_BEGIN_RVA,
+     (void *)hook_samp_edit_object_begin, &g_orig_samp_edit_object_begin,
+     {0x56, 0x57, 0x8b, 0xf1, 0xba, 0x01, 0x00, 0x00, 0x00}, 9, NULL, NULL, {0}, 0, 0},
+    {"samp.ObjectEditor.BeginAttached", PROBE_SAMP_R5_EDIT_ATTACHED_BEGIN_RVA,
+     (void *)hook_samp_edit_attached_begin, &g_orig_samp_edit_attached_begin,
+     {0xba, 0x01, 0x00, 0x00, 0x00}, 5, NULL, NULL, {0}, 0, 0},
 };
 
 static probe_code_hook g_samp_actor_heavy_code_hooks[] = {
@@ -1189,6 +1278,14 @@ static int actor_heavy_enabled(void) {
    * dispatch trace. The hot dispatcher logs only while a typed Actor method is
    * active and only for the proven samp.dll+0xb22ee bridge return site. */
   return env_or_flag_enabled("SAMP_PROBE_ACTOR_HEAVY", PROBE_ACTOR_HEAVY_FLAG);
+}
+
+static int rpc_gap_hooks_enabled(void) {
+  /* STATIC_037 + TODO_VERIFY:
+   * This focused, process-bound hook set traces only RPC 43/112/113/116/117
+   * and their byte-validated R5 mutation helpers. It is kept independent from
+   * the stale generic SA-MP network hook candidates. */
+  return env_or_flag_enabled("SAMP_PROBE_RPC_GAP_HOOKS", PROBE_RPC_GAP_HOOKS_FLAG);
 }
 
 PROBE_ALWAYS_INLINE void *probe_return_address(void) {
@@ -3273,6 +3370,171 @@ static int samp_actor_code_hooks_active(void) {
   return 1;
 }
 
+static int preflight_samp_rpc_gap_code_hooks(void) {
+  size_t i;
+
+  for (i = 0; i < sizeof(g_samp_rpc_gap_code_hooks) / sizeof(g_samp_rpc_gap_code_hooks[0]); ++i) {
+    probe_code_hook *hook = &g_samp_rpc_gap_code_hooks[i];
+    void *target;
+    size_t readable_len;
+    size_t patch_len;
+
+    if (hook->expected_len < 5 || hook->expected_len > sizeof(hook->expected) ||
+        hook->expected_len > PROBE_INLINE_HOOK_MAX_COPY) {
+      probe_log("rpc_gap_hook: set_preflight_failed name=%s rva=0x%08lx reason=invalid_expected_len len=%lu",
+                hook->name, (unsigned long)hook->rva, (unsigned long)hook->expected_len);
+      return 0;
+    }
+    readable_len = hook->expected_len > 8 ? hook->expected_len : 8;
+    if (g_samp_base == 0 || hook->rva >= g_samp_size || hook->rva > g_samp_size - readable_len) {
+      probe_log("rpc_gap_hook: set_preflight_failed name=%s rva=0x%08lx reason=target_bounds",
+                hook->name, (unsigned long)hook->rva);
+      return 0;
+    }
+    target = (void *)(g_samp_base + (uintptr_t)hook->rva);
+    if (target == hook->replacement || !memory_is_readable((uintptr_t)target, readable_len)) {
+      probe_log("rpc_gap_hook: set_preflight_failed name=%s rva=0x%08lx target=%p reason=unreadable_target",
+                hook->name, (unsigned long)hook->rva, target);
+      return 0;
+    }
+
+    if (hook->expected_len == 7 && hook->expected[0] == 0x6a && hook->expected[1] == 0xff &&
+        hook->expected[2] == 0x68) {
+      DWORD preferred_absolute = 0;
+      DWORD actual_absolute = 0;
+      DWORD referenced_rva;
+      DWORD expected_runtime_absolute;
+
+      memcpy(&preferred_absolute, hook->expected + 3, sizeof(preferred_absolute));
+      memcpy(&actual_absolute, (const BYTE *)target + 3, sizeof(actual_absolute));
+      if (preferred_absolute < PROBE_SAMP_R5_PREFERRED_IMAGE_BASE) {
+        probe_log("rpc_gap_hook: set_preflight_failed name=%s rva=0x%08lx reason=relocation_underflow",
+                  hook->name, (unsigned long)hook->rva);
+        return 0;
+      }
+      referenced_rva = preferred_absolute - PROBE_SAMP_R5_PREFERRED_IMAGE_BASE;
+      if (referenced_rva >= g_samp_size || g_samp_base > (uintptr_t)(0xffffffffu - referenced_rva)) {
+        probe_log("rpc_gap_hook: set_preflight_failed name=%s rva=0x%08lx reason=relocation_bounds",
+                  hook->name, (unsigned long)hook->rva);
+        return 0;
+      }
+      expected_runtime_absolute = (DWORD)(g_samp_base + (uintptr_t)referenced_rva);
+      if (memcmp(target, hook->expected, 3) != 0 || actual_absolute != expected_runtime_absolute) {
+        BYTE bytes[8];
+        char hex[40];
+        memcpy(bytes, target, sizeof(bytes));
+        bytes_to_hex(bytes, sizeof(bytes), hex, sizeof(hex));
+        probe_log("rpc_gap_hook: set_preflight_failed name=%s rva=0x%08lx reason=relocated_prologue "
+                  "actual=%s referenced_rva=0x%08lx expected_runtime=0x%08lx actual_runtime=0x%08lx",
+                  hook->name, (unsigned long)hook->rva, hex, (unsigned long)referenced_rva,
+                  (unsigned long)expected_runtime_absolute, (unsigned long)actual_absolute);
+        return 0;
+      }
+      memcpy(hook->expected + 3, &actual_absolute, sizeof(actual_absolute));
+      probe_log("rpc_gap_hook: relocation_ok name=%s rva=0x%08lx referenced_rva=0x%08lx "
+                "runtime_absolute=0x%08lx evidence=STATIC_037,PROBE_TRACE",
+                hook->name, (unsigned long)hook->rva, (unsigned long)referenced_rva,
+                (unsigned long)actual_absolute);
+    } else if (memcmp(target, hook->expected, hook->expected_len) != 0) {
+      BYTE bytes[12];
+      char hex[56];
+      memcpy(bytes, target, sizeof(bytes));
+      bytes_to_hex(bytes, sizeof(bytes), hex, sizeof(hex));
+      probe_log("rpc_gap_hook: set_preflight_failed name=%s rva=0x%08lx target=%p reason=prologue actual=%s",
+                hook->name, (unsigned long)hook->rva, target, hex);
+      return 0;
+    }
+
+    patch_len = calculate_patch_length(target);
+    if (patch_len == 0 || patch_len != hook->expected_len) {
+      probe_log("rpc_gap_hook: set_preflight_failed name=%s rva=0x%08lx reason=patch_len "
+                "decoded=%lu expected=%lu",
+                hook->name, (unsigned long)hook->rva, (unsigned long)patch_len,
+                (unsigned long)hook->expected_len);
+      return 0;
+    }
+  }
+
+  probe_log("rpc_gap_hook: set_preflight_ok hooks=%u rpc_handlers=5 downstream=6 "
+            "evidence=STATIC_037,TODO_VERIFY",
+            (unsigned)(sizeof(g_samp_rpc_gap_code_hooks) / sizeof(g_samp_rpc_gap_code_hooks[0])));
+  return 1;
+}
+
+static int install_samp_rpc_gap_code_hooks(int log_summary) {
+  size_t i;
+  size_t hook_count = sizeof(g_samp_rpc_gap_code_hooks) / sizeof(g_samp_rpc_gap_code_hooks[0]);
+  size_t already_installed = 0;
+  int installed = 0;
+
+  if (!rpc_gap_hooks_enabled()) {
+    if (log_summary) {
+      probe_log("rpc_gap_hook: disabled by default; enable with SAMP_PROBE_RPC_GAP_HOOKS=1 or %s",
+                PROBE_RPC_GAP_HOOKS_FLAG);
+    }
+    return 0;
+  }
+  if (env_flag_enabled("SAMP_PROBE_NO_SAMP_CODE_HOOKS")) {
+    if (log_summary) {
+      probe_log("rpc_gap_hook: disabled by SAMP_PROBE_NO_SAMP_CODE_HOOKS");
+    }
+    return 0;
+  }
+  if (!samp_r5_identity_matches()) {
+    if (log_summary) {
+      PIMAGE_NT_HEADERS actual_nt = get_samp_nt_headers();
+      probe_log("rpc_gap_hook: skip unsupported_identity headers_valid=%d timestamp=0x%08lx entry=0x%08lx "
+                "header_size=0x%08lx module_size=0x%08lx supported_sha256="
+                "b72b5dbe725f81864ca3f78bc7063bda56cc05fc7188af822fa7a754432553a2",
+                actual_nt != NULL,
+                (unsigned long)(actual_nt != NULL ? actual_nt->FileHeader.TimeDateStamp : 0u),
+                (unsigned long)(actual_nt != NULL ? actual_nt->OptionalHeader.AddressOfEntryPoint : 0u),
+                (unsigned long)(actual_nt != NULL ? actual_nt->OptionalHeader.SizeOfImage : 0u),
+                (unsigned long)g_samp_size);
+    }
+    return 0;
+  }
+
+  for (i = 0; i < hook_count; ++i) {
+    LONG state = InterlockedCompareExchange(&g_samp_rpc_gap_code_hooks[i].installed, 0, 0);
+    if (state == 1) {
+      ++already_installed;
+    } else if (state != 0) {
+      return 0;
+    }
+  }
+  if (already_installed == hook_count) {
+    return 0;
+  }
+  if (already_installed != 0) {
+    if (log_summary) {
+      probe_log("rpc_gap_hook: skip partial_prior_state installed=%u requested=%u",
+                (unsigned)already_installed, (unsigned)hook_count);
+    }
+    return 0;
+  }
+  if (!preflight_samp_rpc_gap_code_hooks()) {
+    for (i = 0; i < hook_count; ++i) {
+      InterlockedExchange(&g_samp_rpc_gap_code_hooks[i].installed, -1);
+    }
+    return 0;
+  }
+  for (i = 0; i < hook_count; ++i) {
+    installed += install_samp_code_hook(&g_samp_rpc_gap_code_hooks[i]);
+  }
+  if ((size_t)installed != hook_count) {
+    probe_log("rpc_gap_hook: incomplete_install installed=%d requested=%u; discard run and terminate process",
+              installed, (unsigned)hook_count);
+  }
+  if (log_summary) {
+    probe_log("rpc_gap_hook: summary installed=%d requested=%u supported_sha256="
+              "b72b5dbe725f81864ca3f78bc7063bda56cc05fc7188af822fa7a754432553a2 "
+              "evidence=STATIC_037,TODO_VERIFY",
+              installed, (unsigned)hook_count);
+  }
+  return installed;
+}
+
 static int preflight_samp_actor_heavy_code_hooks(void) {
   size_t i;
 
@@ -3843,10 +4105,11 @@ static DWORD WINAPI probe_worker(LPVOID param) {
   probe_log("probe: attached build=%s %s", __DATE__, __TIME__);
   probe_log("probe: options asset_path_hooks=%d asset_read_hooks=%d samp_code_hooks=%d gta_asset_hooks=%d "
             "object_info=%d custom_object_heavy=%d textdraw_hooks=%d textdraw_verbose=%d textdraw_render=%d "
-            "font5_hooks=%d actor_hooks=%d actor_heavy=%d",
+            "font5_hooks=%d actor_hooks=%d actor_heavy=%d rpc_gap_hooks=%d",
             asset_path_hooks_enabled(), asset_read_hooks_enabled(), samp_code_hooks_enabled(), gta_asset_hooks_enabled(),
             object_info_enabled(), custom_object_heavy_enabled(), textdraw_hooks_enabled(), textdraw_verbose_enabled(),
-            textdraw_render_enabled(), font5_hooks_enabled(), actor_hooks_enabled(), actor_heavy_enabled());
+            textdraw_render_enabled(), font5_hooks_enabled(), actor_hooks_enabled(), actor_heavy_enabled(),
+            rpc_gap_hooks_enabled());
   if (custom_object_heavy_enabled()) {
     probe_log("custom_object_heavy: store_addresses model_info_ptrs=0x%08lx atomic_count=0x%08lx "
               "time_count=0x%08lx clump_count=0x%08lx low_range=%u-%u high_range=%u-%u "
@@ -3901,6 +4164,7 @@ static DWORD WINAPI probe_worker(LPVOID param) {
     install_samp_code_hooks(1);
     install_samp_font5_code_hooks(1);
     install_samp_actor_code_hooks(1);
+    install_samp_rpc_gap_code_hooks(1);
     install_samp_actor_heavy_code_hooks(1);
     install_gta_actor_heavy_code_hooks(1);
     install_gta_textdraw_code_hooks(1);
@@ -3917,6 +4181,7 @@ static DWORD WINAPI probe_worker(LPVOID param) {
       (void)install_samp_code_hooks(0);
       (void)install_samp_font5_code_hooks(0);
       (void)install_samp_actor_code_hooks(0);
+      (void)install_samp_rpc_gap_code_hooks(0);
       (void)install_samp_actor_heavy_code_hooks(0);
       (void)install_gta_actor_heavy_code_hooks(0);
       (void)install_gta_textdraw_code_hooks(0);
@@ -4918,6 +5183,283 @@ static void __cdecl hook_samp_actor_set_position(probe_samp_rpc_parameters_prefi
 static void __cdecl hook_samp_actor_set_health(probe_samp_rpc_parameters_prefix *rpc) {
   call_samp_actor_rpc_original("SetActorHealth", PROBE_SAMP_ACTOR_RPC_SET_HEALTH, rpc, probe_return_address(),
                                g_orig_samp_actor_set_health);
+}
+
+static LONG log_samp_rpc_gap_begin(const char *name, unsigned rpc_id, probe_samp_rpc_parameters_prefix *rpc) {
+  LONG seq = next_call_count(&g_rpc_gap_call_count);
+  const BYTE *data = NULL;
+  int bits = -1;
+  size_t bytes = 0;
+  int prefix_readable = rpc != NULL && memory_is_readable((uintptr_t)rpc, sizeof(*rpc));
+  int payload_readable = 0;
+  char payload[PROBE_PAYLOAD_PREVIEW_BYTES * 3 + 8];
+  char detail[512];
+
+  payload[0] = '\0';
+  detail[0] = '\0';
+  if (prefix_readable) {
+    data = rpc->input;
+    bits = rpc->number_of_bits_of_data;
+  }
+  if (bits >= 0 && (unsigned)bits <= PROBE_SAMP_RPC_GAP_MAX_BITS) {
+    bytes = ((size_t)(unsigned)bits + 7u) / 8u;
+  }
+  if (data != NULL && bytes > 0 && memory_is_readable((uintptr_t)data, bytes)) {
+    payload_readable = 1;
+    payload_to_hex(data, (int)bytes, payload, sizeof(payload));
+  }
+
+  if (payload_readable) {
+    if (rpc_id == 43u && bytes >= 20u) {
+      snprintf(detail, sizeof(detail), "model=%ld pos=%.6f,%.6f,%.6f radius=%.6f",
+               (long)(int32_t)read_u32_or((uintptr_t)data, 0xffffffffu),
+               read_f32_or((uintptr_t)data + 4u, 0.0f), read_f32_or((uintptr_t)data + 8u, 0.0f),
+               read_f32_or((uintptr_t)data + 12u, 0.0f), read_f32_or((uintptr_t)data + 16u, 0.0f));
+    } else if (rpc_id == 112u && bytes >= 30u) {
+      snprintf(detail, sizeof(detail),
+               "suspect=%u in_vehicle=%lu vehicle_model=%lu vehicle_color=%lu crime=%lu pos=%.6f,%.6f,%.6f",
+               (unsigned)read_u16_or((uintptr_t)data, 0xffffu),
+               (unsigned long)read_u32_or((uintptr_t)data + 2u, 0u),
+               (unsigned long)read_u32_or((uintptr_t)data + 6u, 0u),
+               (unsigned long)read_u32_or((uintptr_t)data + 10u, 0u),
+               (unsigned long)read_u32_or((uintptr_t)data + 14u, 0u),
+               read_f32_or((uintptr_t)data + 18u, 0.0f), read_f32_or((uintptr_t)data + 22u, 0.0f),
+               read_f32_or((uintptr_t)data + 26u, 0.0f));
+    } else if (rpc_id == 113u && bytes >= 7u) {
+      snprintf(detail, sizeof(detail), "player=%u index=%lu create_first_wire_bit=%u",
+               (unsigned)read_u16_or((uintptr_t)data, 0xffffu),
+               (unsigned long)read_u32_or((uintptr_t)data + 2u, 0xffffffffu),
+               (unsigned)((data[6] >> 7) & 1u));
+    } else if (rpc_id == 116u && bytes >= 4u) {
+      snprintf(detail, sizeof(detail), "attached_index=%lu",
+               (unsigned long)read_u32_or((uintptr_t)data, 0xffffffffu));
+    } else if (rpc_id == 117u) {
+      snprintf(detail, sizeof(detail), "bitpacked_edit_object=1");
+    } else {
+      snprintf(detail, sizeof(detail), "decode_truncated=1");
+    }
+  } else {
+    snprintf(detail, sizeof(detail), "decode_unavailable=1");
+  }
+
+  probe_log("rpc_gap: phase=begin seq=%ld name=%s id=%u rpc=%p prefix_readable=%d bits=%d bytes=%lu "
+            "payload_readable=%d %s data=%s evidence=STATIC_037,PROBE_TRACE,TODO_VERIFY",
+            (long)seq, name, rpc_id, rpc, prefix_readable, bits, (unsigned long)bytes, payload_readable,
+            detail, payload);
+  return seq;
+}
+
+static void call_samp_rpc_gap_original(const char *name, unsigned rpc_id, probe_samp_rpc_parameters_prefix *rpc,
+                                       void *original) {
+  LONG seq = log_samp_rpc_gap_begin(name, rpc_id, rpc);
+  int previous_depth = g_rpc_gap_trace_depth;
+  LONG previous_seq = g_rpc_gap_active_seq;
+  unsigned previous_id = g_rpc_gap_active_id;
+
+  g_rpc_gap_trace_depth = previous_depth + 1;
+  g_rpc_gap_active_seq = seq;
+  g_rpc_gap_active_id = rpc_id;
+  if (original != NULL) {
+    ((probe_samp_rpc_handler_fn)original)(rpc);
+    probe_log("rpc_gap: phase=end seq=%ld name=%s id=%u original_called=1 "
+              "evidence=STATIC_037,PROBE_TRACE,TODO_VERIFY",
+              (long)seq, name, rpc_id);
+  } else {
+    probe_log("rpc_gap: phase=end seq=%ld name=%s id=%u original_called=0 reason=missing_trampoline",
+              (long)seq, name, rpc_id);
+  }
+  g_rpc_gap_trace_depth = previous_depth;
+  g_rpc_gap_active_seq = previous_seq;
+  g_rpc_gap_active_id = previous_id;
+}
+
+static void __cdecl hook_samp_rpc_remove_building(probe_samp_rpc_parameters_prefix *rpc) {
+  call_samp_rpc_gap_original("RemoveBuildingForPlayer", 43u, rpc, g_orig_samp_rpc_remove_building);
+}
+
+static void __cdecl hook_samp_rpc_play_crime_report(probe_samp_rpc_parameters_prefix *rpc) {
+  call_samp_rpc_gap_original("PlayCrimeReport", 112u, rpc, g_orig_samp_rpc_play_crime_report);
+}
+
+static void __cdecl hook_samp_rpc_set_attached_object(probe_samp_rpc_parameters_prefix *rpc) {
+  call_samp_rpc_gap_original("SetPlayerAttachedObject", 113u, rpc, g_orig_samp_rpc_set_attached_object);
+}
+
+static void __cdecl hook_samp_rpc_edit_attached_object(probe_samp_rpc_parameters_prefix *rpc) {
+  call_samp_rpc_gap_original("EditAttachedObject", 116u, rpc, g_orig_samp_rpc_edit_attached_object);
+}
+
+static void __cdecl hook_samp_rpc_edit_object(probe_samp_rpc_parameters_prefix *rpc) {
+  call_samp_rpc_gap_original("EditObject", 117u, rpc, g_orig_samp_rpc_edit_object);
+}
+
+static void log_samp_remove_entity(const char *kind, void *entity, void *original) {
+  LONG call_seq = next_call_count(&g_rpc_gap_downstream_call_count);
+  uintptr_t address = (uintptr_t)entity;
+  DWORD matrix_before = read_u32_or(address + 0x14u, 0u);
+  WORD model_before = read_u16_or(address + 0x22u, 0xffffu);
+  BYTE removed_before = read_u8_or(address + 0x2fu, 0xffu);
+  float simple_z_before = read_f32_or(address + 0x0cu, 0.0f);
+  float matrix_z_before = read_f32_or((uintptr_t)matrix_before + 0x38u, 0.0f);
+  DWORD matrix_after;
+  WORD model_after;
+  BYTE removed_after;
+  float simple_z_after;
+  float matrix_z_after;
+
+  if (original != NULL) {
+    ((probe_samp_remove_entity_fn)original)(entity);
+  }
+  matrix_after = read_u32_or(address + 0x14u, 0u);
+  model_after = read_u16_or(address + 0x22u, 0xffffu);
+  removed_after = read_u8_or(address + 0x2fu, 0xffu);
+  simple_z_after = read_f32_or(address + 0x0cu, 0.0f);
+  matrix_z_after = read_f32_or((uintptr_t)matrix_after + 0x38u, 0.0f);
+  probe_log("rpc_gap_remove: call_seq=%ld rpc_seq=%ld rpc_id=%u kind=%s entity=%p model_before=%u "
+            "model_after=%u removed_before=%u removed_after=%u simple_z_before=%.6f simple_z_after=%.6f "
+            "matrix_before=%p matrix_after=%p matrix_z_before=%.6f matrix_z_after=%.6f original_called=%d "
+            "evidence=STATIC_037,PROBE_TRACE,TODO_VERIFY",
+            (long)call_seq, (long)(g_rpc_gap_trace_depth > 0 ? g_rpc_gap_active_seq : 0),
+            g_rpc_gap_trace_depth > 0 ? g_rpc_gap_active_id : 0u, kind, entity,
+            (unsigned)model_before, (unsigned)model_after, (unsigned)removed_before, (unsigned)removed_after,
+            simple_z_before, simple_z_after, (void *)(uintptr_t)matrix_before, (void *)(uintptr_t)matrix_after,
+            matrix_z_before, matrix_z_after, original != NULL);
+}
+
+static void __cdecl hook_samp_remove_object(void *entity) {
+  log_samp_remove_entity("object", entity, g_orig_samp_remove_object);
+}
+
+static void __cdecl hook_samp_remove_static(void *entity) {
+  log_samp_remove_entity("building_or_dummy", entity, g_orig_samp_remove_static);
+}
+
+static void WINAPI hook_samp_crime_report_helper(DWORD crime, const float *position, DWORD in_vehicle,
+                                                 DWORD vehicle_model, DWORD vehicle_color) {
+  LONG call_seq = next_call_count(&g_rpc_gap_downstream_call_count);
+  BYTE patch_before[16];
+  BYTE patch_after[16];
+  char before_hex[64];
+  char after_hex[64];
+  int before_readable = memory_is_readable(0x004e7529u, sizeof(patch_before));
+  int after_readable;
+
+  memset(patch_before, 0, sizeof(patch_before));
+  memset(patch_after, 0, sizeof(patch_after));
+  if (before_readable) {
+    memcpy(patch_before, (const void *)(uintptr_t)0x004e7529u, sizeof(patch_before));
+  }
+  if (g_orig_samp_crime_report_helper != NULL) {
+    ((probe_samp_crime_report_helper_fn)g_orig_samp_crime_report_helper)(crime, position, in_vehicle,
+                                                                        vehicle_model, vehicle_color);
+  }
+  after_readable = memory_is_readable(0x004e7529u, sizeof(patch_after));
+  if (after_readable) {
+    memcpy(patch_after, (const void *)(uintptr_t)0x004e7529u, sizeof(patch_after));
+  }
+  bytes_to_hex(patch_before, sizeof(patch_before), before_hex, sizeof(before_hex));
+  bytes_to_hex(patch_after, sizeof(patch_after), after_hex, sizeof(after_hex));
+  probe_log("rpc_gap_crime: call_seq=%ld rpc_seq=%ld crime=%lu pos=%.6f,%.6f,%.6f in_vehicle=%lu "
+            "vehicle_model=%lu vehicle_color=%lu patch_before_readable=%d patch_after_readable=%d "
+            "patch_before=%s patch_after=%s original_called=%d "
+            "evidence=STATIC_037,PROBE_TRACE,GTA_REVERSED_REF,TODO_VERIFY_AUDIO",
+            (long)call_seq, (long)(g_rpc_gap_trace_depth > 0 ? g_rpc_gap_active_seq : 0),
+            (unsigned long)crime, read_f32_or((uintptr_t)position, 0.0f),
+            read_f32_or((uintptr_t)position + 4u, 0.0f), read_f32_or((uintptr_t)position + 8u, 0.0f),
+            (unsigned long)in_vehicle, (unsigned long)vehicle_model, (unsigned long)vehicle_color,
+            before_readable, after_readable, before_hex, after_hex, g_orig_samp_crime_report_helper != NULL);
+}
+
+static void PROBE_THISCALL hook_samp_attached_object_helper(void *player_ped, DWORD index, const void *record) {
+  LONG call_seq = next_call_count(&g_rpc_gap_downstream_call_count);
+  BYTE input[PROBE_SAMP_ATTACHED_OBJECT_RECORD_SIZE];
+  BYTE stored[PROBE_SAMP_ATTACHED_OBJECT_RECORD_SIZE];
+  char input_hex[PROBE_SAMP_ATTACHED_OBJECT_RECORD_SIZE * 3 + 1];
+  char stored_hex[PROBE_SAMP_ATTACHED_OBJECT_RECORD_SIZE * 3 + 1];
+  int input_readable = memory_is_readable((uintptr_t)record, sizeof(input));
+  int stored_readable = 0;
+  uintptr_t stored_address = 0u;
+  DWORD active = 0u;
+  DWORD object = 0u;
+
+  memset(input, 0, sizeof(input));
+  memset(stored, 0, sizeof(stored));
+  if (input_readable) {
+    memcpy(input, record, sizeof(input));
+  }
+  if (g_orig_samp_attached_object_helper != NULL) {
+    ((probe_samp_attached_object_helper_fn)g_orig_samp_attached_object_helper)(player_ped, index, record);
+  }
+  if (index < 10u) {
+    stored_address = (uintptr_t)player_ped + 0x74u + (uintptr_t)index * PROBE_SAMP_ATTACHED_OBJECT_RECORD_SIZE;
+    stored_readable = memory_is_readable(stored_address, sizeof(stored));
+    if (stored_readable) {
+      memcpy(stored, (const void *)stored_address, sizeof(stored));
+    }
+    active = read_u32_or((uintptr_t)player_ped + 0x4cu + (uintptr_t)index * 4u, 0u);
+    object = read_u32_or((uintptr_t)player_ped + 0x27cu + (uintptr_t)index * 4u, 0u);
+  }
+  bytes_to_hex(input, sizeof(input), input_hex, sizeof(input_hex));
+  bytes_to_hex(stored, sizeof(stored), stored_hex, sizeof(stored_hex));
+  probe_log("rpc_gap_attached: call_seq=%ld rpc_seq=%ld player_ped=%p index=%lu input_readable=%d "
+            "model=%ld bone=%lu active=%lu object=%p stored=%p stored_readable=%d input_raw=%s stored_raw=%s "
+            "original_called=%d evidence=STATIC_037,PROBE_TRACE,TODO_VERIFY_BONE_MATRIX",
+            (long)call_seq, (long)(g_rpc_gap_trace_depth > 0 ? g_rpc_gap_active_seq : 0), player_ped,
+            (unsigned long)index, input_readable, (long)(int32_t)read_u32_or((uintptr_t)record, 0xffffffffu),
+            (unsigned long)read_u32_or((uintptr_t)record + 4u, 0u), (unsigned long)active,
+            (void *)(uintptr_t)object, (void *)stored_address, stored_readable, input_hex, stored_hex,
+            g_orig_samp_attached_object_helper != NULL);
+}
+
+static void log_samp_editor_state(const char *phase, void *editor, LONG call_seq) {
+  BYTE raw[64];
+  char raw_hex[sizeof(raw) * 3 + 1];
+  uintptr_t address = (uintptr_t)editor;
+  int readable = memory_is_readable(address + 0x78u, sizeof(raw));
+
+  memset(raw, 0, sizeof(raw));
+  if (readable) {
+    memcpy(raw, (const void *)(address + 0x78u), sizeof(raw));
+  }
+  bytes_to_hex(raw, sizeof(raw), raw_hex, sizeof(raw_hex));
+  probe_log("rpc_gap_editor: phase=%s call_seq=%ld rpc_seq=%ld rpc_id=%u editor=%p readable=%d "
+            "mode=%lu active=%lu object=%u attached_index=%lu object_kind=%lu pos=%.6f,%.6f,%.6f "
+            "ui_a=%p ui_b=%p ui_mode=%lu raw_78_b7=%s evidence=STATIC_037,PROBE_TRACE,TODO_VERIFY_GUI",
+            phase, (long)call_seq, (long)(g_rpc_gap_trace_depth > 0 ? g_rpc_gap_active_seq : 0),
+            g_rpc_gap_trace_depth > 0 ? g_rpc_gap_active_id : 0u, editor, readable,
+            (unsigned long)read_u32_or(address + 0x78u, 0u),
+            (unsigned long)read_u32_or(address + 0x80u, 0u),
+            (unsigned)read_u16_or(address + 0x88u, 0xffffu),
+            (unsigned long)read_u32_or(address + 0x8au, 0xffffffffu),
+            (unsigned long)read_u32_or(address + 0x8eu, 0xffffffffu),
+            read_f32_or(address + 0x92u, 0.0f), read_f32_or(address + 0x96u, 0.0f),
+            read_f32_or(address + 0x9au, 0.0f),
+            (void *)(uintptr_t)read_u32_or(address + 0x10bu, 0u),
+            (void *)(uintptr_t)read_u32_or(address + 0x10fu, 0u),
+            (unsigned long)read_u32_or(address + 0x113u, 0xffffffffu), raw_hex);
+}
+
+static void PROBE_THISCALL hook_samp_edit_object_begin(void *editor, DWORD object_id, DWORD player_object) {
+  LONG call_seq = next_call_count(&g_rpc_gap_downstream_call_count);
+  log_samp_editor_state("object.before", editor, call_seq);
+  if (g_orig_samp_edit_object_begin != NULL) {
+    ((probe_samp_edit_object_begin_fn)g_orig_samp_edit_object_begin)(editor, object_id, player_object);
+  }
+  log_samp_editor_state("object.after", editor, call_seq);
+  probe_log("rpc_gap_editor_begin: call_seq=%ld kind=object object=%lu player_object=%lu original_called=%d",
+            (long)call_seq, (unsigned long)object_id, (unsigned long)player_object,
+            g_orig_samp_edit_object_begin != NULL);
+}
+
+static void PROBE_THISCALL hook_samp_edit_attached_begin(void *editor, DWORD index) {
+  LONG call_seq = next_call_count(&g_rpc_gap_downstream_call_count);
+  log_samp_editor_state("attached.before", editor, call_seq);
+  if (g_orig_samp_edit_attached_begin != NULL) {
+    ((probe_samp_edit_attached_begin_fn)g_orig_samp_edit_attached_begin)(editor, index);
+  }
+  log_samp_editor_state("attached.after", editor, call_seq);
+  probe_log("rpc_gap_editor_begin: call_seq=%ld kind=attached index=%lu original_called=%d",
+            (long)call_seq, (unsigned long)index, g_orig_samp_edit_attached_begin != NULL);
 }
 
 static int should_log_textdraw_font_call(void *caller, LONG count) {

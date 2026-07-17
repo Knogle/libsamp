@@ -53,6 +53,9 @@ static const Float:RPC_MAP_ICON_CLUSTER_DISTANCE = 32.0;
 #define RPC_ACTOR_COUNT (4)
 #define RPC_ACTOR_PHASE_COUNT (8)
 #define RPC_ACTOR_TICK_MS (4000)
+#define RPC_PLAYER_ATTACHED_OBJECT_SLOT (0)
+#define RPC_PLAYER_ATTACHED_OBJECT_MODEL (18645)
+#define RPC_PLAYER_ATTACHED_OBJECT_BONE (2)
 
 // Four adjacent 180x180 radar quadrants around the fixed Area 51 spawn.
 static const Float:gRpcGangZoneBounds[RPC_GANG_ZONE_COUNT][4] = {
@@ -179,6 +182,7 @@ static gRpcCameraObject = INVALID_OBJECT_ID;
 static gRpcEditObject = INVALID_OBJECT_ID;
 static gRpcAttachedObject = INVALID_OBJECT_ID;
 static gRpcAttachedObjectPlayer = INVALID_PLAYER_ID;
+static bool:gRpcPlayerAttachedObjectActive[MAX_PLAYERS];
 static bool:gRpcShopEnabled[MAX_PLAYERS];
 static bool:gRpcColorAlternate[MAX_PLAYERS];
 static bool:gRpcMapIconBatchActive = false;
@@ -350,6 +354,7 @@ stock SendPlayerAudioChatRpcHelp(playerid)
 	SendClientMessage(playerid, 0xFFFFFFFF, "[bare-rpctest] /rpcaudiotest, /rpcaudiotestpos, /rpcstopaudio (fixed direct MP3 test)");
 	SendClientMessage(playerid, 0xFFFFFFFF, "[bare-rpctest] /rpcedit, /rpccanceledit, /rpcshop, /rpcaudio <url>, /rpcaudiopos <url>");
 	SendClientMessage(playerid, 0xFFFFFFFF, "[bare-rpctest] /rpcbubble <other player id>, /rpcteam <0-255>, /rpccolor, /rpcattach, /rpcattachoff");
+	SendClientMessage(playerid, 0xFFFFFFFF, "[bare-rpctest] /rpcpattach, /rpcpattachedit, /rpcpattachoff exercise RPC113/116; /rpccrime exercises RPC112.");
 	SendClientMessage(playerid, 0xFFFFFFFF, "[bare-rpctest] /rpcmapicons starts the 100-slot moving beacon; /rpcmapiconsoff removes it.");
 	SendClientMessage(playerid, 0xFFFFFFFF, "[bare-rpctest] /rpczones cycles RPC108/121/85/120 on four radar quadrants; /rpczonesoff cleans up.");
 	SendClientMessage(playerid, 0xFFFFFFFF, "[bare-rpctest] /rpcactors cycles legacy actor create/state/animation/stream operations; /rpcactorsoff cleans up.");
@@ -1212,6 +1217,52 @@ stock DestroyRpcAttachedObject(const reason[])
 	return 1;
 }
 
+stock ApplyRpcPlayerAttachedObject(playerid)
+{
+	if (!SetPlayerAttachedObject(
+		playerid,
+		RPC_PLAYER_ATTACHED_OBJECT_SLOT,
+		RPC_PLAYER_ATTACHED_OBJECT_MODEL,
+		RPC_PLAYER_ATTACHED_OBJECT_BONE,
+		0.0,
+		0.03,
+		0.0,
+		0.0,
+		90.0,
+		0.0,
+		1.0,
+		1.0,
+		1.0,
+		0xFFFFFFFF,
+		0x66CCFFFF))
+	{
+		SendClientMessage(playerid, 0xFF6666FF, "[bare-rpctest] Could not send RPC113 SetPlayerAttachedObject.");
+		return 0;
+	}
+
+	gRpcPlayerAttachedObjectActive[playerid] = true;
+	SendClientMessage(playerid, 0x66FF66FF,
+		"[bare-rpctest] RPC113 player-attached helmet set; /rpcpattachedit edits it, /rpcpattachoff removes it.");
+	printf("[bare-rpctest] RPC113 set player=%d slot=%d model=%d bone=%d",
+		playerid, RPC_PLAYER_ATTACHED_OBJECT_SLOT, RPC_PLAYER_ATTACHED_OBJECT_MODEL,
+		RPC_PLAYER_ATTACHED_OBJECT_BONE);
+	return 1;
+}
+
+stock RemoveRpcPlayerAttachedObject(playerid, const reason[])
+{
+	if (!gRpcPlayerAttachedObjectActive[playerid])
+	{
+		return 0;
+	}
+
+	RemovePlayerAttachedObject(playerid, RPC_PLAYER_ATTACHED_OBJECT_SLOT);
+	gRpcPlayerAttachedObjectActive[playerid] = false;
+	printf("[bare-rpctest] RPC113 remove player=%d slot=%d reason=%s",
+		playerid, RPC_PLAYER_ATTACHED_OBJECT_SLOT, reason);
+	return 1;
+}
+
 stock SampObjectScanModelAt(index)
 {
 	// PROBE_TRACE + TODO_VERIFY: compacted from local SA-MP 0.3.7 SAMP.ide objs section.
@@ -1681,6 +1732,7 @@ public OnPlayerConnect(playerid)
 	GetPlayerName(playerid, name, sizeof(name));
 	printf("[bare-rpctest] RPC137 ServerJoin player=%d name=%s npc=%d", playerid, name, IsPlayerNPC(playerid));
 
+	gRpcPlayerAttachedObjectActive[playerid] = false;
 	gRpcShopEnabled[playerid] = false;
 	gRpcColorAlternate[playerid] = false;
 	RemoveArea51BaseBuildings(playerid);
@@ -1775,6 +1827,50 @@ public OnPlayerCommandText(playerid, cmdtext[])
 		CancelEdit(playerid);
 		SendClientMessage(playerid, 0x66FF66FF, "[bare-rpctest] RPC28 CancelEdit sent.");
 		printf("[bare-rpctest] RPC28 CancelEdit player=%d", playerid);
+		return 1;
+	}
+
+	if (!strcmp(cmdtext, "/rpcpattach", true))
+	{
+		return ApplyRpcPlayerAttachedObject(playerid);
+	}
+
+	if (!strcmp(cmdtext, "/rpcpattachoff", true))
+	{
+		if (!RemoveRpcPlayerAttachedObject(playerid, "command"))
+		{
+			RemovePlayerAttachedObject(playerid, RPC_PLAYER_ATTACHED_OBJECT_SLOT);
+			SendClientMessage(playerid, 0xFFCC66FF, "[bare-rpctest] RPC113 remove sent for an inactive local test slot.");
+			printf("[bare-rpctest] RPC113 remove player=%d slot=%d reason=command_inactive",
+				playerid, RPC_PLAYER_ATTACHED_OBJECT_SLOT);
+			return 1;
+		}
+		SendClientMessage(playerid, 0x66FF66FF, "[bare-rpctest] RPC113 player-attached object removed.");
+		return 1;
+	}
+
+	if (!strcmp(cmdtext, "/rpcpattachedit", true))
+	{
+		if (!gRpcPlayerAttachedObjectActive[playerid] && !ApplyRpcPlayerAttachedObject(playerid))
+		{
+			return 1;
+		}
+		if (!EditAttachedObject(playerid, RPC_PLAYER_ATTACHED_OBJECT_SLOT))
+		{
+			SendClientMessage(playerid, 0xFF6666FF, "[bare-rpctest] Could not start RPC116 EditAttachedObject.");
+			return 1;
+		}
+		SendClientMessage(playerid, 0x66FF66FF, "[bare-rpctest] RPC116 attached-object editor active; Enter saves, Escape cancels.");
+		printf("[bare-rpctest] RPC116 begin player=%d slot=%d",
+			playerid, RPC_PLAYER_ATTACHED_OBJECT_SLOT);
+		return 1;
+	}
+
+	if (!strcmp(cmdtext, "/rpccrime", true))
+	{
+		PlayCrimeReportForPlayer(playerid, playerid, 16);
+		SendClientMessage(playerid, 0x66FF66FF, "[bare-rpctest] RPC112 crime report sent for the local player.");
+		printf("[bare-rpctest] RPC112 player=%d suspect=%d crime=%d", playerid, playerid, 16);
 		return 1;
 	}
 
@@ -2679,6 +2775,7 @@ public OnPlayerDisconnect(playerid, reason)
 	{
 		DestroyRpcAttachedObject("disconnect");
 	}
+	RemoveRpcPlayerAttachedObject(playerid, "disconnect");
 	gRpcShopEnabled[playerid] = false;
 	gRpcColorAlternate[playerid] = false;
 	return 1;
@@ -2691,6 +2788,13 @@ public OnGameModeExit()
 	StopRpcActorBatch(INVALID_PLAYER_ID, true);
 	StopSampObjectScan(INVALID_PLAYER_ID, true);
 	DestroyRpcAttachedObject("gamemode_exit");
+	for (new playerid = 0; playerid < MAX_PLAYERS; playerid++)
+	{
+		if (gRpcPlayerAttachedObjectActive[playerid])
+		{
+			RemoveRpcPlayerAttachedObject(playerid, "gamemode_exit");
+		}
+	}
 	if (gRpcEditObject != INVALID_OBJECT_ID)
 	{
 		DestroyObject(gRpcEditObject);
@@ -2825,6 +2929,50 @@ public OnPlayerWeaponShot(playerid, WEAPON:weaponid, BULLET_HIT_TYPE:hittype, hi
 {
 	printf("[bare-vtest] OnPlayerWeaponShot player=%d weapon=%d hittype=%d hitid=%d pos=%.3f %.3f %.3f",
 		playerid, _:weaponid, _:hittype, hitid, fX, fY, fZ);
+	return 1;
+}
+
+/// Logs outgoing RPC117 responses from the client-side object editor.
+/// Reference: https://open.mp/docs/scripting/callbacks/OnPlayerEditObject
+public OnPlayerEditObject(playerid, playerobject, objectid, EDIT_RESPONSE:response, Float:fX, Float:fY, Float:fZ, Float:fRotX, Float:fRotY, Float:fRotZ)
+{
+	printf("[bare-rpctest] RPC117 edit_object_response player=%d playerobject=%d object=%d response=%d pos=%.3f,%.3f,%.3f rot=%.3f,%.3f,%.3f",
+		playerid, playerobject, objectid, _:response, fX, fY, fZ, fRotX, fRotY, fRotZ);
+	if (objectid == gRpcEditObject && (response == EDIT_RESPONSE_FINAL || response == EDIT_RESPONSE_UPDATE))
+	{
+		SetObjectPos(objectid, fX, fY, fZ);
+		SetObjectRot(objectid, fRotX, fRotY, fRotZ);
+	}
+	return 1;
+}
+
+/// Logs outgoing RPC116 responses from the client-side attached-object editor.
+/// Reference: https://open.mp/docs/scripting/callbacks/OnPlayerEditAttachedObject
+public OnPlayerEditAttachedObject(playerid, EDIT_RESPONSE:response, index, modelid, boneid, Float:fOffsetX, Float:fOffsetY, Float:fOffsetZ, Float:fRotX, Float:fRotY, Float:fRotZ, Float:fScaleX, Float:fScaleY, Float:fScaleZ)
+{
+	printf("[bare-rpctest] RPC116 edit_attached_response player=%d response=%d index=%d model=%d bone=%d offset=%.3f,%.3f,%.3f rot=%.3f,%.3f,%.3f scale=%.3f,%.3f,%.3f",
+		playerid, _:response, index, modelid, boneid,
+		fOffsetX, fOffsetY, fOffsetZ, fRotX, fRotY, fRotZ, fScaleX, fScaleY, fScaleZ);
+	if (index == RPC_PLAYER_ATTACHED_OBJECT_SLOT && response == EDIT_RESPONSE_FINAL)
+	{
+		SetPlayerAttachedObject(
+			playerid,
+			index,
+			modelid,
+			boneid,
+			fOffsetX,
+			fOffsetY,
+			fOffsetZ,
+			fRotX,
+			fRotY,
+			fRotZ,
+			fScaleX,
+			fScaleY,
+			fScaleZ,
+			0xFFFFFFFF,
+			0x66CCFFFF);
+		gRpcPlayerAttachedObjectActive[playerid] = true;
+	}
 	return 1;
 }
 
