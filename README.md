@@ -4,14 +4,14 @@
 
 # libsamp
 
-**Libre-SAMP: experimental drop-in replacement for the SA-MP 0.3.7-R5
-`samp.dll`.**
+**Libre-SAMP: compatibility-focused drop-in replacement for the SA-MP
+0.3.7-R5 `samp.dll`.**
 
 Runtime traces, original DLL reverse engineering, open.mp compatibility work,
 and an ASI probe for reproducible client-side instrumentation.
 
 [![build](https://github.com/Knogle/libsamp/actions/workflows/build.yml/badge.svg)](https://github.com/Knogle/libsamp/actions/workflows/build.yml)
-[![status](https://img.shields.io/badge/status-experimental-orange)](#current-status)
+[![status](https://img.shields.io/badge/status-playable%20milestone-brightgreen)](#current-status)
 [![target](https://img.shields.io/badge/target-SA--MP%200.3.7--R5-blue)](#what-it-is)
 [![platform](https://img.shields.io/badge/platform-Windows%20x86-informational)](#build-from-source)
 [![toolchain](https://img.shields.io/badge/toolchain-CMake%20%2B%20MinGW--w64-6f42c1)](#build-from-source)
@@ -69,72 +69,99 @@ part of this repository.
 
 ## Current Status
 
-This is not feature-complete. The current network-enabled development milestone
-can connect, enter the gameplay state on tested local servers, handle
-chat/dialog flows, spawn the local player, create vehicles, show core HUD/UI
-elements, and render a growing subset of TextDraw behavior.
+Libre-SAMP has reached a playable compatibility milestone. The replacement now
+boots GTA San Andreas, connects to tested local SA-MP 0.3.7/open.mp servers,
+completes class selection and spawn, and runs feature-heavy legacy gamemodes.
+The broad RPC gap pass for the currently agreed compatibility scope is largely
+complete; development has moved into consolidation, regression testing, and
+closer original-R5 parity work.
 
-Known active work areas:
+Implemented and exercised surfaces include:
 
-- Remote player sync, interpolation, nametags, and radar blips.
-- Full RPC coverage with safe stubs and bounds-checked payload readers.
-- SA-MP custom object loading and material handling.
-- TextDraw parity for model previews, sprites, spacing, selection, and alpha.
-- Vehicle sync details such as components, lock state, objective markers, and
-  streaming budget.
-- CI parity checks once public reference fixtures are available.
+- Loading and pre-connect presentation, RakNet join, class selection, spawn,
+  death/F4 flows, GMX handling, and full connection-loss reset back to the
+  pre-connect state.
+- Chat, commands, fragmented dialogs and responses, menus, mouse mode, the TAB
+  player list, player-pool updates, and core local/remote sync paths.
+- GTA vehicles, actors, normal and SA-MP custom atomic objects, object movement,
+  materials/material text, attachments, map icons, gang zones, checkpoints,
+  3D labels, GameText, and building removal.
+- SA-MP HUD and UI behavior, GTA CFont-backed TextDraws, Font 5 model previews,
+  class selection, death window, weather/time, camera, spectating, player
+  attributes, weapons, animations, and advanced vehicle RPCs.
+- BASS-backed audio streams, GTA sound/scanner integration, attached-object and
+  object editing with wire-compatible responses, plus bounds-checked RPC
+  decoding and detailed runtime traces.
 
-See [repo/TASK_TRACKER.md](repo/TASK_TRACKER.md) for the current task tracker.
+This is still a compatibility rebuild, not a byte-for-byte finished clone.
+Current work is concentrated on:
+
+- Golden-trace consolidation and repeatable original/replacement regression
+  scenarios, including two-client and long-running sessions.
+- Exact R5 presentation details such as attachment bone matrices, the original
+  edit gizmo/camera behavior, scanner phrasing, and visual edge cases.
+- Generic `samp.saa` ArchiveFS virtualization and remaining custom-asset
+  streaming/material edge cases.
+- Remote-player/vehicle interpolation, uncommon RPC and pool edge cases,
+  defensive payload tests, and remaining pickup behavior.
+- PE layout/import parity and other binary-surface differences that do not
+  currently block the tested runtime milestone.
 
 ## Screenshots
 
-Current development snapshots from local compatibility runs:
+Replacement-client snapshots from a local feature-heavy legacy gamemode run on
+2026-07-18:
 
 <table>
   <tr>
     <td width="50%">
-      <img src="assets/readme/lv-airport.jpg" alt="LV Airport gameplay with world text and HUD">
+      <img src="assets/readme/loading-screen.jpg" alt="Libre-SAMP loading screen with RakNet branding">
       <br>
-      <sub>Gameplay state, HUD, chat, and world text rendering.</sub>
+      <sub>Replacement DLL startup and loading-screen path.</sub>
     </td>
-    <td width="50%">
-      <img src="assets/readme/dialog-renderer.jpg" alt="In-game SA-MP-style dialog renderer">
-      <br>
-      <sub>SA-MP-style dialog rendering during pre-connect flow.</sub>
-    </td>
-  </tr>
-  <tr>
     <td width="50%">
       <img src="assets/readme/preconnect-panorama.jpg" alt="Pre-connect panorama camera in the desert">
       <br>
-      <sub>Pre-connect panorama camera and status overlay.</sub>
-    </td>
-    <td width="50%">
-      <img src="assets/readme/sfr-objects.jpg" alt="Gameplay scene with vehicles and server objects">
-      <br>
-      <sub>Vehicles, local world streaming, and server-driven objects.</sub>
+      <sub>Pre-connect panorama, status overlay, and session-ready state.</sub>
     </td>
   </tr>
   <tr>
     <td width="50%">
-      <img src="assets/readme/loading-screen.jpg" alt="Libre-SAMP loading screen">
+      <img src="assets/readme/dialog-renderer.jpg" alt="SA-MP list dialog over server class selection">
       <br>
-      <sub>Custom loading screen asset path.</sub>
+      <sub>Server dialog rendering, selection, mouse input, and response flow.</sub>
     </td>
     <td width="50%">
-      <img src="assets/readme/player-list.jpg" alt="Player list overlay with two connected players">
+      <img src="assets/readme/sfr-objects.jpg" alt="Server-driven class selection scene with custom objects">
       <br>
-      <sub>Player list overlay with local and remote player rows.</sub>
+      <sub>Class selection, camera control, TextDraws, and custom object scene.</sub>
+    </td>
+  </tr>
+  <tr>
+    <td width="50%">
+      <img src="assets/readme/lv-airport.jpg" alt="Las Venturas Airport scene with many vehicles and custom objects">
+      <br>
+      <sub>Vehicle pools, map objects, labels, HUD, radar, and world streaming.</sub>
+    </td>
+    <td width="50%">
+      <img src="assets/readme/player-list.jpg" alt="Player list overlay during live vehicle gameplay">
+      <br>
+      <sub>Live gameplay with vehicle sync, chat, HUD, radar, and TAB player list.</sub>
     </td>
   </tr>
 </table>
 
 ## Highlights
 
-- Win32 `samp.dll` drop-in rebuild with PE/export compatibility tracking.
-- Vendored Knogle/RakNet transport path for SA-MP/open.mp-oriented networking.
-- Runtime bridge for GTA-SA state, UI, dialogs, chat, TextDraws, vehicles, and
-  basic world state.
+- Playable Win32 `samp.dll` drop-in rebuild with PE/export compatibility
+  tracking and a broad, bounds-checked SA-MP RPC surface.
+- Vendored Knogle/RakNet transport with join, reconnect, sync, dialog/menu, and
+  client-to-server response paths for SA-MP/open.mp-oriented networking.
+- GTA-SA runtime integration for players, vehicles, actors, objects and custom
+  models, materials, world state, audio, cameras, HUD, TextDraws, dialogs,
+  menus, labels, markers, and editing flows.
+- Legacy lifecycle behavior covering loading, pre-connect, class selection,
+  spawn/death, GMX, disconnect, and reconnect preparation.
 - ASI probe included under [tools/asi_probe](tools/asi_probe) for repeatable
   instrumentation and golden trace collection.
 - Evidence-tagged documentation model:
@@ -198,9 +225,11 @@ reference paths. Runtime parity still depends on golden-trace verification.
 
 ## Documentation
 
-- [Task tracker](repo/TASK_TRACKER.md)
+- [Original public-milestone task tracker](repo/TASK_TRACKER.md)
 - [Publication checklist](repo/PUBLICATION_CHECKLIST.md)
 - [Reverse-engineering evidence guide](repo/RE_EVIDENCE_GUIDE.md)
+- [Current RPC attachment/edit/crime/building pass](docs/re/rpc_attach_edit_crime_removebuilding_20260717.md)
+- [Legacy feature gap matrix](docs/re/legacy_feature_gap_matrix_20260609.md)
 - [TextDraw render stack notes](docs/re/textdraw_render_stack.md)
 - [Custom asset pipeline notes](docs/re/samp_custom_asset_pipeline.md)
 - [ASI probe README](tools/asi_probe/README.md)
