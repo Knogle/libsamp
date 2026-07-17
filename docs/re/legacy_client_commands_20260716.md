@@ -22,7 +22,7 @@ yet been reconstructed.
 
 | Command | Observed purpose | Replacement status |
 | --- | --- | --- |
-| `quit`, `q` | Disconnect and exit | Implemented as `/quit` and `/q` |
+| `quit`, `q` | Disconnect and exit | Implemented as `/quit` and `/q`; follows the original delayed exit path described below |
 | `save` | Append Pawn `AddPlayerClass`/`AddStaticVehicle` line to `savedpositions.txt` | Implemented as `/save` and `/savepos` |
 | `rs` | Append compact raw coordinates to `rawpositions.txt`/`rawvehicles.txt` | Implemented |
 | `rcon` | Send an RCON command | Implemented as the original packet `0xC9` plus `DWORD` length and command bytes; payloads are redacted from replacement traces/history |
@@ -101,6 +101,17 @@ The original toggle keys (`audiomsgoff`, `logurls`, `disableheadmove`, and
 `nonametagstatus`) are statically confirmed. The replacement currently keeps
 these values for the life of the DLL rather than writing the original client
 configuration; persistence is `TODO_VERIFY`.
+
+## Delayed quit behavior reproduced
+
+`STATIC_037`: in the R5 binary identified above, both `q` and `quit` register
+the thunk at `samp.dll+0x689E0`, which jumps to `samp.dll+0xC3E80`. The handler
+disconnects RakNet with `(500, 0)`, sets a quit-after-frame latch, and records
+`GetTickCount()`; it does not post `WM_CLOSE` or call `PostQuitMessage`.
+`samp.dll+0xC504F` checks the latch from the frame path, waits for more than
+1,000 ms, destroys the NetGame instance, and calls `ExitProcess(0)` at
+`samp.dll+0xC508B`. The replacement mirrors that sequence so GTA does not begin
+world teardown after its global EntryInfoNode pool has already been cleared.
 
 ## Legacy `save` behavior reproduced
 

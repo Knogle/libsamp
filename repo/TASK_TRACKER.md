@@ -189,7 +189,10 @@ States:
   no missing blocks, no HUD dropouts.
 - [todo] `P1` Implement `RemoveBuildingForPlayer` and test against server-side
   map scenes.
-- [todo] `P1` GangZones: create/destroy/show/hide/flash/stop flash.
+- [verify] `P1` GangZones: RPC 108/120/121/85 pool, 1024-slot recovery
+  snapshot, shared 500 ms flashing, radar/pause-map call hooks, lifecycle
+  reset, and four-zone bare fixture. Evidence: `STATIC_037`, `OPENMP_REF`;
+  replacement visual run remains `TODO_VERIFY`.
 - [todo] `P2` Camera RPCs: interpolate, attach, spectate, reset.
 
 ## 13. Audio

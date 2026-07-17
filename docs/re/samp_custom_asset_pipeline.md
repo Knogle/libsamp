@@ -330,6 +330,37 @@ Render-hook validation target: GTA SA 1.0 US `gta_sa.exe`, SHA256
 
 ## Concrete Next Slice
 
+### Switchable custom-object ModelInfo/render path
+
+`MTA_REF + PROBE_TRACE + INFERRED + TODO_VERIFY`: the replacement accepts
+`SAMPDLL_CUSTOM_OBJECT_RENDER_PATH=heap` through the process environment or
+`sampdll.ini`. `heap` is the default and currently the only enabled path. It
+skips AtomicModelInfo-store relocation, clones a validated atomic template into
+one heap allocation per indexed custom `objs` model, clears its runtime
+reference, collision and RenderWare ownership, and installs the pointer directly
+in `CModelInfo::ms_modelInfoPtrs`. GTA still uses its ordinary streaming,
+RenderWare and script-opcode object creation; this is not a Direct3D proxy path.
+Synthetic atomic entries reset template-owned 2DFX/object-info/ownership fields
+to GTA's `CBaseModelInfo::Init` baseline and apply the parsed IDE flags through
+GTA `SetAtomicModelInfoFlags` (`gta_sa.exe` VA `0x5B3B20`). This includes
+`DRAW_LAST` for alpha-sorted custom models such as `Tube50mGlass1` (18809).
+
+The relocated-store `native` implementation remains compiled as a diagnostic
+fallback, but its runtime selection is disabled while the heap path is being
+qualified. An old `native`, `store`, or `0` setting therefore selects `heap` and
+is reported as `native_disabled=1` in `samp_runtime.log`. The selection is cached
+and therefore requires a game restart.
+
+For an A/B run, keep server, route and object IDs identical and compare
+`object_model_state` phases `pre_request`, `post_request`, `post_load`,
+`post_create`, `pre_destroy`, and `post_destroy`. The rows include actual
+`model_info_path`, ModelInfo/vtable/key, TXD slot/streaming row, `pColModel`,
+RenderWare object and DFF streaming state. `object_lifecycle: create_end` and
+`destroy_end` additionally record the GTA object/entity lifetime. Probe model
+15417 only when the loaded IDE actually indexes it; the stock SA-MP high custom
+range begins at 18631, so 18631 and later observed IDs are the authoritative
+stock test set.
+
 1. `STATIC_037 + PROBE_TRACE + TODO_VERIFY`: keep mapping the original early-init IDE/archive function RVAs so
    the replacement can move custom model registration from late object fallback toward the original startup path.
 2. `PROBE_TRACE + TODO_VERIFY`: verify the default full bulk pass reports `considered=1433`, `skipped=0`, IDE-order
