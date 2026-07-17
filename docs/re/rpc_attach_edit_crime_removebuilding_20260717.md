@@ -35,13 +35,24 @@ Evidence: `STATIC_037`. GTA scanner type/address/signature are corroborated by g
 
 ## Verification state
 
-| Area | Current estimate | Still required |
-| --- | ---: | --- |
-| RemoveBuildingForPlayer | 85% | Replacement visual run plus an R5 comparison for stream-in/reconnect edge cases. |
-| PlayCrimeReport | 75% | Audible replacement run; R5 trace for remote-suspect temporary vehicle description. |
-| Set/RemovePlayerAttachedObject | 55% | R5 bone-matrix render path, non-uniform scale and two material colours. |
-| EditObject/EditAttachedObject | 70% | Original 3D gizmo/camera-control parity and visual drag behavior. |
-| Combined scope | 68% | Weighted engineering estimate, not protocol coverage. Wire decode/encode is substantially further along than visual parity. |
+Project acceptance decision, 2026-07-17: these four RPC areas are **I.O.** for
+the current compatibility scope.  The known differences below are retained as
+non-blocking parity notes; this decision does not reclassify them as exact R5
+visual or audio behavior.
+
+| Area | Compatibility status | Known non-blocking parity notes |
+| --- | --- | --- |
+| RemoveBuildingForPlayer | **I.O. / accepted** | A focused R5 comparison for stream-in/reconnect edge cases would provide stronger visual evidence. |
+| PlayCrimeReport | **I.O. / accepted** | Audible phrasing and the remote-suspect temporary vehicle description are not trace-matched to R5. |
+| Set/RemovePlayerAttachedObject | **I.O. / accepted** | The compatibility renderer does not reproduce the full R5 bone-matrix path, non-uniform scale and both material colours exactly. |
+| EditObject/EditAttachedObject | **I.O. / accepted** | The compatibility overlay is not the original 3D gizmo/camera-control and drag implementation. |
+| Combined accepted scope | **100% accepted** | Wire handling and the compatibility runtime are complete for the agreed scope; exact presentation parity remains outside this acceptance gate. |
+
+`PROBE_TRACE`: the replacement attachment run completed dialog 13501, the
+fragmented 2518-character dialog 13503, dialog 13504, RPC 113, RPC 116, the
+edit response and subsequent chat/sync traffic without `ID_MODIFIED_PACKET` or
+disconnect.  RPC 117 remains available as a focused regression route, but is
+not a blocker for this acceptance decision.
 
 ## Repro route
 

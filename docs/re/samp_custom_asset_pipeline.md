@@ -379,8 +379,10 @@ stock test set.
    wrong collision.
 8. `OPENMP_REF + PROBE_TRACE + TODO_VERIFY`: verify attached custom objects on original and replacement runs,
    especially vehicle/object parent ordering and player attachments sent through RPC 75.
-9. `OPENMP_REF + PROBE_TRACE + TODO_VERIFY`: implement `RemoveBuildingForPlayer` beyond decode-only,
-   since the Area51 script sends RPC 43 before the custom objects.
+9. **CLOSED / I.O.** (`STATIC_037 + OPENMP_REF + PROBE_TRACE`):
+   `RemoveBuildingForPlayer` is implemented beyond decode-only, persists its
+   rules and reapplies them while streaming. Exact R5 visual comparison is a
+   non-blocking parity note rather than an open RPC gap.
 10. `PROBE_TRACE + STATIC_037`: rerun SuperFreeroam and require matching `object-material-decode: queue` /
     authoritative-revision / `object_material: persist` totals, successful `object_material: resolved`, and at
     least one `object_material: render_apply`. Exercise both an inline-material Create resync and a forced object-ring
