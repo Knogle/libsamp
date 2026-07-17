@@ -213,6 +213,13 @@ if(SAMPDLL_BUILD_TESTS)
 
     add_test(NAME samp_client_transport COMMAND test_samp_client_transport)
 
+    add_executable(test_raknet_split_reassembly
+      tests/test_raknet_split_reassembly.cpp
+    )
+    target_link_libraries(test_raknet_split_reassembly PRIVATE sampdll_net)
+
+    add_test(NAME raknet_split_reassembly COMMAND test_raknet_split_reassembly)
+
     add_executable(test_raknet_bridge
       tests/test_raknet_bridge.c
     )
