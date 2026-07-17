@@ -13,7 +13,11 @@ It is intended for local reverse-engineering and compatibility work:
 7. optionally patch selected GTA-SA asset-loading functions for original-DLL
    object loading traces,
 8. watch known GTA-SA memory locations that SA-MP commonly patches,
-9. emit decoded `state:` snapshots for the loading-to-session transition.
+9. emit decoded `state:` snapshots for the loading-to-session transition,
+10. optionally trace the seven original-R5 Actor RPC handlers after RakNet
+    decryption and before/after original handler execution,
+11. optionally correlate those RPCs through ActorPool/CActor into bounded
+    CPed snapshots, direct GTA calls, and actor-scoped SCM opcode dispatches.
 
 The first pass rewrites selected import slots inside `samp.dll`, so observed calls are attributable to `samp.dll` rather than process-global Wine/WinDbg noise.
 
@@ -145,6 +149,8 @@ SAMP_PROBE_TEXTDRAW_HOOKS=1
 SAMP_PROBE_TEXTDRAW_VERBOSE=1
 SAMP_PROBE_TEXTDRAW_RENDER=1
 SAMP_PROBE_FONT5_HOOKS=1
+SAMP_PROBE_ACTOR_HOOKS=1
+SAMP_PROBE_ACTOR_HEAVY=1
 ```
 
 The asset trace can also be toggled through files next to the ASI:
@@ -160,6 +166,8 @@ samp_probe_textdraw_hooks.flag
 samp_probe_textdraw_verbose.flag
 samp_probe_textdraw_render.flag
 samp_probe_font5_hooks.flag
+samp_probe_actor_hooks.flag
+samp_probe_actor_heavy.flag
 ```
 
 Use `samp_probe_asset_paths.flag` for normal original-DLL golden traces. It logs interesting SA-MP asset opens, size queries, seeks, and closes. `samp_probe_file_hooks.flag` additionally hooks `ReadFile`; keep that for short, targeted runs only because original 0.3.7 performs large overlapped reads against the SAMP archives.
@@ -223,6 +231,58 @@ SHA256=`b72b5dbe725f81864ca3f78bc7063bda56cc05fc7188af822fa7a754432553a2`.
 The probe requires the matching PE timestamp, entry RVA, image size, and exact
 function prologues before installing either hook. Other DLL identities are
 logged as `unsupported_identity` and remain unmodified.
+
+For a focused original-R5 Actor run, enable `samp_probe_actor_hooks.flag` by
+itself. It does not enable the stale generic `samp.dll` network hooks. The
+Actor hook set is installed atomically and traces the plaintext payload plus a
+bounded semantic decode for:
+
+- `samp.dll+0x0000eab0`: RPC 171 `ShowActor`;
+- `samp.dll+0x00011e00`: RPC 172 `HideActor`;
+- `samp.dll+0x0001d750`: RPC 173 `ApplyActorAnimation`;
+- `samp.dll+0x0001d930`: RPC 174 `ClearActorAnimations`;
+- `samp.dll+0x0001d9f0`: RPC 175 `SetActorFacingAngle`;
+- `samp.dll+0x0001dad0`: RPC 176 `SetActorPos`;
+- `samp.dll+0x0001dbe0`: RPC 178 `SetActorHealth`.
+
+`STATIC_037`: these registrations and handlers were recovered from the local
+original DLL with
+SHA256=`b72b5dbe725f81864ca3f78bc7063bda56cc05fc7188af822fa7a754432553a2`.
+The probe requires that exact PE identity proxy, exact complete-instruction
+prologues, and decoded overwrite lengths for all seven handlers before it
+patches the first one. Six prologues contain PE-relocated SEH metadata
+immediates; their opcodes and referenced RVAs are validated against the active
+module base instead of comparing preferred-base absolute bytes. Each
+successful call emits matching
+`actor_rpc: phase=begin` and `phase=end` lines.
+
+For the full original-client Actor pipeline, use
+`samp_probe_actor_heavy.flag` instead. Heavy mode implies the seven RPC hooks
+and additionally installs one atomic eight-hook R5 set:
+
+- `ActorPool::New/Delete` at `samp.dll+0x1900/+0x16f0`;
+- `CActor::ApplyAnimation`, `ClearAnimations`, `SetFacingAngle`, `SetHealth`,
+  `SetInvulnerable`, and `SetPosition` at their byte-validated R5 RVAs.
+
+Each stage emits `actor_heavy_slot`, `actor_heavy_object`, and
+`actor_heavy_ped` before/after records. These contain the exact five
+per-Actor pool entries, the complete bounded 0x56-byte CActor allocation, and
+selected CPed/matrix windows including model, health, armour, aiming rotation,
+task intelligence, position, vtable, and the position vfunc target.
+
+Heavy mode also byte-validates the local GTA executable
+SHA256=`a559aa772fd136379155efa71f00c47aad34bbfeae6196b0fe1047d0645cbd26`
+before tracing `CPed::Teleport @ 0x5e4110`,
+`CPedIntelligence::FlushImmediately @ 0x601640`, and
+`CRunningScript::ProcessOneCommand @ 0x469eb0`. The hot script dispatcher is
+logged only while a typed Actor method is active and only when its caller is
+the proven SA-MP bridge return site `samp.dll+0xb22ee`. Actor-related dynamic
+SCM records appear as `actor_heavy_scm` with the raw opcode, decoded name,
+instruction pointer, compare flag, and enclosing RPC/method sequence.
+
+Heavy mode is intentionally process-bound and noisy. Use it for one short
+`/rpcactors` cycle, exit the process cleanly, and discard any run that lacks
+all three `set_preflight_ok` markers or contains `incomplete_*`/`exception:`.
 
 Run this focused probe process-bound: do not hot-unload the ASI. End the
 `gta_sa.exe` process after the short capture so its code and COM-vtable hooks

@@ -18,6 +18,8 @@
 #define PROBE_TEXTDRAW_VERBOSE_FLAG "samp_probe_textdraw_verbose.flag"
 #define PROBE_TEXTDRAW_RENDER_FLAG "samp_probe_textdraw_render.flag"
 #define PROBE_FONT5_HOOKS_FLAG "samp_probe_font5_hooks.flag"
+#define PROBE_ACTOR_HOOKS_FLAG "samp_probe_actor_hooks.flag"
+#define PROBE_ACTOR_HEAVY_FLAG "samp_probe_actor_heavy.flag"
 #define PROBE_MAX_IMPORT_LOGS 4096
 #define PROBE_WATCH_INTERVAL_MS 250
 #define PROBE_WAIT_FOR_SAMP_MS 30000
@@ -79,8 +81,57 @@
 #define PROBE_SAMP_R5_TIMESTAMP 0x6372c39eu
 #define PROBE_SAMP_R5_ENTRY_RVA 0x000cbc90u
 #define PROBE_SAMP_R5_IMAGE_SIZE 0x0027e000u
+#define PROBE_SAMP_R5_PREFERRED_IMAGE_BASE 0x10000000u
 #define PROBE_SAMP_R5_FONT5_PREPARE_RVA 0x000b34a0u
 #define PROBE_SAMP_R5_FONT5_DRAW_DISPATCH_RVA 0x000b3480u
+#define PROBE_SAMP_R5_ACTOR_SHOW_RVA 0x0000eab0u
+#define PROBE_SAMP_R5_ACTOR_HIDE_RVA 0x00011e00u
+#define PROBE_SAMP_R5_ACTOR_APPLY_ANIMATION_RVA 0x0001d750u
+#define PROBE_SAMP_R5_ACTOR_CLEAR_ANIMATIONS_RVA 0x0001d930u
+#define PROBE_SAMP_R5_ACTOR_SET_FACING_ANGLE_RVA 0x0001d9f0u
+#define PROBE_SAMP_R5_ACTOR_SET_POSITION_RVA 0x0001dad0u
+#define PROBE_SAMP_R5_ACTOR_SET_HEALTH_RVA 0x0001dbe0u
+#define PROBE_SAMP_R5_ACTOR_POOL_DELETE_RVA 0x000016f0u
+#define PROBE_SAMP_R5_ACTOR_POOL_NEW_RVA 0x00001900u
+#define PROBE_SAMP_R5_REMOTE_ACTOR_APPLY_ANIMATION_RVA 0x0009c460u
+#define PROBE_SAMP_R5_REMOTE_ACTOR_CLEAR_ANIMATIONS_RVA 0x0009c550u
+#define PROBE_SAMP_R5_REMOTE_ACTOR_SET_FACING_ANGLE_RVA 0x0009c570u
+#define PROBE_SAMP_R5_REMOTE_ACTOR_SET_HEALTH_RVA 0x0009c5d0u
+#define PROBE_SAMP_R5_REMOTE_ACTOR_SET_INVULNERABLE_RVA 0x0009c700u
+#define PROBE_SAMP_R5_REMOTE_ACTOR_SET_POSITION_RVA 0x0009f040u
+#define PROBE_SAMP_R5_NETGAME_PTR_RVA 0x0026eb94u
+#define PROBE_SAMP_R5_NETGAME_POOLS_OFFSET 0x000003deu
+#define PROBE_SAMP_R5_POOLS_ACTOR_POOL_OFFSET 0x00000010u
+#define PROBE_SAMP_R5_ACTOR_POOL_SIZE 0x00004e24u
+#define PROBE_SAMP_R5_ACTOR_POOL_CAPACITY 1000u
+#define PROBE_SAMP_R5_ACTOR_POOL_REMOTE_OFFSET 0x00000004u
+#define PROBE_SAMP_R5_ACTOR_POOL_ACTIVE_OFFSET 0x00000fa4u
+#define PROBE_SAMP_R5_ACTOR_POOL_PED_OFFSET 0x00001f44u
+#define PROBE_SAMP_R5_ACTOR_POOL_FLAG_A_OFFSET 0x00002ee4u
+#define PROBE_SAMP_R5_ACTOR_POOL_FLAG_B_OFFSET 0x00003e84u
+#define PROBE_SAMP_R5_REMOTE_ACTOR_SIZE 0x56u
+#define PROBE_SAMP_R5_REMOTE_ACTOR_ENTITY_OFFSET 0x40u
+#define PROBE_SAMP_R5_REMOTE_ACTOR_HANDLE_OFFSET 0x44u
+#define PROBE_SAMP_R5_REMOTE_ACTOR_PED_OFFSET 0x48u
+#define PROBE_SAMP_R5_REMOTE_ACTOR_INVULNERABLE_OFFSET 0x55u
+#define PROBE_GTA_R5_PROCESS_ONE_COMMAND_ADDR 0x00469eb0u
+#define PROBE_GTA_R5_PED_TELEPORT_ADDR 0x005e4110u
+#define PROBE_GTA_R5_PED_INTELLIGENCE_FLUSH_ADDR 0x00601640u
+#define PROBE_GTA_PED_MATRIX_OFFSET 0x14u
+#define PROBE_GTA_PED_MODEL_INDEX_OFFSET 0x22u
+#define PROBE_GTA_PED_FLAGS_OFFSET 0x46cu
+#define PROBE_GTA_PED_INTELLIGENCE_OFFSET 0x47cu
+#define PROBE_GTA_PED_HEALTH_OFFSET 0x540u
+#define PROBE_GTA_PED_ARMOUR_OFFSET 0x548u
+#define PROBE_GTA_PED_AIMING_ROTATION_OFFSET 0x55cu
+#define PROBE_SAMP_ACTOR_RPC_SHOW 171u
+#define PROBE_SAMP_ACTOR_RPC_HIDE 172u
+#define PROBE_SAMP_ACTOR_RPC_APPLY_ANIMATION 173u
+#define PROBE_SAMP_ACTOR_RPC_CLEAR_ANIMATIONS 174u
+#define PROBE_SAMP_ACTOR_RPC_SET_FACING_ANGLE 175u
+#define PROBE_SAMP_ACTOR_RPC_SET_POSITION 176u
+#define PROBE_SAMP_ACTOR_RPC_SET_HEALTH 178u
+#define PROBE_SAMP_ACTOR_RPC_MAX_BITS 8192u
 
 #if defined(__GNUC__)
 #define PROBE_ALWAYS_INLINE static __inline__ __attribute__((always_inline))
@@ -128,6 +179,21 @@ typedef int(__cdecl *probe_gta_col_add_slot_fn)(const char *);
 typedef int(__cdecl *probe_gta_col_load_buffer_fn)(int, void *, int);
 typedef void(PROBE_THISCALL *probe_gta_physical_add_fn)(void *);
 typedef void(PROBE_THISCALL *probe_samp_font5_method_fn)(void *);
+typedef struct probe_samp_rpc_parameters_prefix {
+  const BYTE *input;
+  int number_of_bits_of_data;
+} probe_samp_rpc_parameters_prefix;
+typedef void(__cdecl *probe_samp_rpc_handler_fn)(probe_samp_rpc_parameters_prefix *);
+typedef int(PROBE_THISCALL *probe_samp_actor_pool_new_fn)(void *, const void *);
+typedef int(PROBE_THISCALL *probe_samp_actor_pool_delete_fn)(void *, DWORD);
+typedef void(PROBE_THISCALL *probe_samp_remote_actor_apply_animation_fn)(
+    void *, DWORD, DWORD, DWORD, DWORD, DWORD, DWORD, DWORD, DWORD);
+typedef void(PROBE_THISCALL *probe_samp_remote_actor_void_fn)(void *);
+typedef void(PROBE_THISCALL *probe_samp_remote_actor_dword_fn)(void *, DWORD);
+typedef void(PROBE_THISCALL *probe_samp_remote_actor_position_fn)(void *, DWORD, DWORD, DWORD);
+typedef void(PROBE_THISCALL *probe_gta_ped_teleport_fn)(void *, DWORD, DWORD, DWORD, DWORD);
+typedef void(PROBE_THISCALL *probe_gta_ped_intelligence_flush_fn)(void *, DWORD);
+typedef int(PROBE_THISCALL *probe_gta_process_one_command_fn)(void *);
 typedef void(__cdecl *probe_gta_font_set_scale_fn)(float, float);
 typedef void(__cdecl *probe_gta_font_set_color_fn)(DWORD);
 typedef void(__cdecl *probe_gta_font_set_int_fn)(int);
@@ -315,6 +381,24 @@ static void *g_orig_GetFileSize;
 static void *g_orig_CloseHandle;
 static void *g_orig_samp_socketlayer_sendto;
 static void *g_orig_samp_process_network_packet;
+static void *g_orig_samp_actor_show;
+static void *g_orig_samp_actor_hide;
+static void *g_orig_samp_actor_apply_animation;
+static void *g_orig_samp_actor_clear_animations;
+static void *g_orig_samp_actor_set_facing_angle;
+static void *g_orig_samp_actor_set_position;
+static void *g_orig_samp_actor_set_health;
+static void *g_orig_samp_actor_pool_new;
+static void *g_orig_samp_actor_pool_delete;
+static void *g_orig_samp_remote_actor_apply_animation;
+static void *g_orig_samp_remote_actor_clear_animations;
+static void *g_orig_samp_remote_actor_set_facing_angle;
+static void *g_orig_samp_remote_actor_set_health;
+static void *g_orig_samp_remote_actor_set_invulnerable;
+static void *g_orig_samp_remote_actor_set_position;
+static void *g_orig_gta_ped_teleport;
+static void *g_orig_gta_ped_intelligence_flush;
+static void *g_orig_gta_process_one_command;
 static void *g_orig_gta_add_atomic_model;
 static void *g_orig_gta_add_time_model;
 static void *g_orig_gta_add_clump_model;
@@ -374,9 +458,20 @@ static PROBE_THREAD_LOCAL int g_file_hook_depth;
 static PROBE_THREAD_LOCAL int g_textdraw_render_hook_depth;
 static PROBE_THREAD_LOCAL int g_font5_trace_depth;
 static PROBE_THREAD_LOCAL LONG g_font5_active_seq;
+static PROBE_THREAD_LOCAL int g_actor_rpc_trace_depth;
+static PROBE_THREAD_LOCAL LONG g_actor_active_rpc_seq;
+static PROBE_THREAD_LOCAL unsigned g_actor_active_rpc_id;
+static PROBE_THREAD_LOCAL unsigned g_actor_active_id;
+static PROBE_THREAD_LOCAL int g_actor_heavy_scope_depth;
+static PROBE_THREAD_LOCAL LONG g_actor_heavy_scope_seq;
+static PROBE_THREAD_LOCAL unsigned g_actor_heavy_scope_id;
+static PROBE_THREAD_LOCAL const char *g_actor_heavy_scope_name;
 static LONG g_textdraw_font_call_count;
 static LONG g_textdraw_render_call_count;
 static LONG g_font5_trace_call_count;
+static LONG g_actor_rpc_call_count;
+static LONG g_actor_heavy_call_count;
+static volatile LONG g_actor_heavy_global_scope_depth;
 static LONG g_textdraw_current_font_style = -1;
 static LONG g_d3d_device_hooks_installed;
 static DWORD g_textdraw_render_hint_until_ms;
@@ -396,6 +491,8 @@ static int textdraw_hooks_enabled(void);
 static int textdraw_verbose_enabled(void);
 static int textdraw_render_enabled(void);
 static int font5_hooks_enabled(void);
+static int actor_hooks_enabled(void);
+static int actor_heavy_enabled(void);
 static PIMAGE_NT_HEADERS get_samp_nt_headers(void);
 static LONG CALLBACK probe_exception_handler(PEXCEPTION_POINTERS info);
 static int WINAPI hook_WSAStartup(WORD version, LPWSADATA data);
@@ -443,6 +540,26 @@ static int __cdecl hook_gta_col_load_buffer(int slot, void *buffer, int size);
 static void PROBE_THISCALL hook_gta_physical_add(void *entity);
 static void PROBE_THISCALL hook_samp_font5_prepare(void *textdraw);
 static void PROBE_THISCALL hook_samp_font5_draw_dispatch(void *textdraw);
+static void __cdecl hook_samp_actor_show(probe_samp_rpc_parameters_prefix *rpc);
+static void __cdecl hook_samp_actor_hide(probe_samp_rpc_parameters_prefix *rpc);
+static void __cdecl hook_samp_actor_apply_animation(probe_samp_rpc_parameters_prefix *rpc);
+static void __cdecl hook_samp_actor_clear_animations(probe_samp_rpc_parameters_prefix *rpc);
+static void __cdecl hook_samp_actor_set_facing_angle(probe_samp_rpc_parameters_prefix *rpc);
+static void __cdecl hook_samp_actor_set_position(probe_samp_rpc_parameters_prefix *rpc);
+static void __cdecl hook_samp_actor_set_health(probe_samp_rpc_parameters_prefix *rpc);
+static int PROBE_THISCALL hook_samp_actor_pool_new(void *actor_pool, const void *show_data);
+static int PROBE_THISCALL hook_samp_actor_pool_delete(void *actor_pool, DWORD actor_id);
+static void PROBE_THISCALL hook_samp_remote_actor_apply_animation(
+    void *remote_actor, DWORD animation, DWORD library, DWORD delta, DWORD loop, DWORD lock_x, DWORD lock_y,
+    DWORD freeze, DWORD time);
+static void PROBE_THISCALL hook_samp_remote_actor_clear_animations(void *remote_actor);
+static void PROBE_THISCALL hook_samp_remote_actor_set_facing_angle(void *remote_actor, DWORD angle);
+static void PROBE_THISCALL hook_samp_remote_actor_set_health(void *remote_actor, DWORD health);
+static void PROBE_THISCALL hook_samp_remote_actor_set_invulnerable(void *remote_actor, DWORD enabled);
+static void PROBE_THISCALL hook_samp_remote_actor_set_position(void *remote_actor, DWORD x, DWORD y, DWORD z);
+static void PROBE_THISCALL hook_gta_ped_teleport(void *ped, DWORD x, DWORD y, DWORD z, DWORD reset_rotation);
+static void PROBE_THISCALL hook_gta_ped_intelligence_flush(void *intelligence, DWORD set_default_task);
+static int PROBE_THISCALL hook_gta_process_one_command(void *script);
 static void __cdecl hook_gta_font_set_scale(float x, float y);
 static void __cdecl hook_gta_font_set_color(DWORD color);
 static void __cdecl hook_gta_font_set_style(int style);
@@ -651,6 +768,84 @@ static probe_code_hook g_samp_font5_code_hooks[] = {
     {"samp.CTextDraw.DrawDispatch", PROBE_SAMP_R5_FONT5_DRAW_DISPATCH_RVA,
      (void *)hook_samp_font5_draw_dispatch, &g_orig_samp_font5_draw_dispatch,
      {0x83, 0xb9, 0xa3, 0x09, 0x00, 0x00, 0xff}, 7, NULL, NULL, {0}, 0, 0},
+};
+
+static probe_code_hook g_samp_actor_code_hooks[] = {
+    /* STATIC_037:
+     * Local original samp.dll SHA256=
+     * b72b5dbe725f81864ca3f78bc7063bda56cc05fc7188af822fa7a754432553a2.
+     * RegisterAsRemoteProcedureCall xrefs at samp.dll+0x12743/+0x12754 and
+     * samp.dll+0x1e6ed..+0x1e73d map these exact handlers to RPC
+     * 171,172,173,174,175,176,178. The expected bytes cover complete decoded
+     * instructions and are checked as one all-or-nothing hook set. */
+    {"samp.Actor.Show.RPC171", PROBE_SAMP_R5_ACTOR_SHOW_RVA, (void *)hook_samp_actor_show,
+     &g_orig_samp_actor_show, {0x6a, 0xff, 0x68, 0xeb, 0x05, 0x0e, 0x10}, 7, NULL, NULL, {0}, 0, 0},
+    {"samp.Actor.Hide.RPC172", PROBE_SAMP_R5_ACTOR_HIDE_RVA, (void *)hook_samp_actor_hide,
+     &g_orig_samp_actor_hide, {0x6a, 0xff, 0x68, 0xcb, 0x0a, 0x0e, 0x10}, 7, NULL, NULL, {0}, 0, 0},
+    {"samp.Actor.ApplyAnimation.RPC173", PROBE_SAMP_R5_ACTOR_APPLY_ANIMATION_RVA,
+     (void *)hook_samp_actor_apply_animation, &g_orig_samp_actor_apply_animation,
+     {0x55, 0x8b, 0xec, 0x83, 0xe4, 0xf8}, 6, NULL, NULL, {0}, 0, 0},
+    {"samp.Actor.ClearAnimations.RPC174", PROBE_SAMP_R5_ACTOR_CLEAR_ANIMATIONS_RVA,
+     (void *)hook_samp_actor_clear_animations, &g_orig_samp_actor_clear_animations,
+     {0x6a, 0xff, 0x68, 0x5b, 0x16, 0x0e, 0x10}, 7, NULL, NULL, {0}, 0, 0},
+    {"samp.Actor.SetFacingAngle.RPC175", PROBE_SAMP_R5_ACTOR_SET_FACING_ANGLE_RVA,
+     (void *)hook_samp_actor_set_facing_angle, &g_orig_samp_actor_set_facing_angle,
+     {0x6a, 0xff, 0x68, 0x7b, 0x16, 0x0e, 0x10}, 7, NULL, NULL, {0}, 0, 0},
+    {"samp.Actor.SetPosition.RPC176", PROBE_SAMP_R5_ACTOR_SET_POSITION_RVA,
+     (void *)hook_samp_actor_set_position, &g_orig_samp_actor_set_position,
+     {0x6a, 0xff, 0x68, 0x9b, 0x16, 0x0e, 0x10}, 7, NULL, NULL, {0}, 0, 0},
+    {"samp.Actor.SetHealth.RPC178", PROBE_SAMP_R5_ACTOR_SET_HEALTH_RVA,
+     (void *)hook_samp_actor_set_health, &g_orig_samp_actor_set_health,
+     {0x6a, 0xff, 0x68, 0xbb, 0x16, 0x0e, 0x10}, 7, NULL, NULL, {0}, 0, 0},
+};
+
+static probe_code_hook g_samp_actor_heavy_code_hooks[] = {
+    /* STATIC_037:
+     * Exact R5 ActorPool and CActor methods reached by the seven RPC handlers.
+     * The local original samp.dll SHA256 is
+     * b72b5dbe725f81864ca3f78bc7063bda56cc05fc7188af822fa7a754432553a2.
+     * Every expected byte span is a complete x86 instruction sequence and the
+     * complete set is preflighted before any heavy hook is installed. */
+    {"samp.ActorPool.New", PROBE_SAMP_R5_ACTOR_POOL_NEW_RVA, (void *)hook_samp_actor_pool_new,
+     &g_orig_samp_actor_pool_new, {0x64, 0xa1, 0x00, 0x00, 0x00, 0x00}, 6, NULL, NULL, {0}, 0, 0},
+    {"samp.ActorPool.Delete", PROBE_SAMP_R5_ACTOR_POOL_DELETE_RVA, (void *)hook_samp_actor_pool_delete,
+     &g_orig_samp_actor_pool_delete, {0x66, 0x8b, 0x44, 0x24, 0x04}, 5, NULL, NULL, {0}, 0, 0},
+    {"samp.CActor.ApplyAnimation", PROBE_SAMP_R5_REMOTE_ACTOR_APPLY_ANIMATION_RVA,
+     (void *)hook_samp_remote_actor_apply_animation, &g_orig_samp_remote_actor_apply_animation,
+     {0x55, 0x8b, 0xe9, 0x8b, 0x45, 0x48}, 6, NULL, NULL, {0}, 0, 0},
+    {"samp.CActor.ClearAnimations", PROBE_SAMP_R5_REMOTE_ACTOR_CLEAR_ANIMATIONS_RVA,
+     (void *)hook_samp_remote_actor_clear_animations, &g_orig_samp_remote_actor_clear_animations,
+     {0x8b, 0x49, 0x48, 0x85, 0xc9}, 5, NULL, NULL, {0}, 0, 0},
+    {"samp.CActor.SetFacingAngle", PROBE_SAMP_R5_REMOTE_ACTOR_SET_FACING_ANGLE_RVA,
+     (void *)hook_samp_remote_actor_set_facing_angle, &g_orig_samp_remote_actor_set_facing_angle,
+     {0x56, 0x8b, 0xf1, 0x8b, 0x46, 0x48}, 6, NULL, NULL, {0}, 0, 0},
+    {"samp.CActor.SetHealth", PROBE_SAMP_R5_REMOTE_ACTOR_SET_HEALTH_RVA,
+     (void *)hook_samp_remote_actor_set_health, &g_orig_samp_remote_actor_set_health,
+     {0x8b, 0x41, 0x48, 0x85, 0xc0}, 5, NULL, NULL, {0}, 0, 0},
+    {"samp.CActor.SetInvulnerable", PROBE_SAMP_R5_REMOTE_ACTOR_SET_INVULNERABLE_RVA,
+     (void *)hook_samp_remote_actor_set_invulnerable, &g_orig_samp_remote_actor_set_invulnerable,
+     {0x8b, 0x41, 0x48, 0x85, 0xc0}, 5, NULL, NULL, {0}, 0, 0},
+    {"samp.CActor.SetPosition", PROBE_SAMP_R5_REMOTE_ACTOR_SET_POSITION_RVA,
+     (void *)hook_samp_remote_actor_set_position, &g_orig_samp_remote_actor_set_position,
+     {0x55, 0x8b, 0xec, 0x51, 0x8b, 0x41, 0x40}, 7, NULL, NULL, {0}, 0, 0},
+};
+
+static probe_code_hook g_gta_actor_heavy_code_hooks[] = {
+    /* STATIC_037 + GTA_REVERSED_REF:
+     * Direct downstream calls proven from the R5 CActor methods above. The
+     * local gta_sa.exe SHA256 is
+     * a559aa772fd136379155efa71f00c47aad34bbfeae6196b0fe1047d0645cbd26.
+     * Facing and positive health have no GTA call: R5 writes CPed+0x55c and
+     * CPed+0x540 directly, so their evidence comes from the CPed snapshots. */
+    {"gta.CPed.Teleport", PROBE_GTA_R5_PED_TELEPORT_ADDR, (void *)hook_gta_ped_teleport,
+     &g_orig_gta_ped_teleport, {0x56, 0x8b, 0xf1, 0x8b, 0x86, 0x98, 0x05, 0x00, 0x00}, 9,
+     NULL, NULL, {0}, 0, 0},
+    {"gta.CPedIntelligence.FlushImmediately", PROBE_GTA_R5_PED_INTELLIGENCE_FLUSH_ADDR,
+     (void *)hook_gta_ped_intelligence_flush, &g_orig_gta_ped_intelligence_flush,
+     {0x6a, 0xff, 0x68, 0x26, 0xe8, 0x83, 0x00}, 7, NULL, NULL, {0}, 0, 0},
+    {"gta.CRunningScript.ProcessOneCommand", PROBE_GTA_R5_PROCESS_ONE_COMMAND_ADDR,
+     (void *)hook_gta_process_one_command, &g_orig_gta_process_one_command,
+     {0x66, 0xff, 0x05, 0xf4, 0x47, 0xa4, 0x00}, 7, NULL, NULL, {0}, 0, 0},
 };
 
 static probe_code_hook g_gta_asset_code_hooks[] = {
@@ -977,6 +1172,23 @@ static int font5_hooks_enabled(void) {
    * proxy plus validated prologue bytes. The dedicated switch also enables the
    * D3D render tracer so one short run captures dispatch and RTT activity. */
   return env_or_flag_enabled("SAMP_PROBE_FONT5_HOOKS", PROBE_FONT5_HOOKS_FLAG);
+}
+
+static int actor_hooks_enabled(void) {
+  /* STATIC_037 + TODO_VERIFY:
+   * Focused actor tracing patches only the seven byte-validated R5 RPC
+   * handlers. It remains separately opt-in and does not enable the stale
+   * generic samp.dll network hooks. */
+  return env_or_flag_enabled("SAMP_PROBE_ACTOR_HOOKS", PROBE_ACTOR_HOOKS_FLAG) || actor_heavy_enabled();
+}
+
+static int actor_heavy_enabled(void) {
+  /* STATIC_037 + TODO_VERIFY:
+   * Heavy actor tracing adds typed ActorPool/CActor hooks, bounded object and
+   * CPed snapshots, two direct GTA downstream hooks, and a scope-filtered SCM
+   * dispatch trace. The hot dispatcher logs only while a typed Actor method is
+   * active and only for the proven samp.dll+0xb22ee bridge return site. */
+  return env_or_flag_enabled("SAMP_PROBE_ACTOR_HEAVY", PROBE_ACTOR_HEAVY_FLAG);
 }
 
 PROBE_ALWAYS_INLINE void *probe_return_address(void) {
@@ -2693,7 +2905,7 @@ static int install_samp_code_hooks(int log_summary) {
   return installed;
 }
 
-static int samp_font5_identity_matches(void) {
+static int samp_r5_identity_matches(void) {
   PIMAGE_NT_HEADERS nt = get_samp_nt_headers();
 
   /* PROBE_TRACE (original R5 run 2026-07-15 23:15): get_samp_nt_headers()
@@ -2789,7 +3001,7 @@ static int install_samp_font5_code_hooks(int log_summary) {
     }
     return 0;
   }
-  if (!samp_font5_identity_matches()) {
+  if (!samp_r5_identity_matches()) {
     if (log_summary) {
       PIMAGE_NT_HEADERS actual_nt = get_samp_nt_headers();
       DWORD actual_timestamp = actual_nt != NULL ? actual_nt->FileHeader.TimeDateStamp : 0u;
@@ -2860,6 +3072,315 @@ static int font5_code_hooks_active(void) {
     }
   }
   return 1;
+}
+
+static int preflight_samp_actor_code_hooks(void) {
+  size_t i;
+
+  /* STATIC_037 + TODO_VERIFY:
+   * Validate the complete Actor RPC hook set before mutating the first handler.
+   * A partial install would make the resulting trace ambiguous and is never
+   * accepted as evidence. */
+  for (i = 0; i < sizeof(g_samp_actor_code_hooks) / sizeof(g_samp_actor_code_hooks[0]); ++i) {
+    probe_code_hook *hook = &g_samp_actor_code_hooks[i];
+    void *patch_target;
+    size_t readable_len;
+    size_t patch_len;
+
+    if (hook->expected_len < 5 || hook->expected_len > sizeof(hook->expected) ||
+        hook->expected_len > PROBE_INLINE_HOOK_MAX_COPY) {
+      probe_log("actor_code_hook: set_preflight_failed name=%s rva=0x%08lx reason=invalid_expected_len len=%lu",
+                hook->name, (unsigned long)hook->rva, (unsigned long)hook->expected_len);
+      return 0;
+    }
+
+    readable_len = hook->expected_len > 8 ? hook->expected_len : 8;
+    if (g_samp_base == 0 || g_samp_size < readable_len || hook->rva >= g_samp_size ||
+        hook->rva > g_samp_size - readable_len) {
+      probe_log("actor_code_hook: set_preflight_failed name=%s rva=0x%08lx reason=target_bounds",
+                hook->name, (unsigned long)hook->rva);
+      return 0;
+    }
+
+    patch_target = (void *)(g_samp_base + (uintptr_t)hook->rva);
+    if (patch_target == hook->replacement || !memory_is_readable((uintptr_t)patch_target, readable_len)) {
+      probe_log("actor_code_hook: set_preflight_failed name=%s rva=0x%08lx target=%p reason=unreadable_target",
+                hook->name, (unsigned long)hook->rva, patch_target);
+      return 0;
+    }
+
+    if (hook->expected_len == 7 && hook->expected[0] == 0x6a && hook->expected[1] == 0xff &&
+        hook->expected[2] == 0x68) {
+      DWORD preferred_absolute = 0;
+      DWORD actual_absolute = 0;
+      DWORD expected_runtime_absolute;
+      DWORD referenced_rva;
+
+      /* STATIC_037 + PROBE_TRACE (original run 2026-07-16 22:37):
+       * Six Actor handlers start with `push -1; push <SEH metadata>`. The PE
+       * loader applies HIGHLOW relocation to that absolute immediate whenever
+       * Wine cannot use 0x10000000. Validate its invariant target RVA instead
+       * of comparing the preferred-base bytes, then seed install_samp_code_hook
+       * with the already validated runtime bytes. */
+      memcpy(&preferred_absolute, hook->expected + 3, sizeof(preferred_absolute));
+      memcpy(&actual_absolute, (const BYTE *)patch_target + 3, sizeof(actual_absolute));
+      if (preferred_absolute < PROBE_SAMP_R5_PREFERRED_IMAGE_BASE) {
+        probe_log("actor_code_hook: set_preflight_failed name=%s rva=0x%08lx target=%p "
+                  "reason=preferred_relocation_underflow preferred=0x%08lx",
+                  hook->name, (unsigned long)hook->rva, patch_target, (unsigned long)preferred_absolute);
+        return 0;
+      }
+      referenced_rva = preferred_absolute - PROBE_SAMP_R5_PREFERRED_IMAGE_BASE;
+      if (referenced_rva >= g_samp_size ||
+          g_samp_base > (uintptr_t)(0xffffffffu - referenced_rva)) {
+        probe_log("actor_code_hook: set_preflight_failed name=%s rva=0x%08lx target=%p "
+                  "reason=relocation_target_bounds referenced_rva=0x%08lx",
+                  hook->name, (unsigned long)hook->rva, patch_target, (unsigned long)referenced_rva);
+        return 0;
+      }
+      expected_runtime_absolute = (DWORD)(g_samp_base + (uintptr_t)referenced_rva);
+      if (memcmp(patch_target, hook->expected, 3) != 0 || actual_absolute != expected_runtime_absolute) {
+        BYTE bytes[8];
+        char hex[40];
+        memcpy(bytes, patch_target, sizeof(bytes));
+        bytes_to_hex(bytes, sizeof(bytes), hex, sizeof(hex));
+        probe_log("actor_code_hook: set_preflight_failed name=%s rva=0x%08lx target=%p "
+                  "reason=relocated_prologue actual=%s referenced_rva=0x%08lx "
+                  "expected_runtime=0x%08lx actual_runtime=0x%08lx",
+                  hook->name, (unsigned long)hook->rva, patch_target, hex, (unsigned long)referenced_rva,
+                  (unsigned long)expected_runtime_absolute, (unsigned long)actual_absolute);
+        return 0;
+      }
+      memcpy(hook->expected + 3, &actual_absolute, sizeof(actual_absolute));
+      probe_log("actor_code_hook: relocation_ok name=%s rva=0x%08lx referenced_rva=0x%08lx "
+                "runtime_absolute=0x%08lx evidence=STATIC_037,PROBE_TRACE",
+                hook->name, (unsigned long)hook->rva, (unsigned long)referenced_rva,
+                (unsigned long)actual_absolute);
+    } else if (memcmp(patch_target, hook->expected, hook->expected_len) != 0) {
+      BYTE bytes[8];
+      char hex[40];
+      memcpy(bytes, patch_target, sizeof(bytes));
+      bytes_to_hex(bytes, sizeof(bytes), hex, sizeof(hex));
+      probe_log("actor_code_hook: set_preflight_failed name=%s rva=0x%08lx target=%p reason=prologue actual=%s",
+                hook->name, (unsigned long)hook->rva, patch_target, hex);
+      return 0;
+    }
+
+    patch_len = calculate_patch_length(patch_target);
+    if (patch_len == 0 || patch_len != hook->expected_len || hook->rva > g_samp_size - patch_len) {
+      probe_log("actor_code_hook: set_preflight_failed name=%s rva=0x%08lx target=%p reason=patch_len "
+                "decoded=%lu expected=%lu",
+                hook->name, (unsigned long)hook->rva, patch_target, (unsigned long)patch_len,
+                (unsigned long)hook->expected_len);
+      return 0;
+    }
+  }
+
+  probe_log("actor_code_hook: set_preflight_ok hooks=%u evidence=STATIC_037,TODO_VERIFY",
+            (unsigned)(sizeof(g_samp_actor_code_hooks) / sizeof(g_samp_actor_code_hooks[0])));
+  return 1;
+}
+
+static int install_samp_actor_code_hooks(int log_summary) {
+  size_t i;
+  size_t hook_count = sizeof(g_samp_actor_code_hooks) / sizeof(g_samp_actor_code_hooks[0]);
+  size_t already_installed = 0;
+  int installed = 0;
+
+  if (!actor_hooks_enabled()) {
+    if (log_summary) {
+      probe_log("actor_code_hook: disabled by default; enable with SAMP_PROBE_ACTOR_HOOKS=1 or %s",
+                PROBE_ACTOR_HOOKS_FLAG);
+    }
+    return 0;
+  }
+  if (env_flag_enabled("SAMP_PROBE_NO_SAMP_CODE_HOOKS")) {
+    if (log_summary) {
+      probe_log("actor_code_hook: disabled by SAMP_PROBE_NO_SAMP_CODE_HOOKS");
+    }
+    return 0;
+  }
+  if (!samp_r5_identity_matches()) {
+    if (log_summary) {
+      PIMAGE_NT_HEADERS actual_nt = get_samp_nt_headers();
+      DWORD actual_timestamp = actual_nt != NULL ? actual_nt->FileHeader.TimeDateStamp : 0u;
+      DWORD actual_entry = actual_nt != NULL ? actual_nt->OptionalHeader.AddressOfEntryPoint : 0u;
+      DWORD actual_header_size = actual_nt != NULL ? actual_nt->OptionalHeader.SizeOfImage : 0u;
+      probe_log("actor_code_hook: skip unsupported_identity headers_valid=%d "
+                "timestamp_expected=0x%08lx timestamp_actual=0x%08lx "
+                "entry_expected=0x%08lx entry_actual=0x%08lx "
+                "size_expected=0x%08lx header_size_actual=0x%08lx module_size_actual=0x%08lx supported_sha256="
+                "b72b5dbe725f81864ca3f78bc7063bda56cc05fc7188af822fa7a754432553a2 "
+                "evidence=STATIC_037,TODO_VERIFY",
+                actual_nt != NULL, (unsigned long)PROBE_SAMP_R5_TIMESTAMP, (unsigned long)actual_timestamp,
+                (unsigned long)PROBE_SAMP_R5_ENTRY_RVA, (unsigned long)actual_entry,
+                (unsigned long)PROBE_SAMP_R5_IMAGE_SIZE, (unsigned long)actual_header_size,
+                (unsigned long)g_samp_size);
+    }
+    return 0;
+  }
+
+  for (i = 0; i < hook_count; ++i) {
+    LONG state = InterlockedCompareExchange(&g_samp_actor_code_hooks[i].installed, 0, 0);
+    if (state == 1) {
+      ++already_installed;
+    } else if (state != 0) {
+      return 0;
+    }
+  }
+  if (already_installed == hook_count) {
+    return 0;
+  }
+  if (already_installed != 0) {
+    if (log_summary) {
+      probe_log("actor_code_hook: skip partial_prior_state installed=%u requested=%u",
+                (unsigned)already_installed, (unsigned)hook_count);
+    }
+    return 0;
+  }
+
+  if (!preflight_samp_actor_code_hooks()) {
+    for (i = 0; i < hook_count; ++i) {
+      InterlockedExchange(&g_samp_actor_code_hooks[i].installed, -1);
+    }
+    return 0;
+  }
+
+  for (i = 0; i < hook_count; ++i) {
+    installed += install_samp_code_hook(&g_samp_actor_code_hooks[i]);
+  }
+  if ((size_t)installed != hook_count) {
+    probe_log("actor_code_hook: incomplete_install installed=%d requested=%u; discard run and terminate process",
+              installed, (unsigned)hook_count);
+  }
+  if (log_summary) {
+    probe_log("actor_code_hook: summary installed=%d requested=%u supported_sha256="
+              "b72b5dbe725f81864ca3f78bc7063bda56cc05fc7188af822fa7a754432553a2 "
+              "evidence=STATIC_037,TODO_VERIFY",
+              installed, (unsigned)hook_count);
+  }
+  return installed;
+}
+
+static int samp_actor_code_hooks_active(void) {
+  size_t i;
+
+  for (i = 0; i < sizeof(g_samp_actor_code_hooks) / sizeof(g_samp_actor_code_hooks[0]); ++i) {
+    if (InterlockedCompareExchange(&g_samp_actor_code_hooks[i].installed, 0, 0) != 1) {
+      return 0;
+    }
+  }
+  return 1;
+}
+
+static int preflight_samp_actor_heavy_code_hooks(void) {
+  size_t i;
+
+  for (i = 0; i < sizeof(g_samp_actor_heavy_code_hooks) / sizeof(g_samp_actor_heavy_code_hooks[0]); ++i) {
+    probe_code_hook *hook = &g_samp_actor_heavy_code_hooks[i];
+    void *target;
+    size_t readable_len;
+    size_t patch_len;
+
+    if (hook->expected_len < 5 || hook->expected_len > sizeof(hook->expected) ||
+        hook->expected_len > PROBE_INLINE_HOOK_MAX_COPY) {
+      probe_log("actor_heavy_hook: set_preflight_failed name=%s rva=0x%08lx reason=invalid_expected_len len=%lu",
+                hook->name, (unsigned long)hook->rva, (unsigned long)hook->expected_len);
+      return 0;
+    }
+    readable_len = hook->expected_len > 8 ? hook->expected_len : 8;
+    if (g_samp_base == 0 || hook->rva >= g_samp_size || hook->rva > g_samp_size - readable_len) {
+      probe_log("actor_heavy_hook: set_preflight_failed name=%s rva=0x%08lx reason=target_bounds",
+                hook->name, (unsigned long)hook->rva);
+      return 0;
+    }
+    target = (void *)(g_samp_base + (uintptr_t)hook->rva);
+    if (target == hook->replacement || !memory_is_readable((uintptr_t)target, readable_len) ||
+        memcmp(target, hook->expected, hook->expected_len) != 0) {
+      BYTE bytes[12];
+      char hex[56];
+      if (memory_is_readable((uintptr_t)target, sizeof(bytes))) {
+        memcpy(bytes, target, sizeof(bytes));
+        bytes_to_hex(bytes, sizeof(bytes), hex, sizeof(hex));
+      } else {
+        snprintf(hex, sizeof(hex), "unreadable");
+      }
+      probe_log("actor_heavy_hook: set_preflight_failed name=%s rva=0x%08lx target=%p reason=prologue actual=%s",
+                hook->name, (unsigned long)hook->rva, target, hex);
+      return 0;
+    }
+    patch_len = calculate_patch_length(target);
+    if (patch_len == 0 || patch_len != hook->expected_len) {
+      probe_log("actor_heavy_hook: set_preflight_failed name=%s rva=0x%08lx target=%p reason=patch_len "
+                "decoded=%lu expected=%lu",
+                hook->name, (unsigned long)hook->rva, target, (unsigned long)patch_len,
+                (unsigned long)hook->expected_len);
+      return 0;
+    }
+  }
+
+  probe_log("actor_heavy_hook: set_preflight_ok samp_hooks=%u actor_pool_size=0x%04x capacity=%u "
+            "evidence=STATIC_037,TODO_VERIFY",
+            (unsigned)(sizeof(g_samp_actor_heavy_code_hooks) / sizeof(g_samp_actor_heavy_code_hooks[0])),
+            (unsigned)PROBE_SAMP_R5_ACTOR_POOL_SIZE, (unsigned)PROBE_SAMP_R5_ACTOR_POOL_CAPACITY);
+  return 1;
+}
+
+static int install_samp_actor_heavy_code_hooks(int log_summary) {
+  size_t i;
+  size_t hook_count = sizeof(g_samp_actor_heavy_code_hooks) / sizeof(g_samp_actor_heavy_code_hooks[0]);
+  size_t already_installed = 0;
+  int installed = 0;
+
+  if (!actor_heavy_enabled()) {
+    if (log_summary) {
+      probe_log("actor_heavy_hook: disabled by default; enable with SAMP_PROBE_ACTOR_HEAVY=1 or %s",
+                PROBE_ACTOR_HEAVY_FLAG);
+    }
+    return 0;
+  }
+  if (env_flag_enabled("SAMP_PROBE_NO_SAMP_CODE_HOOKS") || !samp_actor_code_hooks_active() ||
+      !samp_r5_identity_matches()) {
+    if (log_summary) {
+      probe_log("actor_heavy_hook: skip prerequisites no_samp_hooks=%d rpc_hook_set_active=%d identity_ok=%d",
+                env_flag_enabled("SAMP_PROBE_NO_SAMP_CODE_HOOKS"), samp_actor_code_hooks_active(),
+                samp_r5_identity_matches());
+    }
+    return 0;
+  }
+  for (i = 0; i < hook_count; ++i) {
+    LONG state = InterlockedCompareExchange(&g_samp_actor_heavy_code_hooks[i].installed, 0, 0);
+    if (state == 1) {
+      ++already_installed;
+    } else if (state != 0) {
+      return 0;
+    }
+  }
+  if (already_installed == hook_count) {
+    return 0;
+  }
+  if (already_installed != 0 || !preflight_samp_actor_heavy_code_hooks()) {
+    if (already_installed == 0) {
+      for (i = 0; i < hook_count; ++i) {
+        InterlockedExchange(&g_samp_actor_heavy_code_hooks[i].installed, -1);
+      }
+    }
+    return 0;
+  }
+  for (i = 0; i < hook_count; ++i) {
+    installed += install_samp_code_hook(&g_samp_actor_heavy_code_hooks[i]);
+  }
+  if ((size_t)installed != hook_count) {
+    probe_log("actor_heavy_hook: incomplete_samp_install installed=%d requested=%u; discard run",
+              installed, (unsigned)hook_count);
+  }
+  if (log_summary) {
+    probe_log("actor_heavy_hook: samp_summary installed=%d requested=%u supported_sha256="
+              "b72b5dbe725f81864ca3f78bc7063bda56cc05fc7188af822fa7a754432553a2 "
+              "evidence=STATIC_037,TODO_VERIFY",
+              installed, (unsigned)hook_count);
+  }
+  return installed;
 }
 
 static int install_absolute_code_hook(probe_code_hook *hook) {
@@ -2957,6 +3478,91 @@ static int install_absolute_code_hook(probe_code_hook *hook) {
             hook->name, (unsigned long)hook->rva, requested_target, patch_target, hook->trampoline,
             (unsigned long)patch_len);
   return 1;
+}
+
+static int preflight_gta_actor_heavy_code_hooks(void) {
+  size_t i;
+
+  for (i = 0; i < sizeof(g_gta_actor_heavy_code_hooks) / sizeof(g_gta_actor_heavy_code_hooks[0]); ++i) {
+    probe_code_hook *hook = &g_gta_actor_heavy_code_hooks[i];
+    void *target = (void *)(uintptr_t)hook->rva;
+    size_t readable_len = hook->expected_len > 12 ? hook->expected_len : 12;
+    size_t patch_len;
+
+    if (hook->expected_len < 5 || hook->expected_len > sizeof(hook->expected) ||
+        !memory_is_readable((uintptr_t)target, readable_len) ||
+        memcmp(target, hook->expected, hook->expected_len) != 0) {
+      BYTE bytes[12];
+      char hex[56];
+      if (memory_is_readable((uintptr_t)target, sizeof(bytes))) {
+        memcpy(bytes, target, sizeof(bytes));
+        bytes_to_hex(bytes, sizeof(bytes), hex, sizeof(hex));
+      } else {
+        snprintf(hex, sizeof(hex), "unreadable");
+      }
+      probe_log("actor_heavy_gta_hook: set_preflight_failed name=%s addr=0x%08lx reason=prologue actual=%s",
+                hook->name, (unsigned long)hook->rva, hex);
+      return 0;
+    }
+    patch_len = calculate_patch_length(target);
+    if (patch_len == 0 || patch_len != hook->expected_len) {
+      probe_log("actor_heavy_gta_hook: set_preflight_failed name=%s addr=0x%08lx reason=patch_len "
+                "decoded=%lu expected=%lu",
+                hook->name, (unsigned long)hook->rva, (unsigned long)patch_len,
+                (unsigned long)hook->expected_len);
+      return 0;
+    }
+  }
+
+  probe_log("actor_heavy_gta_hook: set_preflight_ok hooks=%u gta_sha256="
+            "a559aa772fd136379155efa71f00c47aad34bbfeae6196b0fe1047d0645cbd26 "
+            "evidence=STATIC_037,GTA_REVERSED_REF,TODO_VERIFY",
+            (unsigned)(sizeof(g_gta_actor_heavy_code_hooks) / sizeof(g_gta_actor_heavy_code_hooks[0])));
+  return 1;
+}
+
+static int install_gta_actor_heavy_code_hooks(int log_summary) {
+  size_t i;
+  size_t hook_count = sizeof(g_gta_actor_heavy_code_hooks) / sizeof(g_gta_actor_heavy_code_hooks[0]);
+  size_t already_installed = 0;
+  int installed = 0;
+
+  if (!actor_heavy_enabled()) {
+    return 0;
+  }
+  for (i = 0; i < hook_count; ++i) {
+    LONG state = InterlockedCompareExchange(&g_gta_actor_heavy_code_hooks[i].installed, 0, 0);
+    if (state == 1) {
+      ++already_installed;
+    } else if (state != 0) {
+      return 0;
+    }
+  }
+  if (already_installed == hook_count) {
+    return 0;
+  }
+  if (already_installed != 0 || !preflight_gta_actor_heavy_code_hooks()) {
+    if (already_installed == 0) {
+      for (i = 0; i < hook_count; ++i) {
+        InterlockedExchange(&g_gta_actor_heavy_code_hooks[i].installed, -1);
+      }
+    }
+    return 0;
+  }
+  for (i = 0; i < hook_count; ++i) {
+    installed += install_absolute_code_hook(&g_gta_actor_heavy_code_hooks[i]);
+  }
+  if ((size_t)installed != hook_count) {
+    probe_log("actor_heavy_gta_hook: incomplete_install installed=%d requested=%u; discard run",
+              installed, (unsigned)hook_count);
+  }
+  if (log_summary) {
+    probe_log("actor_heavy_gta_hook: summary installed=%d requested=%u direct_targets="
+              "CPed.Teleport,CPedIntelligence.FlushImmediately,CRunningScript.ProcessOneCommand(scope-filtered) "
+              "evidence=STATIC_037,GTA_REVERSED_REF,TODO_VERIFY",
+              installed, (unsigned)hook_count);
+  }
+  return installed;
 }
 
 static int install_gta_asset_code_hooks(int log_summary) {
@@ -3237,10 +3843,10 @@ static DWORD WINAPI probe_worker(LPVOID param) {
   probe_log("probe: attached build=%s %s", __DATE__, __TIME__);
   probe_log("probe: options asset_path_hooks=%d asset_read_hooks=%d samp_code_hooks=%d gta_asset_hooks=%d "
             "object_info=%d custom_object_heavy=%d textdraw_hooks=%d textdraw_verbose=%d textdraw_render=%d "
-            "font5_hooks=%d",
+            "font5_hooks=%d actor_hooks=%d actor_heavy=%d",
             asset_path_hooks_enabled(), asset_read_hooks_enabled(), samp_code_hooks_enabled(), gta_asset_hooks_enabled(),
             object_info_enabled(), custom_object_heavy_enabled(), textdraw_hooks_enabled(), textdraw_verbose_enabled(),
-            textdraw_render_enabled(), font5_hooks_enabled());
+            textdraw_render_enabled(), font5_hooks_enabled(), actor_hooks_enabled(), actor_heavy_enabled());
   if (custom_object_heavy_enabled()) {
     probe_log("custom_object_heavy: store_addresses model_info_ptrs=0x%08lx atomic_count=0x%08lx "
               "time_count=0x%08lx clump_count=0x%08lx low_range=%u-%u high_range=%u-%u "
@@ -3294,6 +3900,9 @@ static DWORD WINAPI probe_worker(LPVOID param) {
     install_inline_hooks(1);
     install_samp_code_hooks(1);
     install_samp_font5_code_hooks(1);
+    install_samp_actor_code_hooks(1);
+    install_samp_actor_heavy_code_hooks(1);
+    install_gta_actor_heavy_code_hooks(1);
     install_gta_textdraw_code_hooks(1);
     install_gta_asset_code_hooks(1);
     install_d3d_device_hooks(1);
@@ -3307,6 +3916,9 @@ static DWORD WINAPI probe_worker(LPVOID param) {
       (void)install_inline_hooks(0);
       (void)install_samp_code_hooks(0);
       (void)install_samp_font5_code_hooks(0);
+      (void)install_samp_actor_code_hooks(0);
+      (void)install_samp_actor_heavy_code_hooks(0);
+      (void)install_gta_actor_heavy_code_hooks(0);
       (void)install_gta_textdraw_code_hooks(0);
       (void)install_gta_asset_code_hooks(0);
       (void)install_d3d_device_hooks(0);
@@ -3493,6 +4105,819 @@ static void PROBE_THISCALL hook_samp_font5_draw_dispatch(void *textdraw) {
   g_font5_active_seq = previous_seq;
   --g_font5_trace_depth;
   log_font5_snapshot(slot >= 0 ? "draw.preview.end" : "draw.font.end", seq, caller, textdraw, 0);
+}
+
+static void actor_wire_string(const BYTE *data, size_t data_size, size_t offset, size_t length, char *out,
+                              size_t out_size) {
+  size_t i;
+  size_t copy_len;
+
+  if (out == NULL || out_size == 0) {
+    return;
+  }
+  out[0] = '\0';
+  if (data == NULL || offset > data_size || length > data_size - offset) {
+    snprintf(out, out_size, "invalid");
+    return;
+  }
+
+  copy_len = length;
+  if (copy_len >= out_size) {
+    copy_len = out_size - 1;
+  }
+  for (i = 0; i < copy_len; ++i) {
+    BYTE value = data[offset + i];
+    out[i] = value >= 0x20u && value <= 0x7eu ? (char)value : '.';
+  }
+  out[copy_len] = '\0';
+}
+
+typedef struct probe_actor_heavy_scope_saved {
+  int depth;
+  LONG seq;
+  unsigned actor_id;
+  const char *name;
+} probe_actor_heavy_scope_saved;
+
+static float actor_float_from_bits(DWORD bits) {
+  float value = 0.0f;
+  memcpy(&value, &bits, sizeof(value));
+  return value;
+}
+
+static void actor_safe_c_string(DWORD address, char *out, size_t out_size) {
+  size_t i;
+
+  if (out == NULL || out_size == 0) {
+    return;
+  }
+  out[0] = '\0';
+  if (address < 0x10000u) {
+    snprintf(out, out_size, "invalid");
+    return;
+  }
+  for (i = 0; i + 1 < out_size; ++i) {
+    BYTE value;
+    if (!memory_is_readable((uintptr_t)address + i, 1)) {
+      if (i == 0) {
+        snprintf(out, out_size, "unreadable");
+      }
+      return;
+    }
+    value = *(const BYTE *)((uintptr_t)address + i);
+    if (value == 0) {
+      out[i] = '\0';
+      return;
+    }
+    out[i] = value >= 0x20u && value <= 0x7eu ? (char)value : '.';
+  }
+  out[out_size - 1] = '\0';
+}
+
+static unsigned actor_id_from_rpc(probe_samp_rpc_parameters_prefix *rpc) {
+  const BYTE *data;
+  int bits;
+
+  if (rpc == NULL || !memory_is_readable((uintptr_t)rpc, sizeof(*rpc))) {
+    return 0xffffu;
+  }
+  data = rpc->input;
+  bits = rpc->number_of_bits_of_data;
+  if (data == NULL || bits < 16 || (unsigned)bits > PROBE_SAMP_ACTOR_RPC_MAX_BITS ||
+      !memory_is_readable((uintptr_t)data, 2)) {
+    return 0xffffu;
+  }
+  return (unsigned)read_u16_or((uintptr_t)data, 0xffffu);
+}
+
+static void *actor_pool_pointer(void **netgame_out, void **pools_out) {
+  DWORD netgame;
+  DWORD pools;
+  DWORD actor_pool;
+  uintptr_t global_address;
+
+  if (netgame_out != NULL) {
+    *netgame_out = NULL;
+  }
+  if (pools_out != NULL) {
+    *pools_out = NULL;
+  }
+  if (g_samp_base == 0 || PROBE_SAMP_R5_NETGAME_PTR_RVA > g_samp_size - sizeof(DWORD)) {
+    return NULL;
+  }
+  global_address = g_samp_base + PROBE_SAMP_R5_NETGAME_PTR_RVA;
+  netgame = read_u32_or(global_address, 0u);
+  if (netgame < 0x10000u ||
+      !memory_is_readable((uintptr_t)netgame + PROBE_SAMP_R5_NETGAME_POOLS_OFFSET, sizeof(DWORD))) {
+    return NULL;
+  }
+  pools = read_u32_or((uintptr_t)netgame + PROBE_SAMP_R5_NETGAME_POOLS_OFFSET, 0u);
+  if (netgame_out != NULL) {
+    *netgame_out = (void *)(uintptr_t)netgame;
+  }
+  if (pools < 0x10000u ||
+      !memory_is_readable((uintptr_t)pools + PROBE_SAMP_R5_POOLS_ACTOR_POOL_OFFSET, sizeof(DWORD))) {
+    return NULL;
+  }
+  actor_pool = read_u32_or((uintptr_t)pools + PROBE_SAMP_R5_POOLS_ACTOR_POOL_OFFSET, 0u);
+  if (pools_out != NULL) {
+    *pools_out = (void *)(uintptr_t)pools;
+  }
+  if (actor_pool < 0x10000u || !memory_is_readable((uintptr_t)actor_pool, sizeof(DWORD))) {
+    return NULL;
+  }
+  return (void *)(uintptr_t)actor_pool;
+}
+
+static unsigned actor_id_for_remote(void *remote_actor) {
+  void *actor_pool;
+  const DWORD *remotes;
+  const DWORD *active;
+  unsigned i;
+
+  if (remote_actor == NULL) {
+    return 0xffffu;
+  }
+  actor_pool = actor_pool_pointer(NULL, NULL);
+  if (actor_pool == NULL) {
+    return 0xffffu;
+  }
+  remotes = (const DWORD *)((uintptr_t)actor_pool + PROBE_SAMP_R5_ACTOR_POOL_REMOTE_OFFSET);
+  active = (const DWORD *)((uintptr_t)actor_pool + PROBE_SAMP_R5_ACTOR_POOL_ACTIVE_OFFSET);
+  if (!memory_is_readable((uintptr_t)remotes, PROBE_SAMP_R5_ACTOR_POOL_CAPACITY * sizeof(DWORD)) ||
+      !memory_is_readable((uintptr_t)active, PROBE_SAMP_R5_ACTOR_POOL_CAPACITY * sizeof(DWORD))) {
+    return 0xffffu;
+  }
+  if (g_actor_rpc_trace_depth > 0 && g_actor_active_id < PROBE_SAMP_R5_ACTOR_POOL_CAPACITY &&
+      active[g_actor_active_id] != 0 && remotes[g_actor_active_id] == (DWORD)(uintptr_t)remote_actor) {
+    return g_actor_active_id;
+  }
+  for (i = 0; i < PROBE_SAMP_R5_ACTOR_POOL_CAPACITY; ++i) {
+    if (active[i] != 0 && remotes[i] == (DWORD)(uintptr_t)remote_actor) {
+      return i;
+    }
+  }
+  return 0xffffu;
+}
+
+static probe_actor_heavy_scope_saved actor_heavy_scope_enter(LONG seq, unsigned actor_id, const char *name) {
+  probe_actor_heavy_scope_saved saved;
+  saved.depth = g_actor_heavy_scope_depth;
+  saved.seq = g_actor_heavy_scope_seq;
+  saved.actor_id = g_actor_heavy_scope_id;
+  saved.name = g_actor_heavy_scope_name;
+  g_actor_heavy_scope_depth = saved.depth + 1;
+  g_actor_heavy_scope_seq = seq;
+  g_actor_heavy_scope_id = actor_id;
+  g_actor_heavy_scope_name = name;
+  InterlockedIncrement(&g_actor_heavy_global_scope_depth);
+  return saved;
+}
+
+static void actor_heavy_scope_leave(probe_actor_heavy_scope_saved saved) {
+  InterlockedDecrement(&g_actor_heavy_global_scope_depth);
+  g_actor_heavy_scope_depth = saved.depth;
+  g_actor_heavy_scope_seq = saved.seq;
+  g_actor_heavy_scope_id = saved.actor_id;
+  g_actor_heavy_scope_name = saved.name;
+}
+
+static void log_actor_heavy_snapshot(const char *phase, const char *source, LONG seq, unsigned actor_id,
+                                     void *actor_pool_hint, void *remote_hint) {
+  void *netgame = NULL;
+  void *pools = NULL;
+  void *actor_pool = actor_pool_hint;
+  DWORD high_water = 0xffffffffu;
+  DWORD active = 0xffffffffu;
+  DWORD remote_value = 0u;
+  DWORD pool_ped_value = 0u;
+  DWORD flag_a = 0xffffffffu;
+  DWORD flag_b = 0xffffffffu;
+  void *remote_actor = remote_hint;
+  DWORD entity = 0u;
+  DWORD handle = 0xffffffffu;
+  DWORD remote_ped_value = 0u;
+  BYTE invulnerable = 0xffu;
+  DWORD ped_value;
+  DWORD vtable = 0u;
+  DWORD teleport_vfunc = 0u;
+  DWORD matrix = 0u;
+  DWORD intelligence = 0u;
+  DWORD ped_flags = 0xffffffffu;
+  WORD model = 0xffffu;
+  char remote_hex[PROBE_SAMP_R5_REMOTE_ACTOR_SIZE * 3 + 8];
+  char ped_head_hex[64 * 3 + 8];
+  char ped_task_hex[48 * 3 + 8];
+  char ped_state_hex[64 * 3 + 8];
+  char matrix_hex[64 * 3 + 8];
+
+  if (actor_pool == NULL) {
+    actor_pool = actor_pool_pointer(&netgame, &pools);
+  } else {
+    (void)actor_pool_pointer(&netgame, &pools);
+  }
+  if (actor_id >= PROBE_SAMP_R5_ACTOR_POOL_CAPACITY && remote_actor != NULL) {
+    actor_id = actor_id_for_remote(remote_actor);
+  }
+  if (actor_pool != NULL) {
+    high_water = read_u32_or((uintptr_t)actor_pool, 0xffffffffu);
+  }
+  if (actor_pool != NULL && actor_id < PROBE_SAMP_R5_ACTOR_POOL_CAPACITY) {
+    uintptr_t index = (uintptr_t)actor_id * sizeof(DWORD);
+    active = read_u32_or((uintptr_t)actor_pool + PROBE_SAMP_R5_ACTOR_POOL_ACTIVE_OFFSET + index, 0xffffffffu);
+    remote_value = read_u32_or((uintptr_t)actor_pool + PROBE_SAMP_R5_ACTOR_POOL_REMOTE_OFFSET + index, 0u);
+    pool_ped_value = read_u32_or((uintptr_t)actor_pool + PROBE_SAMP_R5_ACTOR_POOL_PED_OFFSET + index, 0u);
+    flag_a = read_u32_or((uintptr_t)actor_pool + PROBE_SAMP_R5_ACTOR_POOL_FLAG_A_OFFSET + index, 0xffffffffu);
+    flag_b = read_u32_or((uintptr_t)actor_pool + PROBE_SAMP_R5_ACTOR_POOL_FLAG_B_OFFSET + index, 0xffffffffu);
+    if (remote_actor == NULL) {
+      remote_actor = (void *)(uintptr_t)remote_value;
+    }
+  }
+
+  probe_log("actor_heavy_slot: phase=%s source=%s seq=%ld rpc_seq=%ld rpc_id=%u actor=%u "
+            "netgame=%p pools=%p actor_pool=%p high_water=%lu active=0x%08lx remote=%p pool_ped=%p "
+            "flag_a=0x%08lx flag_b=0x%08lx evidence=STATIC_037,PROBE_TRACE,TODO_VERIFY",
+            phase != NULL ? phase : "unknown", source != NULL ? source : "unknown", (long)seq,
+            (long)(g_actor_rpc_trace_depth > 0 ? g_actor_active_rpc_seq : 0),
+            g_actor_rpc_trace_depth > 0 ? g_actor_active_rpc_id : 0u, actor_id, netgame, pools, actor_pool,
+            (unsigned long)high_water, (unsigned long)active, (void *)(uintptr_t)remote_value,
+            (void *)(uintptr_t)pool_ped_value, (unsigned long)flag_a, (unsigned long)flag_b);
+
+  remote_hex[0] = '\0';
+  if (remote_actor != NULL && memory_is_readable((uintptr_t)remote_actor, PROBE_SAMP_R5_REMOTE_ACTOR_SIZE)) {
+    payload_to_hex(remote_actor, PROBE_SAMP_R5_REMOTE_ACTOR_SIZE, remote_hex, sizeof(remote_hex));
+    entity = read_u32_or((uintptr_t)remote_actor + PROBE_SAMP_R5_REMOTE_ACTOR_ENTITY_OFFSET, 0u);
+    handle = read_u32_or((uintptr_t)remote_actor + PROBE_SAMP_R5_REMOTE_ACTOR_HANDLE_OFFSET, 0xffffffffu);
+    remote_ped_value = read_u32_or((uintptr_t)remote_actor + PROBE_SAMP_R5_REMOTE_ACTOR_PED_OFFSET, 0u);
+    invulnerable = read_u8_or((uintptr_t)remote_actor + PROBE_SAMP_R5_REMOTE_ACTOR_INVULNERABLE_OFFSET, 0xffu);
+  } else {
+    snprintf(remote_hex, sizeof(remote_hex), "unreadable");
+  }
+  probe_log("actor_heavy_object: phase=%s source=%s seq=%ld actor=%u remote=%p entity=%p handle=0x%08lx "
+            "ped=%p invulnerable=%u raw=%s evidence=STATIC_037,PROBE_TRACE,TODO_VERIFY",
+            phase != NULL ? phase : "unknown", source != NULL ? source : "unknown", (long)seq, actor_id,
+            remote_actor, (void *)(uintptr_t)entity, (unsigned long)handle, (void *)(uintptr_t)remote_ped_value,
+            (unsigned)invulnerable, remote_hex);
+
+  ped_value = remote_ped_value != 0u ? remote_ped_value : pool_ped_value;
+  probe_bytes_hex_or((uintptr_t)ped_value, 64, ped_head_hex, sizeof(ped_head_hex));
+  probe_bytes_hex_or((uintptr_t)ped_value + 0x460u, 48, ped_task_hex, sizeof(ped_task_hex));
+  probe_bytes_hex_or((uintptr_t)ped_value + 0x530u, 64, ped_state_hex, sizeof(ped_state_hex));
+  if (ped_value >= 0x10000u && memory_is_readable((uintptr_t)ped_value, 0x560u)) {
+    vtable = read_u32_or((uintptr_t)ped_value, 0u);
+    matrix = read_u32_or((uintptr_t)ped_value + PROBE_GTA_PED_MATRIX_OFFSET, 0u);
+    model = read_u16_or((uintptr_t)ped_value + PROBE_GTA_PED_MODEL_INDEX_OFFSET, 0xffffu);
+    ped_flags = read_u32_or((uintptr_t)ped_value + PROBE_GTA_PED_FLAGS_OFFSET, 0xffffffffu);
+    intelligence = read_u32_or((uintptr_t)ped_value + PROBE_GTA_PED_INTELLIGENCE_OFFSET, 0u);
+    if (vtable >= 0x10000u) {
+      teleport_vfunc = read_u32_or((uintptr_t)vtable + 0x38u, 0u);
+    }
+  }
+  probe_bytes_hex_or((uintptr_t)matrix, 64, matrix_hex, sizeof(matrix_hex));
+  probe_log("actor_heavy_ped: phase=%s source=%s seq=%ld actor=%u ped=%p vtable=%p teleport_vfunc=%p "
+            "model=%u matrix=%p direct_pos=%.6f,%.6f,%.6f matrix_pos=%.6f,%.6f,%.6f "
+            "intelligence=%p flags=0x%08lx health=%.6f armour=%.6f aiming_rotation=%.6f "
+            "head=%s task_window=%s state_window=%s matrix_raw=%s "
+            "evidence=STATIC_037,GTA_REVERSED_REF,PROBE_TRACE,TODO_VERIFY",
+            phase != NULL ? phase : "unknown", source != NULL ? source : "unknown", (long)seq, actor_id,
+            (void *)(uintptr_t)ped_value, (void *)(uintptr_t)vtable, (void *)(uintptr_t)teleport_vfunc,
+            (unsigned)model, (void *)(uintptr_t)matrix,
+            read_f32_or((uintptr_t)ped_value + 4u, 0.0f), read_f32_or((uintptr_t)ped_value + 8u, 0.0f),
+            read_f32_or((uintptr_t)ped_value + 12u, 0.0f), read_f32_or((uintptr_t)matrix + 0x30u, 0.0f),
+            read_f32_or((uintptr_t)matrix + 0x34u, 0.0f), read_f32_or((uintptr_t)matrix + 0x38u, 0.0f),
+            (void *)(uintptr_t)intelligence, (unsigned long)ped_flags,
+            read_f32_or((uintptr_t)ped_value + PROBE_GTA_PED_HEALTH_OFFSET, 0.0f),
+            read_f32_or((uintptr_t)ped_value + PROBE_GTA_PED_ARMOUR_OFFSET, 0.0f),
+            read_f32_or((uintptr_t)ped_value + PROBE_GTA_PED_AIMING_ROTATION_OFFSET, 0.0f),
+            ped_head_hex, ped_task_hex, ped_state_hex, matrix_hex);
+}
+
+static unsigned actor_heavy_current_id(void) {
+  if (g_actor_heavy_scope_depth > 0) {
+    return g_actor_heavy_scope_id;
+  }
+  if (g_actor_rpc_trace_depth > 0) {
+    return g_actor_active_id;
+  }
+  return 0xffffu;
+}
+
+static const char *actor_scm_opcode_name(unsigned opcode) {
+  switch (opcode) {
+    case 0x009au:
+      return "CREATE_CHAR";
+    case 0x0173u:
+      return "SET_CHAR_HEADING";
+    case 0x0247u:
+      return "REQUEST_MODEL";
+    case 0x0248u:
+      return "HAS_MODEL_LOADED";
+    case 0x02abu:
+      return "SET_CHAR_PROOFS";
+    case 0x0321u:
+      return "EXPLODE_CHAR_HEAD";
+    case 0x038bu:
+      return "LOAD_ALL_MODELS_NOW";
+    case 0x0446u:
+      return "SET_CHAR_SUFFERS_CRITICAL_HITS";
+    case 0x04edu:
+      return "REQUEST_ANIMATION";
+    case 0x04eeu:
+      return "HAS_ANIMATION_LOADED";
+    case 0x060bu:
+      return "SET_CHAR_DECISION_MAKER";
+    case 0x07c7u:
+      return "SET_MISSION_TRAIN_COORDINATES";
+    case 0x0812u:
+      return "TASK_PLAY_ANIM_NON_INTERRUPTABLE";
+    default:
+      return "unknown";
+  }
+}
+
+static LONG actor_heavy_method_begin(const char *name, unsigned actor_id, void *actor_pool, void *remote_actor,
+                                     const char *arguments, const char *downstream) {
+  LONG seq = next_call_count(&g_actor_heavy_call_count);
+
+  if (actor_id >= PROBE_SAMP_R5_ACTOR_POOL_CAPACITY && remote_actor != NULL) {
+    actor_id = actor_id_for_remote(remote_actor);
+  }
+  probe_log("actor_heavy_method: phase=begin seq=%ld name=%s actor=%u this=%p rpc_depth=%d rpc_seq=%ld "
+            "rpc_id=%u arguments={%s} downstream={%s} evidence=STATIC_037,PROBE_TRACE,TODO_VERIFY",
+            (long)seq, name != NULL ? name : "unknown", actor_id,
+            remote_actor != NULL ? remote_actor : actor_pool, g_actor_rpc_trace_depth,
+            (long)(g_actor_rpc_trace_depth > 0 ? g_actor_active_rpc_seq : 0),
+            g_actor_rpc_trace_depth > 0 ? g_actor_active_rpc_id : 0u,
+            arguments != NULL ? arguments : "", downstream != NULL ? downstream : "");
+  log_actor_heavy_snapshot("method.begin", name, seq, actor_id, actor_pool, remote_actor);
+  return seq;
+}
+
+static void actor_heavy_method_end(const char *name, LONG seq, unsigned actor_id, void *actor_pool,
+                                   void *remote_actor, int original_called, int result_valid, int result) {
+  log_actor_heavy_snapshot("method.end", name, seq, actor_id, actor_pool, remote_actor);
+  probe_log("actor_heavy_method: phase=end seq=%ld name=%s actor=%u original_called=%d "
+            "result_valid=%d result=%d evidence=STATIC_037,PROBE_TRACE,TODO_VERIFY",
+            (long)seq, name != NULL ? name : "unknown", actor_id, original_called, result_valid, result);
+}
+
+static int PROBE_THISCALL hook_samp_actor_pool_new(void *actor_pool, const void *show_data) {
+  unsigned actor_id = 0xffffu;
+  char raw[27 * 3 + 8];
+  char arguments[512];
+  LONG seq;
+  int result = 0;
+  int called = g_orig_samp_actor_pool_new != NULL;
+  probe_actor_heavy_scope_saved saved;
+
+  raw[0] = '\0';
+  if (show_data != NULL && memory_is_readable((uintptr_t)show_data, 27)) {
+    actor_id = (unsigned)read_u16_or((uintptr_t)show_data, 0xffffu);
+    payload_to_hex(show_data, 27, raw, sizeof(raw));
+    snprintf(arguments, sizeof(arguments),
+             "actor=%u skin=%ld pos=%.6f,%.6f,%.6f heading=%.6f health=%.6f invulnerable=%u raw=%s",
+             actor_id, (long)(int32_t)read_u32_or((uintptr_t)show_data + 2u, 0xffffffffu),
+             read_f32_or((uintptr_t)show_data + 6u, 0.0f), read_f32_or((uintptr_t)show_data + 10u, 0.0f),
+             read_f32_or((uintptr_t)show_data + 14u, 0.0f), read_f32_or((uintptr_t)show_data + 18u, 0.0f),
+             read_f32_or((uintptr_t)show_data + 22u, 0.0f),
+             (unsigned)read_u8_or((uintptr_t)show_data + 26u, 0xffu), raw);
+  } else {
+    snprintf(arguments, sizeof(arguments), "show_data=%p readable=0", show_data);
+  }
+  seq = actor_heavy_method_begin("ActorPool.New", actor_id, actor_pool, NULL, arguments,
+                                 "alloc CActor[0x56]; SCM 009A,0173,0446,060B; SetHealth; SetInvulnerable");
+  saved = actor_heavy_scope_enter(seq, actor_id, "ActorPool.New");
+  if (called) {
+    result = ((probe_samp_actor_pool_new_fn)g_orig_samp_actor_pool_new)(actor_pool, show_data);
+  }
+  actor_heavy_scope_leave(saved);
+  actor_heavy_method_end("ActorPool.New", seq, actor_id, actor_pool, NULL, called, 1, result);
+  return result;
+}
+
+static int PROBE_THISCALL hook_samp_actor_pool_delete(void *actor_pool, DWORD actor_id_word) {
+  unsigned actor_id = (unsigned)(actor_id_word & 0xffffu);
+  char arguments[96];
+  LONG seq;
+  int result = 0;
+  int called = g_orig_samp_actor_pool_delete != NULL;
+  probe_actor_heavy_scope_saved saved;
+
+  snprintf(arguments, sizeof(arguments), "actor=%u raw_slot=0x%08lx", actor_id,
+           (unsigned long)actor_id_word);
+  seq = actor_heavy_method_begin("ActorPool.Delete", actor_id, actor_pool, NULL, arguments,
+                                 "CActor scalar deleting destructor; clear pool remote/ped slots");
+  saved = actor_heavy_scope_enter(seq, actor_id, "ActorPool.Delete");
+  if (called) {
+    result = ((probe_samp_actor_pool_delete_fn)g_orig_samp_actor_pool_delete)(actor_pool, actor_id_word);
+  }
+  actor_heavy_scope_leave(saved);
+  actor_heavy_method_end("ActorPool.Delete", seq, actor_id, actor_pool, NULL, called, 1, result);
+  return result;
+}
+
+static void PROBE_THISCALL hook_samp_remote_actor_apply_animation(
+    void *remote_actor, DWORD animation, DWORD library, DWORD delta, DWORD loop, DWORD lock_x, DWORD lock_y,
+    DWORD freeze, DWORD time) {
+  unsigned actor_id = actor_id_for_remote(remote_actor);
+  char animation_text[96];
+  char library_text[96];
+  char arguments[512];
+  LONG seq;
+  int called = g_orig_samp_remote_actor_apply_animation != NULL;
+  probe_actor_heavy_scope_saved saved;
+
+  actor_safe_c_string(animation, animation_text, sizeof(animation_text));
+  actor_safe_c_string(library, library_text, sizeof(library_text));
+  snprintf(arguments, sizeof(arguments),
+           "animation=%p('%s') library=%p('%s') delta=%.6f loop=%lu lock_x=%lu lock_y=%lu freeze=%lu time=%ld",
+           (void *)(uintptr_t)animation, animation_text, (void *)(uintptr_t)library, library_text,
+           actor_float_from_bits(delta), (unsigned long)loop, (unsigned long)lock_x, (unsigned long)lock_y,
+           (unsigned long)freeze, (long)(int32_t)time);
+  seq = actor_heavy_method_begin("CActor.ApplyAnimation", actor_id, NULL, remote_actor, arguments,
+                                 "SCM 0x0812 TASK_PLAY_ANIM_NON_INTERRUPTABLE");
+  saved = actor_heavy_scope_enter(seq, actor_id, "CActor.ApplyAnimation");
+  if (called) {
+    ((probe_samp_remote_actor_apply_animation_fn)g_orig_samp_remote_actor_apply_animation)(
+        remote_actor, animation, library, delta, loop, lock_x, lock_y, freeze, time);
+  }
+  actor_heavy_scope_leave(saved);
+  actor_heavy_method_end("CActor.ApplyAnimation", seq, actor_id, NULL, remote_actor, called, 0, 0);
+}
+
+static void PROBE_THISCALL hook_samp_remote_actor_clear_animations(void *remote_actor) {
+  unsigned actor_id = actor_id_for_remote(remote_actor);
+  LONG seq = actor_heavy_method_begin("CActor.ClearAnimations", actor_id, NULL, remote_actor, "",
+                                      "GTA 0x601640 CPedIntelligence::FlushImmediately(true)");
+  int called = g_orig_samp_remote_actor_clear_animations != NULL;
+  probe_actor_heavy_scope_saved saved = actor_heavy_scope_enter(seq, actor_id, "CActor.ClearAnimations");
+  if (called) {
+    ((probe_samp_remote_actor_void_fn)g_orig_samp_remote_actor_clear_animations)(remote_actor);
+  }
+  actor_heavy_scope_leave(saved);
+  actor_heavy_method_end("CActor.ClearAnimations", seq, actor_id, NULL, remote_actor, called, 0, 0);
+}
+
+static void PROBE_THISCALL hook_samp_remote_actor_set_facing_angle(void *remote_actor, DWORD angle) {
+  unsigned actor_id = actor_id_for_remote(remote_actor);
+  char arguments[96];
+  LONG seq;
+  int called = g_orig_samp_remote_actor_set_facing_angle != NULL;
+  probe_actor_heavy_scope_saved saved;
+  snprintf(arguments, sizeof(arguments), "degrees=%.6f bits=0x%08lx", actor_float_from_bits(angle),
+           (unsigned long)angle);
+  seq = actor_heavy_method_begin("CActor.SetFacingAngle", actor_id, NULL, remote_actor, arguments,
+                                 "degrees-to-radians samp+0xb5970; direct CPed+0x55c write");
+  saved = actor_heavy_scope_enter(seq, actor_id, "CActor.SetFacingAngle");
+  if (called) {
+    ((probe_samp_remote_actor_dword_fn)g_orig_samp_remote_actor_set_facing_angle)(remote_actor, angle);
+  }
+  actor_heavy_scope_leave(saved);
+  actor_heavy_method_end("CActor.SetFacingAngle", seq, actor_id, NULL, remote_actor, called, 0, 0);
+}
+
+static void PROBE_THISCALL hook_samp_remote_actor_set_health(void *remote_actor, DWORD health) {
+  unsigned actor_id = actor_id_for_remote(remote_actor);
+  char arguments[96];
+  LONG seq;
+  int called = g_orig_samp_remote_actor_set_health != NULL;
+  probe_actor_heavy_scope_saved saved;
+  snprintf(arguments, sizeof(arguments), "health=%.6f bits=0x%08lx", actor_float_from_bits(health),
+           (unsigned long)health);
+  seq = actor_heavy_method_begin("CActor.SetHealth", actor_id, NULL, remote_actor, arguments,
+                                 "direct CPed+0x540 write; if <=0 SCM 0x0321 EXPLODE_CHAR_HEAD");
+  saved = actor_heavy_scope_enter(seq, actor_id, "CActor.SetHealth");
+  if (called) {
+    ((probe_samp_remote_actor_dword_fn)g_orig_samp_remote_actor_set_health)(remote_actor, health);
+  }
+  actor_heavy_scope_leave(saved);
+  actor_heavy_method_end("CActor.SetHealth", seq, actor_id, NULL, remote_actor, called, 0, 0);
+}
+
+static void PROBE_THISCALL hook_samp_remote_actor_set_invulnerable(void *remote_actor, DWORD enabled) {
+  unsigned actor_id = actor_id_for_remote(remote_actor);
+  char arguments[96];
+  LONG seq;
+  int called = g_orig_samp_remote_actor_set_invulnerable != NULL;
+  probe_actor_heavy_scope_saved saved;
+  snprintf(arguments, sizeof(arguments), "enabled=%u raw=0x%08lx", (unsigned)(enabled & 0xffu),
+           (unsigned long)enabled);
+  seq = actor_heavy_method_begin("CActor.SetInvulnerable", actor_id, NULL, remote_actor, arguments,
+                                 "SCM 0x02ab SET_CHAR_PROOFS; update CActor+0x55");
+  saved = actor_heavy_scope_enter(seq, actor_id, "CActor.SetInvulnerable");
+  if (called) {
+    ((probe_samp_remote_actor_dword_fn)g_orig_samp_remote_actor_set_invulnerable)(remote_actor, enabled);
+  }
+  actor_heavy_scope_leave(saved);
+  actor_heavy_method_end("CActor.SetInvulnerable", seq, actor_id, NULL, remote_actor, called, 0, 0);
+}
+
+static void PROBE_THISCALL hook_samp_remote_actor_set_position(void *remote_actor, DWORD x, DWORD y, DWORD z) {
+  unsigned actor_id = actor_id_for_remote(remote_actor);
+  char arguments[160];
+  LONG seq;
+  int called = g_orig_samp_remote_actor_set_position != NULL;
+  probe_actor_heavy_scope_saved saved;
+  snprintf(arguments, sizeof(arguments), "position=%.6f,%.6f,%.6f bits=%08lx,%08lx,%08lx",
+           actor_float_from_bits(x), actor_float_from_bits(y), actor_float_from_bits(z),
+           (unsigned long)x, (unsigned long)y, (unsigned long)z);
+  seq = actor_heavy_method_begin("CActor.SetPosition", actor_id, NULL, remote_actor, arguments,
+                                 "normal CPed vtbl+0x38 -> GTA 0x5e4110 Teleport; train SCM 0x07c7");
+  saved = actor_heavy_scope_enter(seq, actor_id, "CActor.SetPosition");
+  if (called) {
+    ((probe_samp_remote_actor_position_fn)g_orig_samp_remote_actor_set_position)(remote_actor, x, y, z);
+  }
+  actor_heavy_scope_leave(saved);
+  actor_heavy_method_end("CActor.SetPosition", seq, actor_id, NULL, remote_actor, called, 0, 0);
+}
+
+static void PROBE_THISCALL hook_gta_ped_teleport(void *ped, DWORD x, DWORD y, DWORD z, DWORD reset_rotation) {
+  int trace = g_actor_heavy_scope_depth > 0;
+  unsigned actor_id = actor_heavy_current_id();
+  LONG seq = g_actor_heavy_scope_seq;
+
+  if (trace) {
+    probe_log("actor_heavy_gta: phase=begin seq=%ld scope=%s actor=%u target=CPed.Teleport addr=0x005e4110 "
+              "this=%p pos=%.6f,%.6f,%.6f reset_rotation=%u "
+              "downstream=CWorld.Remove@0x563280,CWorld.Add@0x563220 "
+              "evidence=STATIC_037,GTA_REVERSED_REF,PROBE_TRACE,TODO_VERIFY",
+              (long)seq, g_actor_heavy_scope_name != NULL ? g_actor_heavy_scope_name : "unknown", actor_id, ped,
+              actor_float_from_bits(x), actor_float_from_bits(y), actor_float_from_bits(z),
+              (unsigned)(reset_rotation & 0xffu));
+    log_actor_heavy_snapshot("gta.teleport.begin", "CPed.Teleport", seq, actor_id, NULL, NULL);
+  }
+  if (g_orig_gta_ped_teleport != NULL) {
+    ((probe_gta_ped_teleport_fn)g_orig_gta_ped_teleport)(ped, x, y, z, reset_rotation);
+  }
+  if (trace) {
+    log_actor_heavy_snapshot("gta.teleport.end", "CPed.Teleport", seq, actor_id, NULL, NULL);
+    probe_log("actor_heavy_gta: phase=end seq=%ld scope=%s actor=%u target=CPed.Teleport this=%p",
+              (long)seq, g_actor_heavy_scope_name != NULL ? g_actor_heavy_scope_name : "unknown", actor_id, ped);
+  }
+}
+
+static void PROBE_THISCALL hook_gta_ped_intelligence_flush(void *intelligence, DWORD set_default_task) {
+  int trace = g_actor_heavy_scope_depth > 0;
+  unsigned actor_id = actor_heavy_current_id();
+  LONG seq = g_actor_heavy_scope_seq;
+
+  if (trace) {
+    probe_log("actor_heavy_gta: phase=begin seq=%ld scope=%s actor=%u "
+              "target=CPedIntelligence.FlushImmediately addr=0x00601640 this=%p set_default_task=%u "
+              "evidence=STATIC_037,GTA_REVERSED_REF,PROBE_TRACE,TODO_VERIFY",
+              (long)seq, g_actor_heavy_scope_name != NULL ? g_actor_heavy_scope_name : "unknown", actor_id,
+              intelligence, (unsigned)(set_default_task & 0xffu));
+  }
+  if (g_orig_gta_ped_intelligence_flush != NULL) {
+    ((probe_gta_ped_intelligence_flush_fn)g_orig_gta_ped_intelligence_flush)(intelligence, set_default_task);
+  }
+  if (trace) {
+    probe_log("actor_heavy_gta: phase=end seq=%ld scope=%s actor=%u "
+              "target=CPedIntelligence.FlushImmediately this=%p",
+              (long)seq, g_actor_heavy_scope_name != NULL ? g_actor_heavy_scope_name : "unknown", actor_id,
+              intelligence);
+  }
+}
+
+static int PROBE_THISCALL hook_gta_process_one_command(void *script) {
+  void *caller;
+  DWORD caller_rva;
+  DWORD instruction;
+  WORD raw_opcode;
+  unsigned opcode;
+  int result = 0;
+
+  /* The GTA dispatcher is process-wide and extremely hot. Outside a typed
+   * Actor scope, preserve the original call with no VirtualQuery, opcode
+   * decode, caller classification, or logging overhead. */
+  if (g_actor_heavy_global_scope_depth <= 0 || g_actor_heavy_scope_depth <= 0) {
+    if (g_orig_gta_process_one_command != NULL) {
+      return ((probe_gta_process_one_command_fn)g_orig_gta_process_one_command)(script);
+    }
+    return 0;
+  }
+  caller = probe_return_address();
+  caller_rva = samp_rva_from_address(caller);
+  if (caller_rva != 0x000b22eeu) {
+    if (g_orig_gta_process_one_command != NULL) {
+      return ((probe_gta_process_one_command_fn)g_orig_gta_process_one_command)(script);
+    }
+    return 0;
+  }
+  instruction = read_u32_or((uintptr_t)script + 0x14u, 0u);
+  raw_opcode = read_u16_or((uintptr_t)instruction, 0xffffu);
+  opcode = (unsigned)(raw_opcode & 0x7fffu);
+  probe_log("actor_heavy_scm: phase=begin seq=%ld scope=%s actor=%u caller=%p caller_samp_rva=0x%08lx "
+            "script=%p instruction=%p raw_opcode=0x%04x opcode=0x%04x name=%s not_flag=%u "
+            "evidence=STATIC_037,PROBE_TRACE,TODO_VERIFY",
+            (long)g_actor_heavy_scope_seq,
+            g_actor_heavy_scope_name != NULL ? g_actor_heavy_scope_name : "unknown",
+            actor_heavy_current_id(), caller, (unsigned long)caller_rva, script,
+            (void *)(uintptr_t)instruction, (unsigned)raw_opcode, opcode, actor_scm_opcode_name(opcode),
+            (unsigned)((raw_opcode >> 15) & 1u));
+  if (g_orig_gta_process_one_command != NULL) {
+    result = ((probe_gta_process_one_command_fn)g_orig_gta_process_one_command)(script);
+  }
+  probe_log("actor_heavy_scm: phase=end seq=%ld scope=%s actor=%u opcode=0x%04x name=%s result_al=%u "
+            "instruction_after=%p compare_flag=%u evidence=STATIC_037,PROBE_TRACE,TODO_VERIFY",
+            (long)g_actor_heavy_scope_seq,
+            g_actor_heavy_scope_name != NULL ? g_actor_heavy_scope_name : "unknown",
+            actor_heavy_current_id(), opcode, actor_scm_opcode_name(opcode), (unsigned)(result & 0xff),
+            (void *)(uintptr_t)read_u32_or((uintptr_t)script + 0x14u, 0u),
+            (unsigned)read_u8_or((uintptr_t)script + 0xc5u, 0xffu));
+  return result;
+}
+
+static LONG log_samp_actor_rpc_begin(const char *name, unsigned rpc_id, probe_samp_rpc_parameters_prefix *rpc,
+                                     void *caller) {
+  LONG seq = next_call_count(&g_actor_rpc_call_count);
+  const BYTE *data = NULL;
+  int bits = -1;
+  size_t bytes = 0;
+  int prefix_readable = rpc != NULL && memory_is_readable((uintptr_t)rpc, sizeof(*rpc));
+  int payload_readable = 0;
+  char payload[PROBE_PAYLOAD_PREVIEW_BYTES * 3 + 8];
+  char detail[640];
+
+  payload[0] = '\0';
+  detail[0] = '\0';
+  if (prefix_readable) {
+    data = rpc->input;
+    bits = rpc->number_of_bits_of_data;
+  }
+  if (bits >= 0 && (unsigned)bits <= PROBE_SAMP_ACTOR_RPC_MAX_BITS) {
+    bytes = ((size_t)(unsigned)bits + 7u) / 8u;
+  }
+  if (data != NULL && bytes > 0) {
+    payload_readable = memory_is_readable((uintptr_t)data, bytes);
+    payload_to_hex(data, (int)bytes, payload, sizeof(payload));
+  }
+
+  if (payload_readable && bytes >= 2) {
+    unsigned actor_id = (unsigned)read_u16_or((uintptr_t)data, 0xffffu);
+
+    switch (rpc_id) {
+      case PROBE_SAMP_ACTOR_RPC_SHOW:
+        if (bytes >= 27) {
+          snprintf(detail, sizeof(detail),
+                   "actor=%u skin=%ld pos=%.6f,%.6f,%.6f angle=%.6f health=%.6f invulnerable=%u",
+                   actor_id, (long)(int32_t)read_u32_or((uintptr_t)data + 2u, 0xffffffffu),
+                   read_f32_or((uintptr_t)data + 6u, 0.0f), read_f32_or((uintptr_t)data + 10u, 0.0f),
+                   read_f32_or((uintptr_t)data + 14u, 0.0f), read_f32_or((uintptr_t)data + 18u, 0.0f),
+                   read_f32_or((uintptr_t)data + 22u, 0.0f), (unsigned)read_u8_or((uintptr_t)data + 26u, 0xffu));
+        } else {
+          snprintf(detail, sizeof(detail), "actor=%u truncated_show=1", actor_id);
+        }
+        break;
+      case PROBE_SAMP_ACTOR_RPC_HIDE:
+      case PROBE_SAMP_ACTOR_RPC_CLEAR_ANIMATIONS:
+        snprintf(detail, sizeof(detail), "actor=%u", actor_id);
+        break;
+      case PROBE_SAMP_ACTOR_RPC_APPLY_ANIMATION: {
+        size_t cursor = 2;
+        BYTE library_len = 0;
+        BYTE animation_len = 0;
+        char library[96];
+        char animation[96];
+        float delta = 0.0f;
+        int valid = 0;
+
+        library[0] = '\0';
+        animation[0] = '\0';
+        if (cursor < bytes) {
+          library_len = data[cursor++];
+          if ((size_t)library_len <= bytes - cursor) {
+            actor_wire_string(data, bytes, cursor, library_len, library, sizeof(library));
+            cursor += library_len;
+            if (cursor < bytes) {
+              animation_len = data[cursor++];
+              if ((size_t)animation_len <= bytes - cursor) {
+                actor_wire_string(data, bytes, cursor, animation_len, animation, sizeof(animation));
+                cursor += animation_len;
+                if (bytes - cursor >= sizeof(float)) {
+                  delta = read_f32_or((uintptr_t)data + cursor, 0.0f);
+                  cursor += sizeof(float);
+                  valid = 1;
+                }
+              }
+            }
+          }
+        }
+        snprintf(detail, sizeof(detail),
+                 "actor=%u library='%s' animation='%s' delta=%.6f flags_bit_offset=%u parsed=%d",
+                 actor_id, library, animation, delta, (unsigned)(cursor * 8u), valid);
+        break;
+      }
+      case PROBE_SAMP_ACTOR_RPC_SET_FACING_ANGLE:
+        if (bytes >= 6) {
+          snprintf(detail, sizeof(detail), "actor=%u angle=%.6f", actor_id,
+                   read_f32_or((uintptr_t)data + 2u, 0.0f));
+        } else {
+          snprintf(detail, sizeof(detail), "actor=%u truncated_angle=1", actor_id);
+        }
+        break;
+      case PROBE_SAMP_ACTOR_RPC_SET_POSITION:
+        if (bytes >= 14) {
+          snprintf(detail, sizeof(detail), "actor=%u pos=%.6f,%.6f,%.6f", actor_id,
+                   read_f32_or((uintptr_t)data + 2u, 0.0f), read_f32_or((uintptr_t)data + 6u, 0.0f),
+                   read_f32_or((uintptr_t)data + 10u, 0.0f));
+        } else {
+          snprintf(detail, sizeof(detail), "actor=%u truncated_position=1", actor_id);
+        }
+        break;
+      case PROBE_SAMP_ACTOR_RPC_SET_HEALTH:
+        if (bytes >= 6) {
+          snprintf(detail, sizeof(detail), "actor=%u health=%.6f", actor_id,
+                   read_f32_or((uintptr_t)data + 2u, 0.0f));
+        } else {
+          snprintf(detail, sizeof(detail), "actor=%u truncated_health=1", actor_id);
+        }
+        break;
+      default:
+        snprintf(detail, sizeof(detail), "actor=%u", actor_id);
+        break;
+    }
+  } else {
+    snprintf(detail, sizeof(detail), "decode_unavailable=1");
+  }
+
+  probe_log("actor_rpc: phase=begin seq=%ld name=%s id=%u caller=%p caller_samp_rva=0x%08lx rpc=%p "
+            "prefix_readable=%d bits=%d bytes=%lu payload_readable=%d %s data=%s "
+            "evidence=STATIC_037,PROBE_TRACE,TODO_VERIFY",
+            (long)seq, name != NULL ? name : "unknown", rpc_id, caller, samp_rva_from_address(caller), rpc,
+            prefix_readable, bits, (unsigned long)bytes, payload_readable, detail, payload);
+  return seq;
+}
+
+static void call_samp_actor_rpc_original(const char *name, unsigned rpc_id, probe_samp_rpc_parameters_prefix *rpc,
+                                         void *caller, void *original) {
+  LONG seq = log_samp_actor_rpc_begin(name, rpc_id, rpc, caller);
+  unsigned actor_id = actor_id_from_rpc(rpc);
+  int previous_depth = g_actor_rpc_trace_depth;
+  LONG previous_seq = g_actor_active_rpc_seq;
+  unsigned previous_rpc_id = g_actor_active_rpc_id;
+  unsigned previous_actor_id = g_actor_active_id;
+
+  g_actor_rpc_trace_depth = previous_depth + 1;
+  g_actor_active_rpc_seq = seq;
+  g_actor_active_rpc_id = rpc_id;
+  g_actor_active_id = actor_id;
+  if (actor_heavy_enabled()) {
+    log_actor_heavy_snapshot("rpc.begin", name, seq, actor_id, NULL, NULL);
+  }
+
+  if (original != NULL) {
+    ((probe_samp_rpc_handler_fn)original)(rpc);
+    if (actor_heavy_enabled()) {
+      log_actor_heavy_snapshot("rpc.end", name, seq, actor_id, NULL, NULL);
+    }
+    probe_log("actor_rpc: phase=end seq=%ld name=%s id=%u original_called=1 "
+              "evidence=STATIC_037,PROBE_TRACE,TODO_VERIFY",
+              (long)seq, name != NULL ? name : "unknown", rpc_id);
+  } else {
+    probe_log("actor_rpc: phase=end seq=%ld name=%s id=%u original_called=0 reason=missing_trampoline "
+              "evidence=STATIC_037,PROBE_TRACE,TODO_VERIFY",
+              (long)seq, name != NULL ? name : "unknown", rpc_id);
+  }
+  g_actor_rpc_trace_depth = previous_depth;
+  g_actor_active_rpc_seq = previous_seq;
+  g_actor_active_rpc_id = previous_rpc_id;
+  g_actor_active_id = previous_actor_id;
+}
+
+static void __cdecl hook_samp_actor_show(probe_samp_rpc_parameters_prefix *rpc) {
+  call_samp_actor_rpc_original("ShowActor", PROBE_SAMP_ACTOR_RPC_SHOW, rpc, probe_return_address(),
+                               g_orig_samp_actor_show);
+}
+
+static void __cdecl hook_samp_actor_hide(probe_samp_rpc_parameters_prefix *rpc) {
+  call_samp_actor_rpc_original("HideActor", PROBE_SAMP_ACTOR_RPC_HIDE, rpc, probe_return_address(),
+                               g_orig_samp_actor_hide);
+}
+
+static void __cdecl hook_samp_actor_apply_animation(probe_samp_rpc_parameters_prefix *rpc) {
+  call_samp_actor_rpc_original("ApplyActorAnimation", PROBE_SAMP_ACTOR_RPC_APPLY_ANIMATION, rpc,
+                               probe_return_address(), g_orig_samp_actor_apply_animation);
+}
+
+static void __cdecl hook_samp_actor_clear_animations(probe_samp_rpc_parameters_prefix *rpc) {
+  call_samp_actor_rpc_original("ClearActorAnimations", PROBE_SAMP_ACTOR_RPC_CLEAR_ANIMATIONS, rpc,
+                               probe_return_address(), g_orig_samp_actor_clear_animations);
+}
+
+static void __cdecl hook_samp_actor_set_facing_angle(probe_samp_rpc_parameters_prefix *rpc) {
+  call_samp_actor_rpc_original("SetActorFacingAngle", PROBE_SAMP_ACTOR_RPC_SET_FACING_ANGLE, rpc,
+                               probe_return_address(), g_orig_samp_actor_set_facing_angle);
+}
+
+static void __cdecl hook_samp_actor_set_position(probe_samp_rpc_parameters_prefix *rpc) {
+  call_samp_actor_rpc_original("SetActorPos", PROBE_SAMP_ACTOR_RPC_SET_POSITION, rpc, probe_return_address(),
+                               g_orig_samp_actor_set_position);
+}
+
+static void __cdecl hook_samp_actor_set_health(probe_samp_rpc_parameters_prefix *rpc) {
+  call_samp_actor_rpc_original("SetActorHealth", PROBE_SAMP_ACTOR_RPC_SET_HEALTH, rpc, probe_return_address(),
+                               g_orig_samp_actor_set_health);
 }
 
 static int should_log_textdraw_font_call(void *caller, LONG count) {
