@@ -204,6 +204,8 @@ static Float:gRpcActorBatchOrigin[3];
 static gRpcActorBatchWorld = 0;
 static gRpcActorBatchHiddenWorld = 1;
 static Menu:gRpcLegacyMenu = INVALID_MENU;
+static Menu:gOriginalMenuTest = INVALID_MENU;
+static const gOriginalMenuTestItems[6][16] = {"Test1", "Test2", "Test3", "Test4", "Test5", "Test6"};
 
 static const gVehicleModels[TEST_VEHICLE_COUNT] = {
 	411, // Infernus
@@ -358,7 +360,7 @@ stock SendPlayerAudioChatRpcHelp(playerid)
 	SendClientMessage(playerid, 0xFFFFFFFF, "[bare-rpctest] /rpcmapicons starts the 100-slot moving beacon; /rpcmapiconsoff removes it.");
 	SendClientMessage(playerid, 0xFFFFFFFF, "[bare-rpctest] /rpczones cycles RPC108/121/85/120 on four radar quadrants; /rpczonesoff cleans up.");
 	SendClientMessage(playerid, 0xFFFFFFFF, "[bare-rpctest] /rpcactors cycles legacy actor create/state/animation/stream operations; /rpcactorsoff cleans up.");
-	SendClientMessage(playerid, 0xFFFFFFFF, "[bare-rpctest] /rpcmenu tests RPC76/77/78 plus outgoing RPC132/140; /rpcmenuhide sends RPC78.");
+	SendClientMessage(playerid, 0xFFFFFFFF, "[bare-rpctest] /menutest mirrors stock 0.3.7; /rpcmenu tests RPC76/77/78 plus outgoing RPC132/140.");
 	SendClientMessage(playerid, 0xFFCC66FF, "[bare-rpctest] RPC137/138 join/quit are automatic; RPC59 needs a second client/NPC as the visible target.");
 	return 1;
 }
@@ -389,6 +391,25 @@ stock CreateRpcLegacyMenuTest()
 	AddMenuItem(gRpcLegacyMenu, 1, "RPC132 row 3");
 	DisableMenuRow(gRpcLegacyMenu, 2);
 	printf("[bare-rpctest] RPC76 legacy menu created id=%d rows=4 columns=2 disabled_row=2", _:gRpcLegacyMenu);
+	return 1;
+}
+
+/// Recreates the stock SA-MP 0.3.7 menutest.pwn fixture for comparable legacy runs.
+/// References: /workspace/samp037svr_R2-1/samp03/filterscripts/menutest.pwn
+///             https://open.mp/docs/scripting/functions/CreateMenu
+stock CreateOriginalMenuTest()
+{
+	gOriginalMenuTest = CreateMenu("Test Menu", 1, 200.0, 150.0, 200.0, 200.0);
+	if (gOriginalMenuTest == INVALID_MENU)
+	{
+		print("[bare-menutest] ERROR: could not create original menutest fixture.");
+		return 0;
+	}
+	for (new row = 0; row < sizeof(gOriginalMenuTestItems); row++)
+	{
+		AddMenuItem(gOriginalMenuTest, 0, gOriginalMenuTestItems[row]);
+	}
+	printf("[bare-menutest] original fixture created menu=%d title='Test Menu' rows=%d columns=1", _:gOriginalMenuTest, sizeof(gOriginalMenuTestItems));
 	return 1;
 }
 
@@ -1716,6 +1737,7 @@ public OnGameModeInit()
 	CreateSpawnCustomObjectTest();
 	CreateArea51ObjectTest();
 	CreateRpcLegacyMenuTest();
+	CreateOriginalMenuTest();
 	CreateRpcGangZoneBatchTest();
 
 	print("\n----------------------------------");
@@ -1780,26 +1802,55 @@ public OnPlayerCommandText(playerid, cmdtext[])
 		return StopRpcActorBatch(playerid, false);
 	}
 
+	if (!strcmp(cmdtext, "/menutest", true))
+	{
+		new Menu:menuBefore = GetPlayerMenu(playerid);
+		printf("[bare-menutest] command player=%d cmd=/menutest expected_menu=%d menu_before=%d fixture=original_037", playerid, _:gOriginalMenuTest, _:menuBefore);
+		if (gOriginalMenuTest == INVALID_MENU)
+		{
+			printf("[bare-menutest] show skipped player=%d reason=invalid_original_menu", playerid);
+			SendClientMessage(playerid, 0xFF6666FF, "[bare-menutest] Original Test Menu could not be shown.");
+			return 1;
+		}
+		new shown = ShowMenuForPlayer(gOriginalMenuTest, playerid);
+		new Menu:menuAfter = GetPlayerMenu(playerid);
+		printf("[bare-menutest] ShowMenuForPlayer player=%d menu=%d result=%d menu_after=%d fixture=original_037", playerid, _:gOriginalMenuTest, shown, _:menuAfter);
+		return 1;
+	}
+
 	if (!strcmp(cmdtext, "/rpcmenu", true))
 	{
-		if (gRpcLegacyMenu == INVALID_MENU || !ShowMenuForPlayer(gRpcLegacyMenu, playerid))
+		new Menu:menuBefore = GetPlayerMenu(playerid);
+		printf("[bare-menutest] command player=%d cmd=%s expected_menu=%d menu_before=%d", playerid, cmdtext, _:gRpcLegacyMenu, _:menuBefore);
+		if (gRpcLegacyMenu == INVALID_MENU)
+		{
+			printf("[bare-menutest] show skipped player=%d reason=invalid_menu", playerid);
+			SendClientMessage(playerid, 0xFF6666FF, "[bare-rpctest] RPC76/77 legacy menu could not be shown.");
+			return 1;
+		}
+		new shown = ShowMenuForPlayer(gRpcLegacyMenu, playerid);
+		new Menu:menuAfter = GetPlayerMenu(playerid);
+		printf("[bare-menutest] ShowMenuForPlayer player=%d menu=%d result=%d menu_after=%d", playerid, _:gRpcLegacyMenu, shown, _:menuAfter);
+		if (!shown)
 		{
 			SendClientMessage(playerid, 0xFF6666FF, "[bare-rpctest] RPC76/77 legacy menu could not be shown.");
 			return 1;
 		}
 		SendClientMessage(playerid, 0x66FF66FF, "[bare-rpctest] RPC76+77 menu shown: arrows select, Enter sends RPC132, Escape sends RPC140.");
-		printf("[bare-rpctest] RPC76/77 menu=%d shown player=%d", _:gRpcLegacyMenu, playerid);
 		return 1;
 	}
 
 	if (!strcmp(cmdtext, "/rpcmenuhide", true))
 	{
+		new Menu:menuBefore = GetPlayerMenu(playerid);
+		new hidden = 0;
 		if (gRpcLegacyMenu != INVALID_MENU)
 		{
-			HideMenuForPlayer(gRpcLegacyMenu, playerid);
+			hidden = HideMenuForPlayer(gRpcLegacyMenu, playerid);
 		}
+		new Menu:menuAfter = GetPlayerMenu(playerid);
 		SendClientMessage(playerid, 0x66FF66FF, "[bare-rpctest] RPC78 HideMenu sent.");
-		printf("[bare-rpctest] RPC78 menu=%d hidden player=%d", _:gRpcLegacyMenu, playerid);
+		printf("[bare-menutest] HideMenuForPlayer player=%d menu=%d result=%d menu_before=%d menu_after=%d source=command", playerid, _:gRpcLegacyMenu, hidden, _:menuBefore, _:menuAfter);
 		return 1;
 	}
 
@@ -2805,6 +2856,11 @@ public OnGameModeExit()
 		DestroyMenu(gRpcLegacyMenu);
 		gRpcLegacyMenu = INVALID_MENU;
 	}
+	if (gOriginalMenuTest != INVALID_MENU)
+	{
+		DestroyMenu(gOriginalMenuTest);
+		gOriginalMenuTest = INVALID_MENU;
+	}
 	return 1;
 }
 
@@ -2813,8 +2869,25 @@ public OnGameModeExit()
 public OnPlayerSelectedMenuRow(playerid, row)
 {
 	new Menu:menuid = GetPlayerMenu(playerid);
+	printf("[bare-menutest] OnPlayerSelectedMenuRow ENTER player=%d row=%d current_menu=%d rpc_menu=%d original_menu=%d", playerid, row, _:menuid, _:gRpcLegacyMenu, _:gOriginalMenuTest);
+	if (menuid == gOriginalMenuTest)
+	{
+		if (row >= 0 && row < sizeof(gOriginalMenuTestItems))
+		{
+			new message[96];
+			format(message, sizeof(message), "You selected item %s", gOriginalMenuTestItems[row]);
+			SendClientMessage(playerid, 0xFFFFFFFF, message);
+			printf("[bare-menutest] original selection player=%d menu=%d row=%d item=%s", playerid, _:menuid, row, gOriginalMenuTestItems[row]);
+		}
+		else
+		{
+			printf("[bare-menutest] original selection rejected player=%d menu=%d row=%d valid=0..%d", playerid, _:menuid, row, sizeof(gOriginalMenuTestItems) - 1);
+		}
+		return 1;
+	}
 	if (menuid != gRpcLegacyMenu)
 	{
+		printf("[bare-menutest] OnPlayerSelectedMenuRow ignored player=%d row=%d reason=menu_mismatch", playerid, row);
 		return 1;
 	}
 
@@ -2841,8 +2914,9 @@ public OnPlayerSelectedMenuRow(playerid, row)
 			SendClientMessage(playerid, 0xFF6666FF, "[bare-rpctest] Unexpected/disabled menu row received.");
 		}
 	}
-	HideMenuForPlayer(gRpcLegacyMenu, playerid);
-	printf("[bare-rpctest] RPC132 MenuSelect player=%d menu=%d row=%d", playerid, _:menuid, row);
+	new hidden = HideMenuForPlayer(gRpcLegacyMenu, playerid);
+	new Menu:menuAfter = GetPlayerMenu(playerid);
+	printf("[bare-menutest] RPC132 MenuSelect player=%d menu=%d row=%d HideMenuForPlayer=%d menu_after=%d", playerid, _:menuid, row, hidden, _:menuAfter);
 	return 1;
 }
 
@@ -2851,10 +2925,20 @@ public OnPlayerSelectedMenuRow(playerid, row)
 public OnPlayerExitedMenu(playerid)
 {
 	new Menu:menuid = GetPlayerMenu(playerid);
+	printf("[bare-menutest] OnPlayerExitedMenu ENTER player=%d current_menu=%d rpc_menu=%d original_menu=%d", playerid, _:menuid, _:gRpcLegacyMenu, _:gOriginalMenuTest);
+	if (menuid == gOriginalMenuTest)
+	{
+		printf("[bare-menutest] original menu exit player=%d menu=%d", playerid, _:menuid);
+		return 1;
+	}
 	if (menuid == gRpcLegacyMenu)
 	{
 		SendClientMessage(playerid, 0xFFCC66FF, "[bare-rpctest] RPC140 MenuQuit received: legacy menu exited with Escape.");
 		printf("[bare-rpctest] RPC140 MenuQuit player=%d menu=%d", playerid, _:menuid);
+	}
+	else
+	{
+		printf("[bare-menutest] OnPlayerExitedMenu ignored player=%d reason=menu_mismatch", playerid);
 	}
 	return 1;
 }

@@ -301,14 +301,16 @@ public OnPlayerCommandText(playerid, cmdtext[])
     }
     if(!strcmp(cmdtext, "/attachments", true))
     {
+        printf("[attachments-dialog] command player=%d cmd=/attachments", playerid);
         new string[128];
         for(new x;x<MAX_PLAYER_ATTACHED_OBJECTS;x++)
         {
             if(IsPlayerAttachedObjectSlotUsed(playerid, x)) format(string, sizeof(string), "%s%d (Used)\n", string, x);
             else format(string, sizeof(string), "%s%d\n", string, x);
         }
-        ShowPlayerDialog(playerid, DIALOG_ATTACH_INDEX_SELECTION, DIALOG_STYLE_LIST, \
+        new shown = ShowPlayerDialog(playerid, DIALOG_ATTACH_INDEX_SELECTION, DIALOG_STYLE_LIST, \
         "{FF0000}Attachment Modification - Index Selection", string, "Select", "Cancel");
+        printf("[attachments-dialog] ShowPlayerDialog player=%d dialog=%d stage=index_selection result=%d body_len=%d", playerid, DIALOG_ATTACH_INDEX_SELECTION, shown, strlen(string));
         return 1;
     }
     return 0;
@@ -316,16 +318,25 @@ public OnPlayerCommandText(playerid, cmdtext[])
 
 public OnDialogResponse(playerid, dialogid, response, listitem, inputtext[])
 {
+    printf("[attachments-dialog] OnDialogResponse ENTER player=%d dialog=%d response=%d listitem=%d input_len=%d index_pvar=%d model_pvar=%d used_pvar=%d", \
+           playerid, dialogid, response, listitem, strlen(inputtext), GetPVarInt(playerid, "AttachmentIndexSel"), \
+           GetPVarInt(playerid, "AttachmentModelSel"), GetPVarInt(playerid, "AttachmentUsed"));
     switch(dialogid)
     {
         case DIALOG_ATTACH_INDEX_SELECTION:
         {
             if(response)
             {
+                if(listitem < 0 || listitem >= MAX_PLAYER_ATTACHED_OBJECTS)
+                {
+                    printf("[attachments-dialog] index_selection rejected player=%d listitem=%d valid=0..%d", playerid, listitem, MAX_PLAYER_ATTACHED_OBJECTS - 1);
+                    return 1;
+                }
                 if(IsPlayerAttachedObjectSlotUsed(playerid, listitem))
                 {
-                    ShowPlayerDialog(playerid, DIALOG_ATTACH_EDITREPLACE, DIALOG_STYLE_MSGBOX, \
+                    new shown = ShowPlayerDialog(playerid, DIALOG_ATTACH_EDITREPLACE, DIALOG_STYLE_MSGBOX, \
                     "{FF0000}Attachment Modification", "Do you wish to edit the attachment in that slot, or delete it?", "Edit", "Delete");
+                    printf("[attachments-dialog] ShowPlayerDialog player=%d dialog=%d stage=edit_or_delete result=%d selected_index=%d", playerid, DIALOG_ATTACH_EDITREPLACE, shown, listitem);
                 }
                 else
                 {
@@ -334,25 +345,47 @@ public OnDialogResponse(playerid, dialogid, response, listitem, inputtext[])
                     {
                         format(string, sizeof(string), "%s%s\n", string, AttachmentObjects[x][attachname]);
                     }
-                    ShowPlayerDialog(playerid, DIALOG_ATTACH_MODEL_SELECTION, DIALOG_STYLE_LIST, \
+                    new shown = ShowPlayerDialog(playerid, DIALOG_ATTACH_MODEL_SELECTION, DIALOG_STYLE_LIST, \
                     "{FF0000}Attachment Modification - Model Selection", string, "Select", "Cancel");
+                    printf("[attachments-dialog] ShowPlayerDialog player=%d dialog=%d stage=model_selection result=%d selected_index=%d body_len=%d models=%d", playerid, DIALOG_ATTACH_MODEL_SELECTION, shown, listitem, strlen(string), sizeof(AttachmentObjects));
                 }
                 SetPVarInt(playerid, "AttachmentIndexSel", listitem);
+                printf("[attachments-dialog] SetPVarInt player=%d key=AttachmentIndexSel value=%d", playerid, listitem);
             }
+            else printf("[attachments-dialog] index_selection cancelled player=%d", playerid);
             return 1;
         }
         case DIALOG_ATTACH_EDITREPLACE:
         {
-            if(response) EditAttachedObject(playerid, GetPVarInt(playerid, "AttachmentIndexSel"));
-            else RemovePlayerAttachedObject(playerid, GetPVarInt(playerid, "AttachmentIndexSel"));
+            new index = GetPVarInt(playerid, "AttachmentIndexSel");
+            if(response)
+            {
+                new edited = EditAttachedObject(playerid, index);
+                printf("[attachments-dialog] EditAttachedObject player=%d index=%d result=%d source=edit_or_delete", playerid, index, edited);
+            }
+            else
+            {
+                new removed = RemovePlayerAttachedObject(playerid, index);
+                printf("[attachments-dialog] RemovePlayerAttachedObject player=%d index=%d result=%d source=edit_or_delete", playerid, index, removed);
+            }
             DeletePVar(playerid, "AttachmentIndexSel");
+            printf("[attachments-dialog] DeletePVar player=%d key=AttachmentIndexSel", playerid);
             return 1;
         }
         case DIALOG_ATTACH_MODEL_SELECTION:
         {
             if(response)
             {
-                if(GetPVarInt(playerid, "AttachmentUsed") == 1) EditAttachedObject(playerid, listitem);
+                if(listitem < 0 || listitem >= sizeof(AttachmentObjects))
+                {
+                    printf("[attachments-dialog] model_selection rejected player=%d listitem=%d valid=0..%d", playerid, listitem, sizeof(AttachmentObjects) - 1);
+                    return 1;
+                }
+                if(GetPVarInt(playerid, "AttachmentUsed") == 1)
+                {
+                    new edited = EditAttachedObject(playerid, listitem);
+                    printf("[attachments-dialog] EditAttachedObject player=%d index=%d result=%d source=used_model_selection", playerid, listitem, edited);
+                }
                 else
                 {
                     SetPVarInt(playerid, "AttachmentModelSel", AttachmentObjects[listitem][attachmodel]);
@@ -361,23 +394,38 @@ public OnDialogResponse(playerid, dialogid, response, listitem, inputtext[])
                     {
                         format(string, sizeof(string), "%s%s\n", string, AttachmentBones[x]);
                     }
-                    ShowPlayerDialog(playerid, DIALOG_ATTACH_BONE_SELECTION, DIALOG_STYLE_LIST, \
+                    new shown = ShowPlayerDialog(playerid, DIALOG_ATTACH_BONE_SELECTION, DIALOG_STYLE_LIST, \
                     "{FF0000}Attachment Modification - Bone Selection", string, "Select", "Cancel");
+                    printf("[attachments-dialog] ShowPlayerDialog player=%d dialog=%d stage=bone_selection result=%d model=%d body_len=%d bones=%d", playerid, DIALOG_ATTACH_BONE_SELECTION, shown, GetPVarInt(playerid, "AttachmentModelSel"), strlen(string), sizeof(AttachmentBones));
                 }
             }
-            else DeletePVar(playerid, "AttachmentIndexSel");
+            else
+            {
+                DeletePVar(playerid, "AttachmentIndexSel");
+                printf("[attachments-dialog] model_selection cancelled player=%d DeletePVar=AttachmentIndexSel", playerid);
+            }
             return 1;
         }
         case DIALOG_ATTACH_BONE_SELECTION:
         {
             if(response)
             {
-                SetPlayerAttachedObject(playerid, GetPVarInt(playerid, "AttachmentIndexSel"), GetPVarInt(playerid, "AttachmentModelSel"), listitem+1);
-                EditAttachedObject(playerid, GetPVarInt(playerid, "AttachmentIndexSel"));
+                if(listitem < 0 || listitem >= sizeof(AttachmentBones))
+                {
+                    printf("[attachments-dialog] bone_selection rejected player=%d listitem=%d valid=0..%d", playerid, listitem, sizeof(AttachmentBones) - 1);
+                    return 1;
+                }
+                new index = GetPVarInt(playerid, "AttachmentIndexSel");
+                new model = GetPVarInt(playerid, "AttachmentModelSel");
+                new attached = SetPlayerAttachedObject(playerid, index, model, listitem+1);
+                new edited = EditAttachedObject(playerid, index);
+                printf("[attachments-dialog] bone_selection player=%d index=%d model=%d bone=%d SetPlayerAttachedObject=%d EditAttachedObject=%d", playerid, index, model, listitem + 1, attached, edited);
                 SendClientMessage(playerid, 0xFFFFFFFF, "Hint: Use {FFFF00}~k~~PED_SPRINT~{FFFFFF} to look around.");
             }
+            else printf("[attachments-dialog] bone_selection cancelled player=%d", playerid);
             DeletePVar(playerid, "AttachmentIndexSel");
             DeletePVar(playerid, "AttachmentModelSel");
+            printf("[attachments-dialog] DeletePVar player=%d keys=AttachmentIndexSel,AttachmentModelSel", playerid);
             return 1;
         }
     }
@@ -390,6 +438,8 @@ public OnPlayerEditAttachedObject( playerid, EDIT_RESPONSE:response, index, mode
                                    Float:fRotX, Float:fRotY, Float:fRotZ,
                                    Float:fScaleX, Float:fScaleY, Float:fScaleZ )
 {
+    printf("[attachments-edit] OnPlayerEditAttachedObject ENTER player=%d response=%d index=%d model=%d bone=%d offset=%.4f,%.4f,%.4f rot=%.4f,%.4f,%.4f scale=%.4f,%.4f,%.4f", \
+           playerid, _:response, index, modelid, boneid, fOffsetX, fOffsetY, fOffsetZ, fRotX, fRotY, fRotZ, fScaleX, fScaleY, fScaleZ);
     new debug_string[256+1];
 	format(debug_string,256,"SetPlayerAttachedObject(playerid,%d,%d,%d,%f,%f,%f,%f,%f,%f,%f,%f,%f)",
            index,modelid,boneid,fOffsetX,fOffsetY,fOffsetZ,fRotX,fRotY,fRotZ,fScaleX,fScaleY,fScaleZ);
