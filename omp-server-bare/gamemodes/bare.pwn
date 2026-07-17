@@ -46,6 +46,67 @@ static const Float:RPC_AUDIO_TEST_RADIUS = 30.0;
 static const Float:RPC_MAP_ICON_GRID_SPACING = 4.0;
 static const Float:RPC_MAP_ICON_CLUSTER_DISTANCE = 32.0;
 
+#define RPC_GANG_ZONE_COUNT (4)
+#define RPC_GANG_ZONE_PHASE_COUNT (4)
+#define RPC_GANG_ZONE_TICK_MS (4000)
+
+#define RPC_ACTOR_COUNT (4)
+#define RPC_ACTOR_PHASE_COUNT (8)
+#define RPC_ACTOR_TICK_MS (4000)
+
+// Four adjacent 180x180 radar quadrants around the fixed Area 51 spawn.
+static const Float:gRpcGangZoneBounds[RPC_GANG_ZONE_COUNT][4] = {
+	{126.0034, 2042.9145, 306.0034, 2222.9145},
+	{306.0034, 2042.9145, 486.0034, 2222.9145},
+	{126.0034, 1862.9145, 306.0034, 2042.9145},
+	{306.0034, 1862.9145, 486.0034, 2042.9145}
+};
+
+static const gRpcGangZoneColours[RPC_GANG_ZONE_COUNT] = {
+	0xFF303070, // North-west: red.
+	0x30FF3070, // North-east: green.
+	0x3080FF70, // South-west: blue.
+	0xFFD03070  // South-east: yellow.
+};
+
+static const gRpcGangZoneFlashColours[RPC_GANG_ZONE_COUNT] = {
+	0xFFFFFFFF,
+	0xFF30FFFF,
+	0x30FFFFFF,
+	0xFF8030FF
+};
+
+// Four base-game skins in a square around the player who starts the fixture.
+// SetActorSkin is intentionally not used: it is an open.mp extension, not a
+// legacy SA-MP 0.3.7 actor operation.
+static const gRpcActorSkins[RPC_ACTOR_COUNT] = {
+	287, // Army
+	101, // Balla
+	46,  // Busy woman
+	170  // Elvis
+};
+
+static const Float:gRpcActorOffsets[RPC_ACTOR_COUNT][2] = {
+	{4.0, 4.0},
+	{-4.0, 4.0},
+	{-4.0, -4.0},
+	{4.0, -4.0}
+};
+
+static const Float:gRpcActorFacingAngles[RPC_ACTOR_COUNT] = {
+	225.0,
+	135.0,
+	45.0,
+	315.0
+};
+
+static const Float:gRpcActorHealthValues[RPC_ACTOR_COUNT] = {
+	100.0,
+	85.0,
+	70.0,
+	55.0
+};
+
 // Safe radar sprites: marker types 1, 2, 4 and 56 are intentionally omitted
 // because the official documentation warns that they can crash the map legend.
 static const gRpcMapIconMarkerTypes[RPC_MAP_ICON_SLOTS_PER_STYLE] = {
@@ -84,6 +145,8 @@ static const Float:CLASS_CAMERA_Z = 1004.0234;
 
 forward SampObjectScanTick();
 forward RpcMapIconBatchTick();
+forward RpcGangZoneBatchTick();
+forward RpcActorBatchTick();
 
 static gVehicleIds[TEST_VEHICLE_COUNT];
 static gSpawnCustomObjects[SPAWN_CUSTOM_OBJECT_COUNT];
@@ -122,6 +185,21 @@ static bool:gRpcMapIconBatchActive = false;
 static gRpcMapIconBatchSource = INVALID_PLAYER_ID;
 static gRpcMapIconBatchTimer = 0;
 static gRpcMapIconBatchTickCount = 0;
+static gRpcGangZoneIds[RPC_GANG_ZONE_COUNT] = {INVALID_GANG_ZONE, ...};
+static bool:gRpcGangZoneBatchActive = false;
+static gRpcGangZoneBatchSource = INVALID_PLAYER_ID;
+static gRpcGangZoneBatchTimer = 0;
+static gRpcGangZoneBatchPhase = 0;
+static gRpcActorIds[RPC_ACTOR_COUNT] = {INVALID_ACTOR_ID, ...};
+static bool:gRpcActorBatchActive = false;
+static gRpcActorBatchSource = INVALID_PLAYER_ID;
+static gRpcActorBatchTimer = 0;
+static gRpcActorBatchPhase = 0;
+static gRpcActorBatchLastAppliedPhase = -1;
+static Float:gRpcActorBatchOrigin[3];
+static gRpcActorBatchWorld = 0;
+static gRpcActorBatchHiddenWorld = 1;
+static Menu:gRpcLegacyMenu = INVALID_MENU;
 
 static const gVehicleModels[TEST_VEHICLE_COUNT] = {
 	411, // Infernus
@@ -266,14 +344,46 @@ stock ResetSmallRpcTest(playerid)
 	return 1;
 }
 
-/// Lists the focused commands for RPCs 28, 33, 41, 42, 59, 69, 72, 75, 137 and 138.
+/// Lists the focused commands for the manually exercised client RPCs.
 stock SendPlayerAudioChatRpcHelp(playerid)
 {
 	SendClientMessage(playerid, 0xFFFFFFFF, "[bare-rpctest] /rpcaudiotest, /rpcaudiotestpos, /rpcstopaudio (fixed direct MP3 test)");
 	SendClientMessage(playerid, 0xFFFFFFFF, "[bare-rpctest] /rpcedit, /rpccanceledit, /rpcshop, /rpcaudio <url>, /rpcaudiopos <url>");
 	SendClientMessage(playerid, 0xFFFFFFFF, "[bare-rpctest] /rpcbubble <other player id>, /rpcteam <0-255>, /rpccolor, /rpcattach, /rpcattachoff");
 	SendClientMessage(playerid, 0xFFFFFFFF, "[bare-rpctest] /rpcmapicons starts the 100-slot moving beacon; /rpcmapiconsoff removes it.");
+	SendClientMessage(playerid, 0xFFFFFFFF, "[bare-rpctest] /rpczones cycles RPC108/121/85/120 on four radar quadrants; /rpczonesoff cleans up.");
+	SendClientMessage(playerid, 0xFFFFFFFF, "[bare-rpctest] /rpcactors cycles legacy actor create/state/animation/stream operations; /rpcactorsoff cleans up.");
+	SendClientMessage(playerid, 0xFFFFFFFF, "[bare-rpctest] /rpcmenu tests RPC76/77/78 plus outgoing RPC132/140; /rpcmenuhide sends RPC78.");
 	SendClientMessage(playerid, 0xFFCC66FF, "[bare-rpctest] RPC137/138 join/quit are automatic; RPC59 needs a second client/NPC as the visible target.");
+	return 1;
+}
+
+/// Creates the two-column legacy SA-MP menu used by the RPC76-78/132/140 probe.
+/// References: https://open.mp/docs/scripting/functions/CreateMenu
+///             https://open.mp/docs/scripting/functions/AddMenuItem
+///             https://open.mp/docs/scripting/functions/SetMenuColumnHeader
+///             https://open.mp/docs/scripting/functions/DisableMenuRow
+stock CreateRpcLegacyMenuTest()
+{
+	gRpcLegacyMenu = CreateMenu("Legacy menu RPC test", 2, 190.0, 115.0, 145.0, 150.0);
+	if (gRpcLegacyMenu == INVALID_MENU)
+	{
+		print("[bare-rpctest] ERROR: could not create legacy menu RPC test.");
+		return 0;
+	}
+
+	SetMenuColumnHeader(gRpcLegacyMenu, 0, "Action");
+	SetMenuColumnHeader(gRpcLegacyMenu, 1, "Wire result");
+	AddMenuItem(gRpcLegacyMenu, 0, "Health + armour");
+	AddMenuItem(gRpcLegacyMenu, 1, "RPC132 row 0");
+	AddMenuItem(gRpcLegacyMenu, 0, "Give AK-47");
+	AddMenuItem(gRpcLegacyMenu, 1, "RPC132 row 1");
+	AddMenuItem(gRpcLegacyMenu, 0, "Disabled row");
+	AddMenuItem(gRpcLegacyMenu, 1, "must be skipped");
+	AddMenuItem(gRpcLegacyMenu, 0, "Confirmation only");
+	AddMenuItem(gRpcLegacyMenu, 1, "RPC132 row 3");
+	DisableMenuRow(gRpcLegacyMenu, 2);
+	printf("[bare-rpctest] RPC76 legacy menu created id=%d rows=4 columns=2 disabled_row=2", _:gRpcLegacyMenu);
 	return 1;
 }
 
@@ -438,6 +548,634 @@ stock StartRpcMapIconBatch(playerid)
 		"[bare-rpctest] Walk around while the replacement client watches HUD/map. Use /rpcmapiconsoff to send RPC144 x100.");
 	printf("[bare-rpctest] RPC56 map_icon_batch_start source=%d timer=%d interval_ms=%d",
 		playerid, gRpcMapIconBatchTimer, RPC_MAP_ICON_TICK_MS);
+	return 1;
+}
+
+/// Reports whether all four fixed GangZoneCreate slots are available.
+/// Reference: https://open.mp/docs/scripting/functions/GangZoneCreate
+stock bool:RpcGangZoneBatchReady()
+{
+	for (new index = 0; index < RPC_GANG_ZONE_COUNT; index++)
+	{
+		if (gRpcGangZoneIds[index] == INVALID_GANG_ZONE)
+		{
+			return false;
+		}
+	}
+	return true;
+}
+
+/// Sends RPC85 and RPC120 for every fixed test zone to one player.
+/// References: https://open.mp/docs/scripting/functions/GangZoneStopFlashForPlayer
+///             https://open.mp/docs/scripting/functions/GangZoneHideForPlayer
+stock HideRpcGangZoneBatchForPlayer(playerid)
+{
+	if (!IsPlayerConnected(playerid))
+	{
+		return 0;
+	}
+
+	for (new index = 0; index < RPC_GANG_ZONE_COUNT; index++)
+	{
+		if (gRpcGangZoneIds[index] == INVALID_GANG_ZONE)
+		{
+			continue;
+		}
+		GangZoneStopFlashForPlayer(playerid, gRpcGangZoneIds[index]);
+		GangZoneHideForPlayer(playerid, gRpcGangZoneIds[index]);
+	}
+	return 1;
+}
+
+/// Stops the repeating GangZone RPC fixture and removes its four client slots.
+/// References: https://open.mp/docs/scripting/functions/KillTimer
+///             https://open.mp/docs/scripting/functions/GangZoneHideForPlayer
+stock StopRpcGangZoneBatch(playerid, bool:quiet)
+{
+	new bool:wasActive = gRpcGangZoneBatchActive;
+	new previousSource = gRpcGangZoneBatchSource;
+
+	if (gRpcGangZoneBatchTimer != 0)
+	{
+		KillTimer(gRpcGangZoneBatchTimer);
+		gRpcGangZoneBatchTimer = 0;
+	}
+
+	if (previousSource != INVALID_PLAYER_ID && IsPlayerConnected(previousSource))
+	{
+		HideRpcGangZoneBatchForPlayer(previousSource);
+	}
+	if (playerid != INVALID_PLAYER_ID && playerid != previousSource && IsPlayerConnected(playerid))
+	{
+		HideRpcGangZoneBatchForPlayer(playerid);
+	}
+
+	gRpcGangZoneBatchActive = false;
+	gRpcGangZoneBatchSource = INVALID_PLAYER_ID;
+	gRpcGangZoneBatchPhase = 0;
+
+	if (!quiet && playerid != INVALID_PLAYER_ID && IsPlayerConnected(playerid))
+	{
+		SendClientMessage(playerid, 0x66FF66FF, wasActive ?
+			"[bare-rpctest] RPC85+120 stopped flashing and hid all four GangZone slots." :
+			"[bare-rpctest] No GangZone cycle was active; cleanup RPC85+120 was sent anyway.");
+	}
+	printf("[bare-rpctest] RPC85/120 gang_zone_batch_stop requester=%d source=%d was_active=%d",
+		playerid, previousSource, wasActive);
+	return 1;
+}
+
+/// Creates four adjacent gang zones around the fixed Area 51 spawn.
+/// Reference: https://open.mp/docs/scripting/functions/GangZoneCreate
+stock CreateRpcGangZoneBatchTest()
+{
+	for (new index = 0; index < RPC_GANG_ZONE_COUNT; index++)
+	{
+		gRpcGangZoneIds[index] = GangZoneCreate(
+			gRpcGangZoneBounds[index][0],
+			gRpcGangZoneBounds[index][1],
+			gRpcGangZoneBounds[index][2],
+			gRpcGangZoneBounds[index][3]
+		);
+		if (gRpcGangZoneIds[index] == INVALID_GANG_ZONE)
+		{
+			printf("[bare-rpctest] ERROR: GangZoneCreate failed at fixture slot=%d", index);
+			for (new cleanup = 0; cleanup < index; cleanup++)
+			{
+				GangZoneDestroy(gRpcGangZoneIds[cleanup]);
+				gRpcGangZoneIds[cleanup] = INVALID_GANG_ZONE;
+			}
+			return 0;
+		}
+		printf("[bare-rpctest] RPC108 gang_zone_create fixture_slot=%d zone=%d bounds=%.3f,%.3f,%.3f,%.3f",
+			index, gRpcGangZoneIds[index],
+			gRpcGangZoneBounds[index][0], gRpcGangZoneBounds[index][1],
+			gRpcGangZoneBounds[index][2], gRpcGangZoneBounds[index][3]);
+	}
+	return 1;
+}
+
+/// Destroys the fixed server-side GangZone fixture after first hiding it.
+/// References: https://open.mp/docs/scripting/functions/GangZoneDestroy
+///             https://open.mp/docs/scripting/functions/GangZoneHideForPlayer
+stock DestroyRpcGangZoneBatchTest()
+{
+	StopRpcGangZoneBatch(INVALID_PLAYER_ID, true);
+	for (new index = 0; index < RPC_GANG_ZONE_COUNT; index++)
+	{
+		if (gRpcGangZoneIds[index] != INVALID_GANG_ZONE)
+		{
+			GangZoneDestroy(gRpcGangZoneIds[index]);
+			gRpcGangZoneIds[index] = INVALID_GANG_ZONE;
+		}
+	}
+	return 1;
+}
+
+/// Applies one visible phase of the RPC108/121/85/120 compatibility cycle.
+/// References: https://open.mp/docs/scripting/functions/GangZoneShowForPlayer
+///             https://open.mp/docs/scripting/functions/GangZoneFlashForPlayer
+///             https://open.mp/docs/scripting/functions/GangZoneStopFlashForPlayer
+///             https://open.mp/docs/scripting/functions/GangZoneHideForPlayer
+stock ApplyRpcGangZoneBatchPhase(playerid, phase)
+{
+	if (!RpcGangZoneBatchReady() || !IsPlayerConnected(playerid))
+	{
+		return 0;
+	}
+
+	switch (phase)
+	{
+		case 0:
+		{
+			for (new index = 0; index < RPC_GANG_ZONE_COUNT; index++)
+			{
+				GangZoneStopFlashForPlayer(playerid, gRpcGangZoneIds[index]);
+				GangZoneShowForPlayer(playerid, gRpcGangZoneIds[index], gRpcGangZoneColours[index]);
+			}
+			GangZoneFlashForPlayer(playerid, gRpcGangZoneIds[0], gRpcGangZoneFlashColours[0]);
+			GangZoneFlashForPlayer(playerid, gRpcGangZoneIds[2], gRpcGangZoneFlashColours[2]);
+			SendClientMessage(playerid, 0xFFFFFFFF,
+				"[bare-rpctest] GangZone phase 0: four RPC108 shows; north-west/south-west flash via RPC121.");
+		}
+		case 1:
+		{
+			GangZoneStopFlashForPlayer(playerid, gRpcGangZoneIds[0]);
+			GangZoneStopFlashForPlayer(playerid, gRpcGangZoneIds[2]);
+			GangZoneFlashForPlayer(playerid, gRpcGangZoneIds[1], gRpcGangZoneFlashColours[1]);
+			GangZoneFlashForPlayer(playerid, gRpcGangZoneIds[3], gRpcGangZoneFlashColours[3]);
+			SendClientMessage(playerid, 0xFFFFFFFF,
+				"[bare-rpctest] GangZone phase 1: RPC85 stops west; RPC121 starts east flashing.");
+		}
+		case 2:
+		{
+			GangZoneStopFlashForPlayer(playerid, gRpcGangZoneIds[1]);
+			GangZoneStopFlashForPlayer(playerid, gRpcGangZoneIds[3]);
+			GangZoneHideForPlayer(playerid, gRpcGangZoneIds[0]);
+			GangZoneHideForPlayer(playerid, gRpcGangZoneIds[2]);
+			SendClientMessage(playerid, 0xFFFFFFFF,
+				"[bare-rpctest] GangZone phase 2: RPC85 stops east; RPC120 hides both west quadrants.");
+		}
+		case 3:
+		{
+			GangZoneShowForPlayer(playerid, gRpcGangZoneIds[0], gRpcGangZoneColours[0]);
+			GangZoneShowForPlayer(playerid, gRpcGangZoneIds[2], gRpcGangZoneColours[2]);
+			GangZoneHideForPlayer(playerid, gRpcGangZoneIds[1]);
+			GangZoneHideForPlayer(playerid, gRpcGangZoneIds[3]);
+			GangZoneFlashForPlayer(playerid, gRpcGangZoneIds[0], gRpcGangZoneFlashColours[0]);
+			GangZoneFlashForPlayer(playerid, gRpcGangZoneIds[2], gRpcGangZoneFlashColours[2]);
+			SendClientMessage(playerid, 0xFFFFFFFF,
+				"[bare-rpctest] GangZone phase 3: RPC108 restores west; RPC120 hides east; west flashes again.");
+		}
+	}
+
+	printf("[bare-rpctest] RPC108/121/85/120 gang_zone_batch player=%d phase=%d", playerid, phase);
+	return 1;
+}
+
+/// Advances the repeating GangZone compatibility fixture every four seconds.
+/// Reference: https://open.mp/docs/scripting/functions/SetTimer
+public RpcGangZoneBatchTick()
+{
+	if (!gRpcGangZoneBatchActive || gRpcGangZoneBatchSource == INVALID_PLAYER_ID ||
+		!IsPlayerConnected(gRpcGangZoneBatchSource))
+	{
+		StopRpcGangZoneBatch(INVALID_PLAYER_ID, true);
+		return 1;
+	}
+
+	ApplyRpcGangZoneBatchPhase(gRpcGangZoneBatchSource, gRpcGangZoneBatchPhase);
+	gRpcGangZoneBatchPhase = (gRpcGangZoneBatchPhase + 1) % RPC_GANG_ZONE_PHASE_COUNT;
+	return 1;
+}
+
+/// Starts the four-phase GangZone RPC fixture for one replacement-client observer.
+/// References: https://open.mp/docs/scripting/functions/GangZoneShowForPlayer
+///             https://open.mp/docs/scripting/functions/SetTimer
+stock StartRpcGangZoneBatch(playerid)
+{
+	if (!RpcGangZoneBatchReady())
+	{
+		SendClientMessage(playerid, 0xFF6666FF, "[bare-rpctest] GangZone fixture is unavailable; check the server log.");
+		return 1;
+	}
+	if (gRpcGangZoneBatchActive || gRpcGangZoneBatchTimer != 0)
+	{
+		StopRpcGangZoneBatch(playerid, true);
+	}
+
+	gRpcGangZoneBatchActive = true;
+	gRpcGangZoneBatchSource = playerid;
+	gRpcGangZoneBatchPhase = 0;
+	RpcGangZoneBatchTick();
+	gRpcGangZoneBatchTimer = SetTimer("RpcGangZoneBatchTick", RPC_GANG_ZONE_TICK_MS, true);
+	if (gRpcGangZoneBatchTimer == 0)
+	{
+		StopRpcGangZoneBatch(playerid, true);
+		SendClientMessage(playerid, 0xFF6666FF, "[bare-rpctest] Could not create the GangZone RPC cycle timer.");
+		return 1;
+	}
+
+	SendClientMessage(playerid, 0x66FF66FF,
+		"[bare-rpctest] GangZone cycle active around spawn: watch radar or ESC map; phase changes every four seconds.");
+	SendClientMessage(playerid, 0xFFFFFFFF,
+		"[bare-rpctest] /rpczonesoff sends cleanup RPC85+120 for all four slots.");
+	printf("[bare-rpctest] RPC108/121/85/120 gang_zone_batch_start source=%d timer=%d interval_ms=%d",
+		playerid, gRpcGangZoneBatchTimer, RPC_GANG_ZONE_TICK_MS);
+	return 1;
+}
+
+/// Returns whether an actor belongs to the active four-slot compatibility fixture.
+stock bool:IsRpcActorBatchActor(actorid)
+{
+	for (new index = 0; index < RPC_ACTOR_COUNT; index++)
+	{
+		if (gRpcActorIds[index] == actorid)
+		{
+			return true;
+		}
+	}
+	return false;
+}
+
+/// Reports whether every actor slot in the fixture still contains a valid actor.
+/// Reference: https://open.mp/docs/scripting/functions/IsValidActor
+stock bool:RpcActorBatchReady()
+{
+	for (new index = 0; index < RPC_ACTOR_COUNT; index++)
+	{
+		if (gRpcActorIds[index] == INVALID_ACTOR_ID || !IsValidActor(gRpcActorIds[index]))
+		{
+			return false;
+		}
+	}
+	return true;
+}
+
+/// Clears and destroys all server actors owned by the compatibility fixture.
+/// References: https://open.mp/docs/scripting/functions/ClearActorAnimations
+///             https://open.mp/docs/scripting/functions/DestroyActor
+stock DestroyRpcActorBatchEntities()
+{
+	new destroyed = 0;
+	for (new index = 0; index < RPC_ACTOR_COUNT; index++)
+	{
+		new actorid = gRpcActorIds[index];
+		if (actorid != INVALID_ACTOR_ID && IsValidActor(actorid))
+		{
+			ClearActorAnimations(actorid);
+			DestroyActor(actorid);
+			destroyed++;
+		}
+		gRpcActorIds[index] = INVALID_ACTOR_ID;
+	}
+	return destroyed;
+}
+
+/// Stops the actor timer and destroys every actor slot created by /rpcactors.
+/// References: https://open.mp/docs/scripting/functions/KillTimer
+///             https://open.mp/docs/scripting/functions/DestroyActor
+stock StopRpcActorBatch(playerid, bool:quiet)
+{
+	new bool:wasActive = gRpcActorBatchActive;
+	new previousSource = gRpcActorBatchSource;
+
+	if (gRpcActorBatchTimer != 0)
+	{
+		KillTimer(gRpcActorBatchTimer);
+		gRpcActorBatchTimer = 0;
+	}
+
+	new destroyed = DestroyRpcActorBatchEntities();
+	gRpcActorBatchActive = false;
+	gRpcActorBatchSource = INVALID_PLAYER_ID;
+	gRpcActorBatchPhase = 0;
+	gRpcActorBatchLastAppliedPhase = -1;
+	gRpcActorBatchOrigin[0] = 0.0;
+	gRpcActorBatchOrigin[1] = 0.0;
+	gRpcActorBatchOrigin[2] = 0.0;
+	gRpcActorBatchWorld = 0;
+	gRpcActorBatchHiddenWorld = 1;
+
+	if (!quiet && playerid != INVALID_PLAYER_ID && IsPlayerConnected(playerid))
+	{
+		SendClientMessage(playerid, 0x66FF66FF, wasActive ?
+			"[bare-rpctest] Actor cycle stopped; animations cleared and all four actor slots destroyed." :
+			"[bare-rpctest] No actor cycle was active; all fixture slots were cleaned anyway.");
+	}
+	printf("[bare-rpctest] actor_batch_stop requester=%d source=%d was_active=%d destroyed=%d",
+		playerid, previousSource, wasActive, destroyed);
+	return 1;
+}
+
+/// Captures the requesting player's position/world and optionally preloads DEALER.
+/// References: https://open.mp/docs/scripting/functions/GetPlayerPos
+///             https://open.mp/docs/scripting/functions/GetPlayerVirtualWorld
+///             https://open.mp/docs/scripting/functions/ApplyAnimation
+stock PrepareRpcActorBatchOrigin(playerid, bool:preloadAnimation)
+{
+	if (!GetPlayerPos(playerid, gRpcActorBatchOrigin[0], gRpcActorBatchOrigin[1], gRpcActorBatchOrigin[2]))
+	{
+		return 0;
+	}
+
+	gRpcActorBatchWorld = GetPlayerVirtualWorld(playerid);
+	// Keep the stream-out phase in a different world without overflowing a signed cell.
+	gRpcActorBatchHiddenWorld = gRpcActorBatchWorld == 2147483647 ?
+		2147483646 : gRpcActorBatchWorld + 1;
+
+	if (preloadAnimation)
+	{
+		// OPENMP_REF: the actor-animation library must be preloaded on the player.
+		if (!ApplyAnimation(playerid, "DEALER", "null", 4.1, false, false, false, false, 0))
+		{
+			printf("[bare-rpctest] ERROR: DEALER animation preload failed for player=%d", playerid);
+			return 0;
+		}
+		printf("[bare-rpctest] player_animation_preload player=%d library=DEALER name=null", playerid);
+	}
+	return 1;
+}
+
+/// Creates four vulnerable SA-MP 0.3.7 actors around the captured origin.
+/// References: https://open.mp/docs/scripting/functions/CreateActor
+///             https://open.mp/docs/scripting/functions/SetActorVirtualWorld
+///             https://open.mp/docs/scripting/functions/SetActorHealth
+///             https://open.mp/docs/scripting/functions/SetActorInvulnerable
+stock CreateRpcActorBatchEntities()
+{
+
+	for (new index = 0; index < RPC_ACTOR_COUNT; index++)
+	{
+		gRpcActorIds[index] = CreateActor(
+			gRpcActorSkins[index],
+			gRpcActorBatchOrigin[0] + gRpcActorOffsets[index][0],
+			gRpcActorBatchOrigin[1] + gRpcActorOffsets[index][1],
+			gRpcActorBatchOrigin[2],
+			gRpcActorFacingAngles[index]
+		);
+		if (gRpcActorIds[index] == INVALID_ACTOR_ID)
+		{
+			printf("[bare-rpctest] ERROR: CreateActor failed at fixture_slot=%d", index);
+			DestroyRpcActorBatchEntities();
+			return 0;
+		}
+
+		if (!SetActorVirtualWorld(gRpcActorIds[index], gRpcActorBatchWorld) ||
+			!SetActorHealth(gRpcActorIds[index], 100.0) ||
+			!SetActorInvulnerable(gRpcActorIds[index], false))
+		{
+			printf("[bare-rpctest] ERROR: actor initialization failed at fixture_slot=%d actor=%d",
+				index, gRpcActorIds[index]);
+			DestroyRpcActorBatchEntities();
+			return 0;
+		}
+		printf("[bare-rpctest] actor_create fixture_slot=%d actor=%d skin=%d world=%d pos=%.3f,%.3f,%.3f angle=%.3f",
+			index, gRpcActorIds[index], gRpcActorSkins[index], gRpcActorBatchWorld,
+			gRpcActorBatchOrigin[0] + gRpcActorOffsets[index][0],
+			gRpcActorBatchOrigin[1] + gRpcActorOffsets[index][1],
+			gRpcActorBatchOrigin[2], gRpcActorFacingAngles[index]);
+	}
+	return 1;
+}
+
+/// Applies one phase of the legacy actor create/state/animation/stream cycle.
+/// References: https://open.mp/docs/scripting/functions/ApplyActorAnimation
+///             https://open.mp/docs/scripting/functions/ClearActorAnimations
+///             https://open.mp/docs/scripting/functions/SetActorPos
+///             https://open.mp/docs/scripting/functions/SetActorFacingAngle
+///             https://open.mp/docs/scripting/functions/SetActorHealth
+///             https://open.mp/docs/scripting/functions/SetActorVirtualWorld
+stock ApplyRpcActorBatchPhase(playerid, phase)
+{
+	if (!IsPlayerConnected(playerid))
+	{
+		return 0;
+	}
+	if (phase != 0 && !RpcActorBatchReady())
+	{
+		return 0;
+	}
+
+	gRpcActorBatchLastAppliedPhase = phase;
+	new failures = 0;
+
+	switch (phase)
+	{
+		case 0:
+		{
+			if (!RpcActorBatchReady())
+			{
+				if (!PrepareRpcActorBatchOrigin(playerid, false) || !CreateRpcActorBatchEntities())
+				{
+					return 0;
+				}
+				SendClientMessage(playerid, 0xFFFFFFFF,
+					"[bare-rpctest] Actor phase 0: all four destroyed slots recreated around your current position.");
+			}
+			else
+			{
+				SendClientMessage(playerid, 0xFFFFFFFF,
+					"[bare-rpctest] Actor phase 0: four freshly spawned actors remain idle for a clean stream-in check.");
+			}
+		}
+		case 1:
+		{
+			for (new index = 0; index < RPC_ACTOR_COUNT; index++)
+			{
+				if (!ApplyActorAnimation(gRpcActorIds[index], "DEALER", "shop_pay", 4.1, true, false, false, false, 0))
+				{
+					failures++;
+				}
+			}
+			SendClientMessage(playerid, 0xFFFFFFFF,
+				"[bare-rpctest] Actor phase 1: looping DEALER/shop_pay animation applied to all four actors.");
+		}
+		case 2:
+		{
+			for (new index = 0; index < RPC_ACTOR_COUNT; index++)
+			{
+				if (!ClearActorAnimations(gRpcActorIds[index]))
+				{
+					failures++;
+				}
+				if (!SetActorPos(
+					gRpcActorIds[index],
+					gRpcActorBatchOrigin[0] + (gRpcActorOffsets[index][0] * 1.75),
+					gRpcActorBatchOrigin[1] + (gRpcActorOffsets[index][1] * 1.75),
+					gRpcActorBatchOrigin[2]
+				))
+				{
+					failures++;
+				}
+				if (!SetActorHealth(gRpcActorIds[index], gRpcActorHealthValues[index]))
+				{
+					failures++;
+				}
+			}
+			SendClientMessage(playerid, 0xFFFFFFFF,
+				"[bare-rpctest] Actor phase 2: animations cleared; actors moved outward with 100/85/70/55 health.");
+		}
+		case 3:
+		{
+			for (new index = 0; index < RPC_ACTOR_COUNT; index++)
+			{
+				new Float:angle = gRpcActorFacingAngles[index] + 180.0;
+				if (angle >= 360.0)
+				{
+					angle -= 360.0;
+				}
+				if (!SetActorFacingAngle(gRpcActorIds[index], angle))
+				{
+					failures++;
+				}
+			}
+			SendClientMessage(playerid, 0xFFFFFFFF,
+				"[bare-rpctest] Actor phase 3: facing angles reversed; legacy clients show them after the next restream.");
+		}
+		case 4:
+		{
+			for (new index = 0; index < RPC_ACTOR_COUNT; index++)
+			{
+				if (!SetActorVirtualWorld(gRpcActorIds[index], gRpcActorBatchHiddenWorld))
+				{
+					failures++;
+				}
+			}
+			SendClientMessage(playerid, 0xFFFFFFFF,
+				"[bare-rpctest] Actor phase 4: all four actors moved to a hidden virtual world and must stream out.");
+		}
+		case 5:
+		{
+			for (new index = 0; index < RPC_ACTOR_COUNT; index++)
+			{
+				if (!ClearActorAnimations(gRpcActorIds[index]))
+				{
+					failures++;
+				}
+				if (!SetActorPos(
+					gRpcActorIds[index],
+					gRpcActorBatchOrigin[0] + gRpcActorOffsets[index][0],
+					gRpcActorBatchOrigin[1] + gRpcActorOffsets[index][1],
+					gRpcActorBatchOrigin[2]
+				))
+				{
+					failures++;
+				}
+				if (!SetActorFacingAngle(gRpcActorIds[index], gRpcActorFacingAngles[index]))
+				{
+					failures++;
+				}
+				if (!SetActorHealth(gRpcActorIds[index], 100.0))
+				{
+					failures++;
+				}
+				if (!SetActorInvulnerable(gRpcActorIds[index], false))
+				{
+					failures++;
+				}
+				if (!SetActorVirtualWorld(gRpcActorIds[index], gRpcActorBatchWorld))
+				{
+					failures++;
+				}
+			}
+			SendClientMessage(playerid, 0xFFFFFFFF,
+				"[bare-rpctest] Actor phase 5: actors restored and streamed in with original positions and vulnerable state.");
+		}
+		case 6:
+		{
+			SendClientMessage(playerid, 0xFFCC66FF,
+				"[bare-rpctest] Actor phase 6: damage window active; shoot a vulnerable actor to test the actor-damage callback.");
+		}
+		case 7:
+		{
+			new destroyed = DestroyRpcActorBatchEntities();
+			if (destroyed != RPC_ACTOR_COUNT)
+			{
+				failures++;
+			}
+			SendClientMessage(playerid, 0xFFFFFFFF,
+				"[bare-rpctest] Actor phase 7: all four actors destroyed; their slots are recreated next tick.");
+		}
+	}
+
+	printf("[bare-rpctest] actor_batch player=%d phase=%d world=%d hidden_world=%d failures=%d",
+		playerid, phase, gRpcActorBatchWorld, gRpcActorBatchHiddenWorld, failures);
+	return failures == 0;
+}
+
+/// Advances the repeating actor compatibility fixture every four seconds.
+/// Reference: https://open.mp/docs/scripting/functions/SetTimer
+public RpcActorBatchTick()
+{
+	if (!gRpcActorBatchActive || gRpcActorBatchSource == INVALID_PLAYER_ID ||
+		!IsPlayerConnected(gRpcActorBatchSource))
+	{
+		StopRpcActorBatch(INVALID_PLAYER_ID, true);
+		return 1;
+	}
+	if (gRpcActorBatchPhase != 0 && !RpcActorBatchReady())
+	{
+		StopRpcActorBatch(INVALID_PLAYER_ID, true);
+		return 1;
+	}
+
+	if (!ApplyRpcActorBatchPhase(gRpcActorBatchSource, gRpcActorBatchPhase))
+	{
+		StopRpcActorBatch(INVALID_PLAYER_ID, true);
+		return 1;
+	}
+	gRpcActorBatchPhase = (gRpcActorBatchPhase + 1) % RPC_ACTOR_PHASE_COUNT;
+	return 1;
+}
+
+/// Starts the eight-phase SA-MP 0.3.7 actor compatibility fixture.
+/// References: https://open.mp/docs/scripting/functions/CreateActor
+///             https://open.mp/docs/scripting/functions/SetTimer
+stock StartRpcActorBatch(playerid)
+{
+	if (gRpcActorBatchActive || gRpcActorBatchTimer != 0 || RpcActorBatchReady())
+	{
+		StopRpcActorBatch(playerid, true);
+	}
+
+	if (!PrepareRpcActorBatchOrigin(playerid, true) || !CreateRpcActorBatchEntities())
+	{
+		SendClientMessage(playerid, 0xFF6666FF,
+			"[bare-rpctest] Could not create all four actor slots; partial state was cleaned up.");
+		return 1;
+	}
+
+	gRpcActorBatchActive = true;
+	gRpcActorBatchSource = playerid;
+	gRpcActorBatchPhase = 0;
+	gRpcActorBatchLastAppliedPhase = -1;
+	RpcActorBatchTick();
+	if (!gRpcActorBatchActive)
+	{
+		SendClientMessage(playerid, 0xFF6666FF,
+			"[bare-rpctest] Actor fixture stopped while applying its initial phase.");
+		return 1;
+	}
+
+	gRpcActorBatchTimer = SetTimer("RpcActorBatchTick", RPC_ACTOR_TICK_MS, true);
+	if (gRpcActorBatchTimer == 0)
+	{
+		StopRpcActorBatch(playerid, true);
+		SendClientMessage(playerid, 0xFF6666FF,
+			"[bare-rpctest] Could not create the actor compatibility timer.");
+		return 1;
+	}
+
+	SendClientMessage(playerid, 0x66FF66FF,
+		"[bare-rpctest] Four-actor cycle active around you; phase changes every four seconds.");
+	SendClientMessage(playerid, 0xFFFFFFFF,
+		"[bare-rpctest] Watch create, animation, clear, move, health, facing, stream-out/in and destroy/recreate; shoot after phase 5.");
+	SendClientMessage(playerid, 0xFFFFFFFF,
+		"[bare-rpctest] Use /rpcactorsoff to clear animations and destroy all four actors.");
+	printf("[bare-rpctest] actor_batch_start source=%d timer=%d interval_ms=%d actors=%d,%d,%d,%d",
+		playerid, gRpcActorBatchTimer, RPC_ACTOR_TICK_MS,
+		gRpcActorIds[0], gRpcActorIds[1], gRpcActorIds[2], gRpcActorIds[3]);
 	return 1;
 }
 
@@ -930,6 +1668,8 @@ public OnGameModeInit()
 	CreateVehicleStreamTestFleet();
 	CreateSpawnCustomObjectTest();
 	CreateArea51ObjectTest();
+	CreateRpcLegacyMenuTest();
+	CreateRpcGangZoneBatchTest();
 
 	print("\n----------------------------------");
 	print("  Bare open.mp Vehicle/Object Test Script");
@@ -970,6 +1710,49 @@ public OnPlayerCommandText(playerid, cmdtext[])
 	if (!strcmp(cmdtext, "/rpcmapiconsoff", true))
 	{
 		return StopRpcMapIconBatch(playerid, false);
+	}
+
+	if (!strcmp(cmdtext, "/rpczones", true))
+	{
+		return StartRpcGangZoneBatch(playerid);
+	}
+
+	if (!strcmp(cmdtext, "/rpczonesoff", true))
+	{
+		return StopRpcGangZoneBatch(playerid, false);
+	}
+
+	if (!strcmp(cmdtext, "/rpcactors", true))
+	{
+		return StartRpcActorBatch(playerid);
+	}
+
+	if (!strcmp(cmdtext, "/rpcactorsoff", true))
+	{
+		return StopRpcActorBatch(playerid, false);
+	}
+
+	if (!strcmp(cmdtext, "/rpcmenu", true))
+	{
+		if (gRpcLegacyMenu == INVALID_MENU || !ShowMenuForPlayer(gRpcLegacyMenu, playerid))
+		{
+			SendClientMessage(playerid, 0xFF6666FF, "[bare-rpctest] RPC76/77 legacy menu could not be shown.");
+			return 1;
+		}
+		SendClientMessage(playerid, 0x66FF66FF, "[bare-rpctest] RPC76+77 menu shown: arrows select, Enter sends RPC132, Escape sends RPC140.");
+		printf("[bare-rpctest] RPC76/77 menu=%d shown player=%d", _:gRpcLegacyMenu, playerid);
+		return 1;
+	}
+
+	if (!strcmp(cmdtext, "/rpcmenuhide", true))
+	{
+		if (gRpcLegacyMenu != INVALID_MENU)
+		{
+			HideMenuForPlayer(gRpcLegacyMenu, playerid);
+		}
+		SendClientMessage(playerid, 0x66FF66FF, "[bare-rpctest] RPC78 HideMenu sent.");
+		printf("[bare-rpctest] RPC78 menu=%d hidden player=%d", _:gRpcLegacyMenu, playerid);
+		return 1;
 	}
 
 	if (!strcmp(cmdtext, "/rpcedit", true))
@@ -1883,6 +2666,14 @@ public OnPlayerDisconnect(playerid, reason)
 	{
 		StopRpcMapIconBatch(playerid, true);
 	}
+	if (gRpcGangZoneBatchActive && gRpcGangZoneBatchSource == playerid)
+	{
+		StopRpcGangZoneBatch(playerid, true);
+	}
+	if (gRpcActorBatchActive && gRpcActorBatchSource == playerid)
+	{
+		StopRpcActorBatch(playerid, true);
+	}
 
 	if (gSampObjectScanActive && gSampObjectScanPlayer == playerid)
 	{
@@ -1900,12 +2691,70 @@ public OnPlayerDisconnect(playerid, reason)
 public OnGameModeExit()
 {
 	StopRpcMapIconBatch(INVALID_PLAYER_ID, true);
+	DestroyRpcGangZoneBatchTest();
+	StopRpcActorBatch(INVALID_PLAYER_ID, true);
 	StopSampObjectScan(INVALID_PLAYER_ID, true);
 	DestroyRpcAttachedObject("gamemode_exit");
 	if (gRpcEditObject != INVALID_OBJECT_ID)
 	{
 		DestroyObject(gRpcEditObject);
 		gRpcEditObject = INVALID_OBJECT_ID;
+	}
+	if (gRpcLegacyMenu != INVALID_MENU)
+	{
+		DestroyMenu(gRpcLegacyMenu);
+		gRpcLegacyMenu = INVALID_MENU;
+	}
+	return 1;
+}
+
+/// Handles outgoing RPC132 and confirms the selected row with a visible server action.
+/// Reference: https://open.mp/docs/scripting/callbacks/OnPlayerSelectedMenuRow
+public OnPlayerSelectedMenuRow(playerid, row)
+{
+	new Menu:menuid = GetPlayerMenu(playerid);
+	if (menuid != gRpcLegacyMenu)
+	{
+		return 1;
+	}
+
+	switch (row)
+	{
+		case 0:
+		{
+			SetPlayerHealth(playerid, 100.0);
+			SetPlayerArmour(playerid, 100.0);
+			SendClientMessage(playerid, 0x66FF66FF, "[bare-rpctest] RPC132 row 0 received: health and armour set to 100.");
+		}
+		case 1:
+		{
+			GivePlayerWeapon(playerid, WEAPON_AK47, 250);
+			SetPlayerArmedWeapon(playerid, WEAPON_AK47);
+			SendClientMessage(playerid, 0x66FF66FF, "[bare-rpctest] RPC132 row 1 received: AK-47 with 250 rounds granted.");
+		}
+		case 3:
+		{
+			SendClientMessage(playerid, 0x66FF66FF, "[bare-rpctest] RPC132 row 3 received: menu selection path complete.");
+		}
+		default:
+		{
+			SendClientMessage(playerid, 0xFF6666FF, "[bare-rpctest] Unexpected/disabled menu row received.");
+		}
+	}
+	HideMenuForPlayer(gRpcLegacyMenu, playerid);
+	printf("[bare-rpctest] RPC132 MenuSelect player=%d menu=%d row=%d", playerid, _:menuid, row);
+	return 1;
+}
+
+/// Handles outgoing RPC140 after the player leaves the legacy menu with Escape.
+/// Reference: https://open.mp/docs/scripting/callbacks/OnPlayerExitedMenu
+public OnPlayerExitedMenu(playerid)
+{
+	new Menu:menuid = GetPlayerMenu(playerid);
+	if (menuid == gRpcLegacyMenu)
+	{
+		SendClientMessage(playerid, 0xFFCC66FF, "[bare-rpctest] RPC140 MenuQuit received: legacy menu exited with Escape.");
+		printf("[bare-rpctest] RPC140 MenuQuit player=%d menu=%d", playerid, _:menuid);
 	}
 	return 1;
 }
@@ -1926,6 +2775,51 @@ public OnPlayerGiveDamage(playerid, damagedid, Float:amount, WEAPON:weaponid, bo
 {
 	printf("[bare-vtest] OnPlayerGiveDamage player=%d damaged=%d amount=%.3f weapon=%d bodypart=%d",
 		playerid, damagedid, amount, _:weaponid, bodypart);
+	return 1;
+}
+
+/// Confirms the client-to-server actor damage path for vulnerable fixture actors.
+/// Reference: https://open.mp/docs/scripting/callbacks/OnPlayerGiveDamageActor
+public OnPlayerGiveDamageActor(playerid, damaged_actorid, Float:amount, WEAPON:weaponid, bodypart)
+{
+	if (!IsRpcActorBatchActor(damaged_actorid))
+	{
+		return 1;
+	}
+
+	new Float:health = 0.0;
+	GetActorHealth(damaged_actorid, health);
+	new message[160];
+	format(message, sizeof(message),
+		"[bare-rpctest] Actor damage received: actor=%d amount=%.1f weapon=%d bodypart=%d server_health=%.1f.",
+		damaged_actorid, amount, _:weaponid, bodypart, health);
+	SendClientMessage(playerid, 0x66FF66FF, message);
+	printf("[bare-rpctest] actor_damage player=%d actor=%d amount=%.3f weapon=%d bodypart=%d server_health=%.3f",
+		playerid, damaged_actorid, amount, _:weaponid, bodypart, health);
+	return 1;
+}
+
+/// Logs when one of the fixture actors becomes visible to a client.
+/// Reference: https://open.mp/docs/scripting/callbacks/OnActorStreamIn
+public OnActorStreamIn(actorid, forplayerid)
+{
+	if (IsRpcActorBatchActor(actorid))
+	{
+		printf("[bare-rpctest] actor_stream_in actor=%d player=%d last_applied_phase=%d next_phase=%d",
+			actorid, forplayerid, gRpcActorBatchLastAppliedPhase, gRpcActorBatchPhase);
+	}
+	return 1;
+}
+
+/// Logs when one of the fixture actors leaves a client's streaming range/world.
+/// Reference: https://open.mp/docs/scripting/callbacks/OnActorStreamOut
+public OnActorStreamOut(actorid, forplayerid)
+{
+	if (IsRpcActorBatchActor(actorid))
+	{
+		printf("[bare-rpctest] actor_stream_out actor=%d player=%d last_applied_phase=%d next_phase=%d",
+			actorid, forplayerid, gRpcActorBatchLastAppliedPhase, gRpcActorBatchPhase);
+	}
 	return 1;
 }
 

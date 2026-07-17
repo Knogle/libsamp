@@ -23,6 +23,8 @@ int samp_raknet_client_send_spawn_notification(void *client);
 int samp_raknet_client_send_spawn_notification_for_seq(void *client, uint32_t spawn_info_seq);
 int samp_raknet_client_send_death_notification(void *client, uint8_t death_reason, uint8_t responsible_player);
 int samp_raknet_client_send_textdraw_click(void *client, uint16_t textdraw_id);
+int samp_raknet_client_send_menu_select(void *client, uint8_t row);
+int samp_raknet_client_send_menu_quit(void *client);
 int samp_raknet_client_mark_class_selection_after_death(void *client);
 int samp_raknet_client_request_class_selection_after_death(void *client);
 int samp_raknet_client_request_class_delta(void *client, int delta);
@@ -145,6 +147,13 @@ typedef struct samp_raknet_join_profile {
 #define SAMP_RAKNET_EXPLOSION_EVENT_RING 16u
 #define SAMP_RAKNET_CHAT_BUBBLE_EVENT_RING 32u
 #define SAMP_RAKNET_CHAT_BUBBLE_TEXT_BYTES 129u
+#define SAMP_RAKNET_MAX_MENUS 128u
+#define SAMP_RAKNET_MENU_MAX_COLUMNS 2u
+#define SAMP_RAKNET_MENU_MAX_ITEMS 12u
+#define SAMP_RAKNET_MENU_LINE_BYTES 32u
+#define SAMP_RAKNET_MENU_ACTION_INIT 1u
+#define SAMP_RAKNET_MENU_ACTION_SHOW 2u
+#define SAMP_RAKNET_MENU_ACTION_HIDE 3u
 #define SAMP_RAKNET_AUDIO_STREAM_URL_BYTES 129u
 #define SAMP_RAKNET_SHOP_NAME_BYTES 33u
 #define SAMP_RAKNET_PICKUP_ACTION_CREATE 1u
@@ -169,6 +178,26 @@ typedef struct samp_raknet_join_profile {
 #define SAMP_RAKNET_MAP_ICON_MAX 100u
 #define SAMP_RAKNET_MAP_ICON_ACTION_SET 1u
 #define SAMP_RAKNET_MAP_ICON_ACTION_REMOVE 2u
+#define SAMP_RAKNET_GANG_ZONE_EVENT_RING 128u
+#define SAMP_RAKNET_MAX_GANG_ZONES 1024u
+#define SAMP_RAKNET_GANG_ZONE_ACTION_CREATE 1u
+#define SAMP_RAKNET_GANG_ZONE_ACTION_DESTROY 2u
+#define SAMP_RAKNET_GANG_ZONE_ACTION_FLASH 3u
+#define SAMP_RAKNET_GANG_ZONE_ACTION_STOP_FLASH 4u
+#define SAMP_RAKNET_MAX_ACTORS 1000u
+#define SAMP_RAKNET_ACTOR_EVENT_RING 128u
+#define SAMP_RAKNET_ACTOR_ANIM_LIB_BYTES 256u
+#define SAMP_RAKNET_ACTOR_ANIM_NAME_BYTES 256u
+/* OBSERVED_037 + PROBE_TRACE + STATIC_037:
+ * Incoming actor RPCs 171/172/173/174/175/176/178 are kept in receive order.
+ * These action values are internal adapter ABI, not wire protocol IDs. */
+#define SAMP_RAKNET_ACTOR_ACTION_CREATE 1u
+#define SAMP_RAKNET_ACTOR_ACTION_DESTROY 2u
+#define SAMP_RAKNET_ACTOR_ACTION_APPLY_ANIMATION 3u
+#define SAMP_RAKNET_ACTOR_ACTION_CLEAR_ANIMATIONS 4u
+#define SAMP_RAKNET_ACTOR_ACTION_SET_FACING 5u
+#define SAMP_RAKNET_ACTOR_ACTION_SET_POSITION 6u
+#define SAMP_RAKNET_ACTOR_ACTION_SET_HEALTH 7u
 #define SAMP_RAKNET_NAME_TAG_EVENT_RING 64u
 #define SAMP_RAKNET_DEATH_WINDOW_EVENT_RING 16u
 #define SAMP_RAKNET_DEATH_WINDOW_MAX_ENTRIES 5u
@@ -311,6 +340,66 @@ typedef struct samp_raknet_map_icon_event {
   uint32_t color;
   float pos[3];
 } samp_raknet_map_icon_event;
+
+typedef struct samp_raknet_gang_zone_event {
+  uint32_t seq;
+  uint16_t zone_id;
+  uint8_t action;
+  uint8_t reserved;
+  float bounds[4];
+  uint32_t color;
+} samp_raknet_gang_zone_event;
+
+typedef struct samp_raknet_gang_zone_state {
+  uint32_t revision;
+  uint8_t active;
+  uint8_t reserved[3];
+  float bounds[4];
+  uint32_t base_color;
+  uint32_t alternate_color;
+} samp_raknet_gang_zone_state;
+
+typedef struct samp_raknet_actor_event {
+  uint32_t seq;
+  uint16_t actor_id;
+  uint8_t action;
+  uint8_t invulnerable;
+  int32_t skin;
+  float pos[3];
+  float rotation;
+  float health;
+  float animation_delta;
+  int32_t animation_time;
+  uint8_t animation_loop;
+  uint8_t animation_lock_x;
+  uint8_t animation_lock_y;
+  uint8_t animation_freeze;
+  char animation_lib[SAMP_RAKNET_ACTOR_ANIM_LIB_BYTES];
+  char animation_name[SAMP_RAKNET_ACTOR_ANIM_NAME_BYTES];
+} samp_raknet_actor_event;
+
+/* Authoritative receive-side actor state. Keep this out of the aggregate
+ * snapshot: callers use actor_state_seq to detect a ring gap and then query
+ * only the 1000 bounded actor slots needed for resynchronization. */
+typedef struct samp_raknet_actor_state {
+  uint32_t revision;
+  uint8_t active;
+  uint8_t invulnerable;
+  uint8_t has_animation;
+  uint8_t reserved;
+  int32_t skin;
+  float pos[3];
+  float rotation;
+  float health;
+  float animation_delta;
+  int32_t animation_time;
+  uint8_t animation_loop;
+  uint8_t animation_lock_x;
+  uint8_t animation_lock_y;
+  uint8_t animation_freeze;
+  char animation_lib[SAMP_RAKNET_ACTOR_ANIM_LIB_BYTES];
+  char animation_name[SAMP_RAKNET_ACTOR_ANIM_NAME_BYTES];
+} samp_raknet_actor_state;
 
 typedef struct samp_raknet_name_tag_event {
   uint32_t seq;
@@ -490,6 +579,22 @@ typedef struct samp_raknet_chat_bubble_event {
   char text[SAMP_RAKNET_CHAT_BUBBLE_TEXT_BYTES];
 } samp_raknet_chat_bubble_event;
 
+typedef struct samp_raknet_menu_state {
+  uint8_t valid;
+  uint8_t menu_id;
+  uint8_t columns;
+  uint8_t interaction_enabled;
+  uint8_t row_enabled[SAMP_RAKNET_MENU_MAX_ITEMS];
+  uint8_t column_item_count[SAMP_RAKNET_MENU_MAX_COLUMNS];
+  uint8_t reserved[2];
+  float x;
+  float y;
+  float column_width[SAMP_RAKNET_MENU_MAX_COLUMNS];
+  char title[SAMP_RAKNET_MENU_LINE_BYTES];
+  char column_header[SAMP_RAKNET_MENU_MAX_COLUMNS][SAMP_RAKNET_MENU_LINE_BYTES];
+  char items[SAMP_RAKNET_MENU_MAX_COLUMNS][SAMP_RAKNET_MENU_MAX_ITEMS][SAMP_RAKNET_MENU_LINE_BYTES];
+} samp_raknet_menu_state;
+
 typedef struct samp_raknet_rpc_probe_snapshot {
   uint32_t flags;
   uint32_t client_message_count;
@@ -501,6 +606,10 @@ typedef struct samp_raknet_rpc_probe_snapshot {
   uint32_t remote_player_event_count;
   uint32_t remote_player_sync_count;
   uint32_t map_icon_event_count;
+  uint32_t gang_zone_event_count;
+  uint32_t gang_zone_state_seq;
+  uint32_t actor_event_count;
+  uint32_t actor_state_seq;
   uint32_t name_tag_event_count;
   uint32_t death_window_event_count;
   uint32_t game_text_event_count;
@@ -510,6 +619,12 @@ typedef struct samp_raknet_rpc_probe_snapshot {
   uint32_t pickup_event_count;
   uint32_t explosion_event_count;
   uint32_t chat_bubble_event_count;
+  uint32_t menu_event_seq;
+  uint8_t menu_event_action;
+  uint8_t menu_active;
+  uint8_t menu_event_id;
+  uint8_t menu_reserved;
+  samp_raknet_menu_state menu;
   uint8_t textdraw_select_active;
   uint32_t textdraw_select_color;
   uint16_t init_spawns_available;
@@ -707,6 +822,9 @@ typedef struct samp_raknet_rpc_probe_snapshot {
   samp_raknet_remote_player_event remote_player_events[SAMP_RAKNET_REMOTE_PLAYER_EVENT_RING];
   samp_raknet_remote_onfoot_sync remote_player_syncs[SAMP_RAKNET_REMOTE_PLAYER_SYNC_RING];
   samp_raknet_map_icon_event map_icon_events[SAMP_RAKNET_MAP_ICON_EVENT_RING];
+  samp_raknet_gang_zone_event gang_zone_events[SAMP_RAKNET_GANG_ZONE_EVENT_RING];
+  samp_raknet_gang_zone_state gang_zone_states[SAMP_RAKNET_MAX_GANG_ZONES];
+  samp_raknet_actor_event actor_events[SAMP_RAKNET_ACTOR_EVENT_RING];
   samp_raknet_name_tag_event name_tag_events[SAMP_RAKNET_NAME_TAG_EVENT_RING];
   samp_raknet_death_window_event death_window_events[SAMP_RAKNET_DEATH_WINDOW_EVENT_RING];
   samp_raknet_game_text_event game_text_events[SAMP_RAKNET_GAMETEXT_EVENT_RING];
@@ -734,6 +852,7 @@ int samp_raknet_client_drain_packets_autojoin(void *client, int max_packets, con
                                               int *out_connected, int *out_join_sent, int *out_last_packet_id);
 
 int samp_raknet_client_get_rpc_probe_snapshot(void *client, samp_raknet_rpc_probe_snapshot *out_snapshot);
+int samp_raknet_client_get_actor_state(void *client, uint16_t actor_id, samp_raknet_actor_state *out_state);
 int samp_raknet_client_get_object_material(void *client, uint16_t object_id, uint32_t object_generation,
                                            uint8_t material_slot, uint32_t minimum_revision,
                                            samp_raknet_object_material *out_material,

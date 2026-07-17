@@ -45,6 +45,8 @@ constexpr RakNet::RPCID kRpcServerCommand = static_cast<RakNet::RPCID>(50u);
 constexpr RakNet::RPCID kRpcChat = static_cast<RakNet::RPCID>(101u);
 constexpr RakNet::RPCID kRpcClientCheck = static_cast<RakNet::RPCID>(103u);
 constexpr RakNet::RPCID kRpcClickTextDraw = static_cast<RakNet::RPCID>(83u);
+constexpr RakNet::RPCID kRpcMenuSelect = static_cast<RakNet::RPCID>(132u);
+constexpr RakNet::RPCID kRpcMenuQuit = static_cast<RakNet::RPCID>(140u);
 constexpr RakNet::RPCID kRpcGiveTakeDamage = static_cast<RakNet::RPCID>(115u);
 constexpr unsigned int kRpcScrDialogBox = 61U;
 constexpr RakNet::RPCID kRpcRequestClass = static_cast<RakNet::RPCID>(128u);
@@ -107,6 +109,28 @@ static_assert(sizeof(samp_raknet_aim_sync) == 31U, "SA-MP 0.3.7 aim sync payload
 static_assert(sizeof(samp_raknet_bullet_sync) == 40U, "SA-MP 0.3.7 bullet sync payload must be 40 bytes");
 static_assert(sizeof(samp_raknet_spectator_sync) == 18U, "SA-MP 0.3.7 spectator sync payload must be 18 bytes");
 static_assert(sizeof(samp_raknet_map_icon_event) == 24U, "internal map-icon event ABI must remain stable");
+static_assert(sizeof(samp_raknet_gang_zone_event) == 28U, "internal gang-zone event ABI must remain stable");
+static_assert(sizeof(samp_raknet_gang_zone_state) == 32U, "internal gang-zone state ABI must remain stable");
+static_assert(sizeof(samp_raknet_actor_event) == 556U, "internal actor event ABI must remain stable");
+static_assert(offsetof(samp_raknet_actor_event, seq) == 0U, "actor event seq ABI offset");
+static_assert(offsetof(samp_raknet_actor_event, actor_id) == 4U, "actor event id ABI offset");
+static_assert(offsetof(samp_raknet_actor_event, action) == 6U, "actor event action ABI offset");
+static_assert(offsetof(samp_raknet_actor_event, invulnerable) == 7U, "actor event invulnerability ABI offset");
+static_assert(offsetof(samp_raknet_actor_event, skin) == 8U, "actor event skin ABI offset");
+static_assert(offsetof(samp_raknet_actor_event, pos) == 12U, "actor event position ABI offset");
+static_assert(offsetof(samp_raknet_actor_event, rotation) == 24U, "actor event rotation ABI offset");
+static_assert(offsetof(samp_raknet_actor_event, health) == 28U, "actor event health ABI offset");
+static_assert(offsetof(samp_raknet_actor_event, animation_lib) == 44U, "actor event animation ABI offset");
+static_assert(offsetof(samp_raknet_actor_event, animation_name) == 300U, "actor event animation name ABI offset");
+static_assert(sizeof(samp_raknet_actor_state) == 556U, "internal actor state ABI must remain stable");
+static_assert(offsetof(samp_raknet_actor_state, revision) == 0U, "actor state revision ABI offset");
+static_assert(offsetof(samp_raknet_actor_state, active) == 4U, "actor state active ABI offset");
+static_assert(offsetof(samp_raknet_actor_state, invulnerable) == 5U, "actor state invulnerability ABI offset");
+static_assert(offsetof(samp_raknet_actor_state, has_animation) == 6U, "actor state animation flag ABI offset");
+static_assert(offsetof(samp_raknet_actor_state, skin) == 8U, "actor state skin ABI offset");
+static_assert(offsetof(samp_raknet_actor_state, pos) == 12U, "actor state position ABI offset");
+static_assert(offsetof(samp_raknet_actor_state, animation_lib) == 44U, "actor state animation ABI offset");
+static_assert(offsetof(samp_raknet_actor_state, animation_name) == 300U, "actor state animation name ABI offset");
 
 bool packet_resets_session_state(unsigned char packet_id) {
   return packet_id == static_cast<unsigned char>(RakNet::ID_DISCONNECTION_NOTIFICATION) ||
@@ -160,6 +184,11 @@ struct RpcProbeState {
   int saw_textdraw_select;
   int saw_object_event;
   int saw_vehicle_event;
+  unsigned int menu_event_seq;
+  unsigned char menu_event_action;
+  unsigned char menu_event_id;
+  unsigned char active_menu_id;
+  samp_raknet_menu_state menus[SAMP_RAKNET_MAX_MENUS];
   int pending_request_class;
   int pending_request_spawn;
   int pending_dialog_response;
@@ -387,6 +416,14 @@ struct RpcProbeState {
   samp_raknet_remote_onfoot_sync remote_player_syncs[SAMP_RAKNET_REMOTE_PLAYER_SYNC_RING];
   unsigned int map_icon_event_seq;
   samp_raknet_map_icon_event map_icon_events[SAMP_RAKNET_MAP_ICON_EVENT_RING];
+  unsigned int gang_zone_event_seq;
+  samp_raknet_gang_zone_event gang_zone_events[SAMP_RAKNET_GANG_ZONE_EVENT_RING];
+  unsigned int gang_zone_state_seq;
+  samp_raknet_gang_zone_state gang_zone_states[SAMP_RAKNET_MAX_GANG_ZONES];
+  unsigned int actor_event_seq;
+  samp_raknet_actor_event actor_events[SAMP_RAKNET_ACTOR_EVENT_RING];
+  unsigned int actor_state_seq;
+  samp_raknet_actor_state actor_states[SAMP_RAKNET_MAX_ACTORS];
   unsigned int name_tag_event_seq;
   samp_raknet_name_tag_event name_tag_events[SAMP_RAKNET_NAME_TAG_EVENT_RING];
   unsigned int death_window_event_seq;
@@ -562,16 +599,16 @@ const RpcMeta kRpcMeta[] = {
     {73U, "ScrDisplayGameText", kRpcLocalImplemented, "STATIC_037,OPENMP_REF,TODO_VERIFY"},
     {74U, "ScrForceClassSelection", kRpcLocalImplemented, "STATIC_037:samp.dll+0x180D0"},
     {75U, "ScrAttachObjectToPlayer", kRpcLocalImplemented, "STATIC_037:samp.dll+0x1C6A0,PROBE_TRACE,TODO_VERIFY"},
-    {76U, "ScrInitMenu", kRpcLocalDummy, "STATIC_037"},
-    {77U, "ScrShowMenu", kRpcLocalDummy, "STATIC_037"},
-    {78U, "ScrHideMenu", kRpcLocalDummy, "STATIC_037"},
+    {76U, "ScrInitMenu", kRpcLocalImplemented, "STATIC_037:samp.dll+0x1C870,OPENMP_REF"},
+    {77U, "ScrShowMenu", kRpcLocalImplemented, "STATIC_037:samp.dll+0x1CB90,OPENMP_REF"},
+    {78U, "ScrHideMenu", kRpcLocalImplemented, "STATIC_037:samp.dll+0x1CC40,OPENMP_REF"},
     {79U, "ScrCreateExplosion", kRpcLocalImplemented, "STATIC_037:samp.dll+0x1BD10"},
     {80U, "ScrShowPlayerNameTagForPlayer", kRpcLocalImplemented, "INFERRED,TODO_VERIFY"},
     {81U, "ScrAttachCameraToObject", kRpcLocalImplemented, "STATIC_037:samp.dll+0x19FF0"},
     {82U, "ScrInterpolateCamera", kRpcLocalImplemented, "STATIC_037:samp.dll+0x1A0F0"},
     {83U, "ClickTextDraw/SelectTextDraw", kRpcLocalImplemented, "PROBE_TRACE"},
     {84U, "ScrSetObjectMaterial", kRpcLocalImplemented, "STATIC_037,OPENMP_REF,PROBE_TRACE"},
-    {85U, "ScrGangZoneStopFlash", kRpcLocalDummy, "SAMPFUNCS_037"},
+    {85U, "ScrGangZoneStopFlash", kRpcLocalImplemented, "STATIC_037:samp.dll+0x1D310"},
     {86U, "ScrApplyAnimation", kRpcLocalImplemented, "STATIC_037:samp.dll+0x1A950"},
     {87U, "ScrClearAnimations", kRpcLocalImplemented, "STATIC_037:samp.dll+0x18580"},
     {88U, "ScrSetPlayerSpecialAction", kRpcLocalImplemented, "STATIC_037:samp.dll+0x18690"},
@@ -591,7 +628,7 @@ const RpcMeta kRpcMeta[] = {
     {105U, "ScrTextDrawSetString", kRpcLocalImplemented, "PROBE_TRACE"},
     {106U, "DamageVehicle", kRpcLocalOutgoing, "OPENMP_REF"},
     {107U, "ScrSetCheckpoint", kRpcLocalImplemented, "STATIC_037:samp.dll+0xEEF0"},
-    {108U, "ScrGangZoneCreate", kRpcLocalDecoded, "OPENMP_REF"},
+    {108U, "ScrGangZoneCreate", kRpcLocalImplemented, "STATIC_037:samp.dll+0x1D080"},
     {112U, "ScrPlayCrimeReport", kRpcLocalDummy, "SAMPFUNCS_037"},
     {113U, "ScrSetPlayerAttachedObject", kRpcLocalDummy, "SAMPFUNCS_037"},
     {115U, "GiveTakeDamage", kRpcLocalOutgoing, "OPENMP_REF"},
@@ -599,8 +636,8 @@ const RpcMeta kRpcMeta[] = {
     {117U, "EditObject", kRpcLocalOutgoing, "OPENMP_REF"},
     {118U, "SetInteriorId", kRpcLocalOutgoing, "OPENMP_REF"},
     {119U, "MapMarker", kRpcLocalOutgoing, "OPENMP_REF"},
-    {120U, "ScrGangZoneDestroy", kRpcLocalDummy, "STATIC_037"},
-    {121U, "ScrGangZoneFlash", kRpcLocalDummy, "STATIC_037"},
+    {120U, "ScrGangZoneDestroy", kRpcLocalImplemented, "STATIC_037:samp.dll+0x1D1A0"},
+    {121U, "ScrGangZoneFlash", kRpcLocalImplemented, "STATIC_037:samp.dll+0x1D250"},
     {122U, "ScrStopObject", kRpcLocalImplemented, "PROBE_TRACE"},
     {123U, "ScrSetNumberPlate", kRpcLocalImplemented, "STATIC_037:samp.dll+0x1C230"},
     {124U, "ScrTogglePlayerSpectating", kRpcLocalImplemented, "STATIC_037:samp.dll+0x1C350"},
@@ -639,6 +676,20 @@ const RpcMeta kRpcMeta[] = {
     {164U, "ScrWorldVehicleAdd", kRpcLocalImplemented, "PROBE_TRACE"},
     {165U, "ScrWorldVehicleRemove", kRpcLocalImplemented, "PROBE_TRACE"},
     {166U, "ScrWorldPlayerDeath", kRpcLocalImplemented, "SAMPFUNCS_037,PROBE_TRACE"},
+    {171U, "ScrShowActor", kRpcLocalImplemented,
+     "STATIC_037:samp.dll+0xEAB0,OBSERVED_037,PROBE_TRACE"},
+    {172U, "ScrHideActor", kRpcLocalImplemented,
+     "STATIC_037:samp.dll+0x11E00,OBSERVED_037,PROBE_TRACE"},
+    {173U, "ScrApplyActorAnimation", kRpcLocalImplemented,
+     "STATIC_037:samp.dll+0x1D750,OBSERVED_037,PROBE_TRACE"},
+    {174U, "ScrClearActorAnimations", kRpcLocalImplemented,
+     "STATIC_037:samp.dll+0x1D930,OBSERVED_037,PROBE_TRACE"},
+    {175U, "ScrSetActorFacingAngle", kRpcLocalImplemented,
+     "STATIC_037:samp.dll+0x1D9F0,OBSERVED_037,PROBE_TRACE"},
+    {176U, "ScrSetActorPos", kRpcLocalImplemented,
+     "STATIC_037:samp.dll+0x1DAD0,OBSERVED_037,PROBE_TRACE"},
+    {178U, "ScrSetActorHealth", kRpcLocalImplemented,
+     "STATIC_037:samp.dll+0x1DBE0,OBSERVED_037,PROBE_TRACE"},
 };
 
 const RpcMeta *rpc_meta(unsigned int rpc_id) {
@@ -722,6 +773,11 @@ unsigned int rpc_min_payload_bytes(unsigned int rpc_id) {
     case 42U:
     case 74U:
       return 0U;
+    case 76U:
+      return 134U;
+    case 77U:
+    case 78U:
+      return 1U;
     case 33U:
       return 32U;
     case 41U:
@@ -827,6 +883,11 @@ unsigned int rpc_min_payload_bytes(unsigned int rpc_id) {
       return 9U;
     case 108U:
       return 22U;
+    case 85U:
+    case 120U:
+      return 2U;
+    case 121U:
+      return 6U;
     case 105U:
     case 122U:
     case 135U:
@@ -853,6 +914,18 @@ unsigned int rpc_min_payload_bytes(unsigned int rpc_id) {
       return 0U;
     case 164U:
       return kOpenMpVehicleAddBytes;
+    case 171U:
+      return 27U;
+    case 172U:
+    case 174U:
+      return 2U;
+    case 173U:
+      return 13U;
+    case 175U:
+    case 178U:
+      return 6U;
+    case 176U:
+      return 14U;
     default:
       return 0U;
   }
@@ -962,6 +1035,11 @@ void reset_rpc_probe_runtime(RakNet::RakClientInterface *client) {
   g_rpc_probe.saw_textdraw_select = 0;
   g_rpc_probe.saw_object_event = 0;
   g_rpc_probe.saw_vehicle_event = 0;
+  g_rpc_probe.menu_event_seq = 0U;
+  g_rpc_probe.menu_event_action = 0U;
+  g_rpc_probe.menu_event_id = 0xFFU;
+  g_rpc_probe.active_menu_id = 0xFFU;
+  std::memset(g_rpc_probe.menus, 0, sizeof(g_rpc_probe.menus));
   g_rpc_probe.pending_request_class = 0;
   g_rpc_probe.pending_request_spawn = 0;
   g_rpc_probe.pending_dialog_response = 0;
@@ -1195,6 +1273,14 @@ void reset_rpc_probe_runtime(RakNet::RakClientInterface *client) {
   std::memset(g_rpc_probe.remote_player_syncs, 0, sizeof(g_rpc_probe.remote_player_syncs));
   g_rpc_probe.map_icon_event_seq = 0U;
   std::memset(g_rpc_probe.map_icon_events, 0, sizeof(g_rpc_probe.map_icon_events));
+  g_rpc_probe.gang_zone_event_seq = 0U;
+  std::memset(g_rpc_probe.gang_zone_events, 0, sizeof(g_rpc_probe.gang_zone_events));
+  g_rpc_probe.gang_zone_state_seq = 0U;
+  std::memset(g_rpc_probe.gang_zone_states, 0, sizeof(g_rpc_probe.gang_zone_states));
+  g_rpc_probe.actor_event_seq = 0U;
+  std::memset(g_rpc_probe.actor_events, 0, sizeof(g_rpc_probe.actor_events));
+  g_rpc_probe.actor_state_seq = 0U;
+  std::memset(g_rpc_probe.actor_states, 0, sizeof(g_rpc_probe.actor_states));
   g_rpc_probe.name_tag_event_seq = 0U;
   std::memset(g_rpc_probe.name_tag_events, 0, sizeof(g_rpc_probe.name_tag_events));
   g_rpc_probe.death_window_event_seq = 0U;
@@ -2736,6 +2822,52 @@ void queue_map_icon_event(unsigned char action, unsigned char index, const float
   }
 }
 
+samp_raknet_gang_zone_event *queue_gang_zone_event(unsigned char action, unsigned short zone_id,
+                                                    const float bounds[4], unsigned int color) {
+  const unsigned int seq = bump_seq(&g_rpc_probe.gang_zone_event_seq);
+  const unsigned int slot = (seq - 1U) % SAMP_RAKNET_GANG_ZONE_EVENT_RING;
+  samp_raknet_gang_zone_event *event = &g_rpc_probe.gang_zone_events[slot];
+
+  std::memset(event, 0, sizeof(*event));
+  event->seq = seq;
+  event->zone_id = zone_id;
+  event->action = action;
+  event->color = color;
+  if (bounds != nullptr) {
+    std::memcpy(event->bounds, bounds, sizeof(event->bounds));
+  }
+  if (zone_id < SAMP_RAKNET_MAX_GANG_ZONES) {
+    samp_raknet_gang_zone_state *state = &g_rpc_probe.gang_zone_states[zone_id];
+    switch (action) {
+      case SAMP_RAKNET_GANG_ZONE_ACTION_CREATE:
+        std::memset(state, 0, sizeof(*state));
+        state->active = 1U;
+        std::memcpy(state->bounds, event->bounds, sizeof(state->bounds));
+        state->base_color = color;
+        state->alternate_color = color;
+        break;
+      case SAMP_RAKNET_GANG_ZONE_ACTION_DESTROY:
+        std::memset(state, 0, sizeof(*state));
+        break;
+      case SAMP_RAKNET_GANG_ZONE_ACTION_FLASH:
+        if (state->active != 0U) {
+          state->alternate_color = color;
+        }
+        break;
+      case SAMP_RAKNET_GANG_ZONE_ACTION_STOP_FLASH:
+        if (state->active != 0U) {
+          state->alternate_color = state->base_color;
+        }
+        break;
+      default:
+        break;
+    }
+    state->revision = seq;
+    g_rpc_probe.gang_zone_state_seq = seq;
+  }
+  return event;
+}
+
 void queue_name_tag_event(unsigned short player_id, unsigned char show) {
   const unsigned int seq = bump_seq(&g_rpc_probe.name_tag_event_seq);
   const unsigned int slot = (seq - 1U) % SAMP_RAKNET_NAME_TAG_EVENT_RING;
@@ -3547,6 +3679,123 @@ bool decode_gravity_payload(const unsigned char *data, unsigned int bytes) {
   return true;
 }
 
+unsigned int queue_menu_event(unsigned char action, unsigned char menu_id) {
+  g_rpc_probe.menu_event_action = action;
+  g_rpc_probe.menu_event_id = menu_id;
+  return bump_seq(&g_rpc_probe.menu_event_seq);
+}
+
+void terminate_menu_line(char line[SAMP_RAKNET_MENU_LINE_BYTES]) {
+  if (line == nullptr) {
+    return;
+  }
+  line[SAMP_RAKNET_MENU_LINE_BYTES - 1U] = '\0';
+  for (unsigned int i = 0U; i + 1U < SAMP_RAKNET_MENU_LINE_BYTES && line[i] != '\0'; ++i) {
+    const unsigned char value = static_cast<unsigned char>(line[i]);
+    if (value < 0x20U && value != '\t') {
+      line[i] = ' ';
+    }
+  }
+}
+
+bool decode_init_menu_payload(const unsigned char *data, unsigned int bytes) {
+  samp_raknet_menu_state menu = {};
+  std::int32_t two_columns = 0;
+  std::int32_t interaction_enabled = 0;
+  std::int32_t row_enabled[SAMP_RAKNET_MENU_MAX_ITEMS] = {};
+  unsigned char count = 0U;
+
+  if (data == nullptr || bytes < 134U) {
+    return false;
+  }
+
+  RakNet::BitStream bs(const_cast<unsigned char *>(data), bytes, false);
+  if (!bs.Read(menu.menu_id) || !bs.Read(two_columns) || menu.menu_id >= SAMP_RAKNET_MAX_MENUS ||
+      (two_columns != 0 && two_columns != 1) ||
+      !bs.Read(menu.title, static_cast<int>(SAMP_RAKNET_MENU_LINE_BYTES)) || !bs.Read(menu.x) || !bs.Read(menu.y) ||
+      !bs.Read(menu.column_width[0])) {
+    return false;
+  }
+  menu.columns = two_columns != 0 ? 2U : 1U;
+  if (menu.columns == 2U && !bs.Read(menu.column_width[1])) {
+    return false;
+  }
+  if (!std::isfinite(menu.x) || !std::isfinite(menu.y) || !std::isfinite(menu.column_width[0]) ||
+      !std::isfinite(menu.column_width[1]) || menu.x < -4096.0f || menu.x > 4096.0f || menu.y < -4096.0f ||
+      menu.y > 4096.0f || menu.column_width[0] < 0.0f || menu.column_width[0] > 4096.0f ||
+      menu.column_width[1] < 0.0f || menu.column_width[1] > 4096.0f || !bs.Read(interaction_enabled) ||
+      (interaction_enabled != 0 && interaction_enabled != 1)) {
+    return false;
+  }
+  menu.interaction_enabled = interaction_enabled != 0 ? 1U : 0U;
+  for (unsigned int row = 0U; row < SAMP_RAKNET_MENU_MAX_ITEMS; ++row) {
+    if (!bs.Read(row_enabled[row]) || (row_enabled[row] != 0 && row_enabled[row] != 1)) {
+      return false;
+    }
+    menu.row_enabled[row] = row_enabled[row] != 0 ? 1U : 0U;
+  }
+  terminate_menu_line(menu.title);
+
+  for (unsigned int column = 0U; column < menu.columns; ++column) {
+    if (!bs.Read(menu.column_header[column], static_cast<int>(SAMP_RAKNET_MENU_LINE_BYTES)) || !bs.Read(count) ||
+        count > SAMP_RAKNET_MENU_MAX_ITEMS) {
+      return false;
+    }
+    terminate_menu_line(menu.column_header[column]);
+    menu.column_item_count[column] = count;
+    for (unsigned int row = 0U; row < count; ++row) {
+      if (!bs.Read(menu.items[column][row], static_cast<int>(SAMP_RAKNET_MENU_LINE_BYTES))) {
+        return false;
+      }
+      terminate_menu_line(menu.items[column][row]);
+    }
+  }
+
+  /* STATIC_037:
+   * SA-MP 0.3.7-R5 samp.dll+0x1C870 reads the fixed-width menu payload and
+   * replaces the corresponding CMenuPool slot. SHA256=
+   * b72b5dbe725f81864ca3f78bc7063bda56cc05fc7188af822fa7a754432553a2.
+   */
+  menu.valid = 1U;
+  g_rpc_probe.menus[menu.menu_id] = menu;
+  if (g_rpc_probe.active_menu_id == menu.menu_id) {
+    g_rpc_probe.active_menu_id = 0xFFU;
+  }
+  const unsigned int seq = queue_menu_event(SAMP_RAKNET_MENU_ACTION_INIT, menu.menu_id);
+  trace_netf("rpc-state id=76 menu_init seq=%u menu=%u columns=%u interaction=%u rows=%u/%u "
+             "pos=%.3f,%.3f width=%.3f,%.3f title='%s' evidence=STATIC_037,OPENMP_REF",
+             seq, static_cast<unsigned int>(menu.menu_id), static_cast<unsigned int>(menu.columns),
+             static_cast<unsigned int>(menu.interaction_enabled),
+             static_cast<unsigned int>(menu.column_item_count[0]),
+             static_cast<unsigned int>(menu.column_item_count[1]), static_cast<double>(menu.x),
+             static_cast<double>(menu.y), static_cast<double>(menu.column_width[0]),
+             static_cast<double>(menu.column_width[1]), menu.title);
+  return true;
+}
+
+bool decode_menu_visibility_payload(unsigned int rpc_id, const unsigned char *data, unsigned int bytes) {
+  if (data == nullptr || bytes < 1U || data[0U] >= SAMP_RAKNET_MAX_MENUS ||
+      g_rpc_probe.menus[data[0U]].valid == 0U) {
+    return false;
+  }
+  const unsigned char menu_id = data[0U];
+  if (rpc_id == 77U) {
+    g_rpc_probe.active_menu_id = menu_id;
+    const unsigned int seq = queue_menu_event(SAMP_RAKNET_MENU_ACTION_SHOW, menu_id);
+    trace_netf("rpc-state id=77 menu_show seq=%u menu=%u evidence=STATIC_037:samp.dll+0x1CB90,OPENMP_REF",
+               seq, static_cast<unsigned int>(menu_id));
+    return true;
+  }
+  if (rpc_id == 78U) {
+    g_rpc_probe.active_menu_id = 0xFFU;
+    const unsigned int seq = queue_menu_event(SAMP_RAKNET_MENU_ACTION_HIDE, menu_id);
+    trace_netf("rpc-state id=78 menu_hide seq=%u menu=%u evidence=STATIC_037:samp.dll+0x1CC40,OPENMP_REF",
+               seq, static_cast<unsigned int>(menu_id));
+    return true;
+  }
+  return false;
+}
+
 bool decode_set_player_name_payload(const unsigned char *data, unsigned int bytes) {
   if (data == nullptr || bytes < 4U) return false;
   const unsigned short player_id = read_le16(data);
@@ -3598,10 +3847,26 @@ bool decode_camera_interpolate_payload(const unsigned char *data, unsigned int b
   return true;
 }
 
+samp_raknet_actor_event *queue_actor_event(unsigned char action, unsigned short actor_id);
+
 bool decode_client_control_payload(unsigned int rpc_id, const unsigned char *data, unsigned int bytes) {
   switch (rpc_id) {
     case 40U:
       bump_seq(&g_rpc_probe.game_mode_restart_seq);
+      for (unsigned int actor_id = 0U; actor_id < SAMP_RAKNET_MAX_ACTORS; ++actor_id) {
+        if (g_rpc_probe.actor_states[actor_id].active == 0U) {
+          continue;
+        }
+        samp_raknet_actor_event *event =
+            queue_actor_event(SAMP_RAKNET_ACTOR_ACTION_DESTROY, static_cast<unsigned short>(actor_id));
+        samp_raknet_actor_state cleared = {};
+        cleared.revision = event->seq;
+        g_rpc_probe.actor_states[actor_id] = cleared;
+      }
+      g_rpc_probe.gang_zone_event_seq = 0U;
+      std::memset(g_rpc_probe.gang_zone_events, 0, sizeof(g_rpc_probe.gang_zone_events));
+      g_rpc_probe.gang_zone_state_seq = 0U;
+      std::memset(g_rpc_probe.gang_zone_states, 0, sizeof(g_rpc_probe.gang_zone_states));
       return true;
     case 74U:
       bump_seq(&g_rpc_probe.force_class_selection_seq);
@@ -3845,6 +4110,270 @@ bool decode_apply_animation_payload(const unsigned char *data, unsigned int byte
   return true;
 }
 
+samp_raknet_actor_event *queue_actor_event(unsigned char action, unsigned short actor_id) {
+  const unsigned int seq = bump_seq(&g_rpc_probe.actor_event_seq);
+  samp_raknet_actor_event *event =
+      &g_rpc_probe.actor_events[(seq - 1U) % SAMP_RAKNET_ACTOR_EVENT_RING];
+
+  std::memset(event, 0, sizeof(*event));
+  event->seq = seq;
+  event->actor_id = actor_id;
+  event->action = action;
+  g_rpc_probe.actor_state_seq = seq;
+  return event;
+}
+
+bool actor_position_is_safe(const float pos[3]) {
+  return pos != nullptr && std::isfinite(pos[0]) && std::isfinite(pos[1]) && std::isfinite(pos[2]) &&
+         std::fabs(pos[0]) <= 100000.0f && std::fabs(pos[1]) <= 100000.0f &&
+         std::fabs(pos[2]) <= 100000.0f;
+}
+
+bool actor_state_is_active(unsigned int rpc_id, unsigned short actor_id) {
+  if (actor_id >= SAMP_RAKNET_MAX_ACTORS) {
+    trace_netf("rpc-state id=%u actor invalid_id=%u ignored=1", rpc_id,
+               static_cast<unsigned int>(actor_id));
+    return false;
+  }
+  if (g_rpc_probe.actor_states[actor_id].active == 0U) {
+    trace_netf("rpc-state id=%u actor=%u inactive ignored=1 evidence=STATIC_037", rpc_id,
+               static_cast<unsigned int>(actor_id));
+    return false;
+  }
+  return true;
+}
+
+/* OBSERVED_037 + PROBE_TRACE + STATIC_037:
+ * Exact original 0.3.7-R5 handlers and payloads:
+ * 171 +0xEAB0 (216 bits), 172 +0x11E00 (16 bits),
+ * 173 +0x1D750 (100 + 8*(lib_len+name_len) bits),
+ * 174 +0x1D930 (16 bits), 175 +0x1D9F0 (48 bits),
+ * 176 +0x1DAD0 (112 bits), 178 +0x1DBE0 (48 bits).
+ * samp.dll SHA256=b72b5dbe725f81864ca3f78bc7063bda56cc05fc7188af822fa7a754432553a2.
+ * Unlike the original pool's pre-indexing path, every actor ID and payload is
+ * bounds checked before touching adapter state.
+ */
+bool decode_actor_payload(unsigned int rpc_id, const unsigned char *data, unsigned int bytes,
+                          unsigned int bits) {
+  unsigned short actor_id = 0U;
+
+  if (data == nullptr || bits == 0U || bytes != (bits + 7U) / 8U || bytes < 2U) {
+    return false;
+  }
+  actor_id = read_le16(data);
+  if (actor_id >= SAMP_RAKNET_MAX_ACTORS) {
+    trace_netf("rpc-state id=%u actor invalid_id=%u bits=%u bytes=%u ignored=1 evidence=STATIC_037",
+               rpc_id, static_cast<unsigned int>(actor_id), bits, bytes);
+    return false;
+  }
+
+  if (rpc_id == 171U) {
+    float pos[3] = {0.0f, 0.0f, 0.0f};
+    const std::int32_t skin = bytes >= 6U ? read_le_i32(data + 2U) : -1;
+    if (bits != 216U || bytes != 27U) {
+      return false;
+    }
+    read_vec3(data + 6U, pos);
+    const float rotation = read_le_float(data + 18U);
+    const float health = read_le_float(data + 22U);
+    const unsigned char invulnerable = data[26U] != 0U ? 1U : 0U;
+    if (skin < 0 || skin > 311 || skin == 74 || !actor_position_is_safe(pos) ||
+        !std::isfinite(rotation) || !std::isfinite(health) || std::fabs(health) > 1000000.0f) {
+      trace_netf("rpc-state id=171 actor_create invalid actor=%u skin=%d rotation=%.6f health=%.6f ignored=1",
+                 static_cast<unsigned int>(actor_id), static_cast<int>(skin),
+                 static_cast<double>(rotation), static_cast<double>(health));
+      return false;
+    }
+
+    samp_raknet_actor_event *event = queue_actor_event(SAMP_RAKNET_ACTOR_ACTION_CREATE, actor_id);
+    event->skin = skin;
+    std::memcpy(event->pos, pos, sizeof(event->pos));
+    event->rotation = rotation;
+    event->health = health;
+    event->invulnerable = invulnerable;
+
+    samp_raknet_actor_state state = {};
+    state.revision = event->seq;
+    state.active = 1U;
+    state.invulnerable = invulnerable;
+    state.skin = skin;
+    std::memcpy(state.pos, pos, sizeof(state.pos));
+    state.rotation = rotation;
+    state.health = health;
+    g_rpc_probe.actor_states[actor_id] = state;
+    trace_netf("rpc-state id=171 actor_create seq=%u actor=%u skin=%d pos=%.3f %.3f %.3f "
+               "rotation=%.3f health=%.3f invulnerable=%u apply_pending=1 "
+               "evidence=OBSERVED_037,PROBE_TRACE,STATIC_037:samp.dll+0xEAB0",
+               event->seq, static_cast<unsigned int>(actor_id), static_cast<int>(skin),
+               static_cast<double>(pos[0]), static_cast<double>(pos[1]), static_cast<double>(pos[2]),
+               static_cast<double>(rotation), static_cast<double>(health),
+               static_cast<unsigned int>(invulnerable));
+    return true;
+  }
+
+  if (rpc_id == 172U) {
+    if (bits != 16U || bytes != 2U) {
+      return false;
+    }
+    if (!actor_state_is_active(rpc_id, actor_id)) {
+      return true;
+    }
+    samp_raknet_actor_event *event = queue_actor_event(SAMP_RAKNET_ACTOR_ACTION_DESTROY, actor_id);
+    samp_raknet_actor_state state = {};
+    state.revision = event->seq;
+    g_rpc_probe.actor_states[actor_id] = state;
+    trace_netf("rpc-state id=172 actor_destroy seq=%u actor=%u apply_pending=1 "
+               "evidence=OBSERVED_037,PROBE_TRACE,STATIC_037:samp.dll+0x11E00",
+               event->seq, static_cast<unsigned int>(actor_id));
+    return true;
+  }
+
+  if (rpc_id == 173U) {
+    unsigned char lib_len = 0U;
+    unsigned char name_len = 0U;
+    char lib[SAMP_RAKNET_ACTOR_ANIM_LIB_BYTES] = {0};
+    char name[SAMP_RAKNET_ACTOR_ANIM_NAME_BYTES] = {0};
+    float delta = 0.0f;
+    bool loop = false;
+    bool lock_x = false;
+    bool lock_y = false;
+    bool freeze = false;
+    std::int32_t time = 0;
+    RakNet::BitStream bs(const_cast<unsigned char *>(data), bytes, false);
+
+    if (!bs.Read(actor_id) || actor_id >= SAMP_RAKNET_MAX_ACTORS || !bs.Read(lib_len) ||
+        (lib_len > 0U && !bs.Read(lib, static_cast<int>(lib_len))) || !bs.Read(name_len) ||
+        (name_len > 0U && !bs.Read(name, static_cast<int>(name_len)))) {
+      return false;
+    }
+    const unsigned int expected_bits = 100U + 8U * (static_cast<unsigned int>(lib_len) +
+                                                     static_cast<unsigned int>(name_len));
+    if (bits != expected_bits || !bs.Read(delta) || !bs.Read(loop) || !bs.Read(lock_x) ||
+        !bs.Read(lock_y) || !bs.Read(freeze) || !bs.Read(time) ||
+        static_cast<unsigned int>(bs.GetReadOffset()) != expected_bits || !std::isfinite(delta)) {
+      return false;
+    }
+    if (!actor_state_is_active(rpc_id, actor_id)) {
+      return true;
+    }
+
+    samp_raknet_actor_event *event =
+        queue_actor_event(SAMP_RAKNET_ACTOR_ACTION_APPLY_ANIMATION, actor_id);
+    event->animation_delta = delta;
+    event->animation_time = time;
+    event->animation_loop = loop ? 1U : 0U;
+    event->animation_lock_x = lock_x ? 1U : 0U;
+    event->animation_lock_y = lock_y ? 1U : 0U;
+    event->animation_freeze = freeze ? 1U : 0U;
+    std::memcpy(event->animation_lib, lib, sizeof(event->animation_lib));
+    std::memcpy(event->animation_name, name, sizeof(event->animation_name));
+
+    samp_raknet_actor_state *state = &g_rpc_probe.actor_states[actor_id];
+    state->revision = event->seq;
+    if (std::strcmp(lib, "SEX") != 0) {
+      state->has_animation = 1U;
+      state->animation_delta = delta;
+      state->animation_time = time;
+      state->animation_loop = event->animation_loop;
+      state->animation_lock_x = event->animation_lock_x;
+      state->animation_lock_y = event->animation_lock_y;
+      state->animation_freeze = event->animation_freeze;
+      std::memcpy(state->animation_lib, lib, sizeof(state->animation_lib));
+      std::memcpy(state->animation_name, name, sizeof(state->animation_name));
+    }
+    trace_netf("rpc-state id=173 actor_animation seq=%u actor=%u lib='%s' name='%s' delta=%.3f "
+               "flags=%u/%u/%u/%u time=%d bits=%u apply_pending=1 "
+               "evidence=OBSERVED_037,PROBE_TRACE,STATIC_037:samp.dll+0x1D750",
+               event->seq, static_cast<unsigned int>(actor_id), lib, name, static_cast<double>(delta),
+               static_cast<unsigned int>(event->animation_loop),
+               static_cast<unsigned int>(event->animation_lock_x),
+               static_cast<unsigned int>(event->animation_lock_y),
+               static_cast<unsigned int>(event->animation_freeze), static_cast<int>(time), bits);
+    return true;
+  }
+
+  if (rpc_id == 174U) {
+    if (bits != 16U || bytes != 2U) {
+      return false;
+    }
+    if (!actor_state_is_active(rpc_id, actor_id)) {
+      return true;
+    }
+    samp_raknet_actor_event *event =
+        queue_actor_event(SAMP_RAKNET_ACTOR_ACTION_CLEAR_ANIMATIONS, actor_id);
+    samp_raknet_actor_state *state = &g_rpc_probe.actor_states[actor_id];
+    state->revision = event->seq;
+    state->has_animation = 0U;
+    state->animation_delta = 0.0f;
+    state->animation_time = 0;
+    state->animation_loop = 0U;
+    state->animation_lock_x = 0U;
+    state->animation_lock_y = 0U;
+    state->animation_freeze = 0U;
+    std::memset(state->animation_lib, 0, sizeof(state->animation_lib));
+    std::memset(state->animation_name, 0, sizeof(state->animation_name));
+    trace_netf("rpc-state id=174 actor_clear_animation seq=%u actor=%u apply_pending=1 "
+               "evidence=OBSERVED_037,PROBE_TRACE,STATIC_037:samp.dll+0x1D930",
+               event->seq, static_cast<unsigned int>(actor_id));
+    return true;
+  }
+
+  if (rpc_id == 175U || rpc_id == 178U) {
+    if (bits != 48U || bytes != 6U) {
+      return false;
+    }
+    const float value = read_le_float(data + 2U);
+    if (!std::isfinite(value) || (rpc_id == 178U && std::fabs(value) > 1000000.0f)) {
+      return false;
+    }
+    if (!actor_state_is_active(rpc_id, actor_id)) {
+      return true;
+    }
+    const unsigned char action = rpc_id == 175U ? SAMP_RAKNET_ACTOR_ACTION_SET_FACING
+                                                 : SAMP_RAKNET_ACTOR_ACTION_SET_HEALTH;
+    samp_raknet_actor_event *event = queue_actor_event(action, actor_id);
+    samp_raknet_actor_state *state = &g_rpc_probe.actor_states[actor_id];
+    state->revision = event->seq;
+    if (rpc_id == 175U) {
+      event->rotation = value;
+      state->rotation = value;
+    } else {
+      event->health = value;
+      state->health = value;
+    }
+    trace_netf("rpc-state id=%u actor_scalar seq=%u actor=%u value=%.6f apply_pending=1 "
+               "evidence=OBSERVED_037,PROBE_TRACE,STATIC_037",
+               rpc_id, event->seq, static_cast<unsigned int>(actor_id), static_cast<double>(value));
+    return true;
+  }
+
+  if (rpc_id == 176U) {
+    float pos[3] = {0.0f, 0.0f, 0.0f};
+    if (bits != 112U || bytes != 14U) {
+      return false;
+    }
+    read_vec3(data + 2U, pos);
+    if (!actor_position_is_safe(pos)) {
+      return false;
+    }
+    if (!actor_state_is_active(rpc_id, actor_id)) {
+      return true;
+    }
+    samp_raknet_actor_event *event = queue_actor_event(SAMP_RAKNET_ACTOR_ACTION_SET_POSITION, actor_id);
+    std::memcpy(event->pos, pos, sizeof(event->pos));
+    samp_raknet_actor_state *state = &g_rpc_probe.actor_states[actor_id];
+    state->revision = event->seq;
+    std::memcpy(state->pos, pos, sizeof(state->pos));
+    trace_netf("rpc-state id=176 actor_position seq=%u actor=%u pos=%.3f %.3f %.3f apply_pending=1 "
+               "evidence=OBSERVED_037,PROBE_TRACE,STATIC_037:samp.dll+0x1DAD0",
+               event->seq, static_cast<unsigned int>(actor_id), static_cast<double>(pos[0]),
+               static_cast<double>(pos[1]), static_cast<double>(pos[2]));
+    return true;
+  }
+
+  return false;
+}
+
 bool decode_set_object_material_payload(const unsigned char *data, unsigned int bytes) {
   unsigned short object_id = 0U;
   samp_raknet_object_material material;
@@ -3950,21 +4479,62 @@ bool decode_delete_3d_text_label_payload(const unsigned char *data, unsigned int
   return true;
 }
 
-bool decode_gang_zone_create_payload(const unsigned char *data, unsigned int bytes) {
-  if (data == nullptr || bytes < 22U) {
+bool decode_gang_zone_payload(unsigned char rpc_id, const unsigned char *data, unsigned int bytes) {
+  samp_raknet_gang_zone_event *event = nullptr;
+  unsigned short zone_id = 0U;
+  unsigned int color = 0U;
+  unsigned char action = 0U;
+  float bounds[4] = {0.0f, 0.0f, 0.0f, 0.0f};
+
+  if (data == nullptr || bytes < 2U) {
     return false;
   }
-  float pos[4] = {0.0f, 0.0f, 0.0f, 0.0f};
-  const unsigned short zone_id = read_le16(data);
-  pos[0] = read_le_float(data + 2U);
-  pos[1] = read_le_float(data + 6U);
-  pos[2] = read_le_float(data + 10U);
-  pos[3] = read_le_float(data + 14U);
-  const unsigned int color = read_le32(data + 18U);
-  if (!std::isfinite(pos[0]) || !std::isfinite(pos[1]) || !std::isfinite(pos[2]) || !std::isfinite(pos[3])) {
+  zone_id = read_le16(data);
+  if (zone_id >= SAMP_RAKNET_MAX_GANG_ZONES) {
     return false;
   }
-  set_world_visual_event(SAMP_RAKNET_WORLD_VISUAL_GANG_ZONE_CREATE, zone_id, 0, color, pos, "gang_zone_create");
+
+  switch (rpc_id) {
+    case 108U:
+      if (bytes < 22U) {
+        return false;
+      }
+      bounds[0] = read_le_float(data + 2U);
+      bounds[1] = read_le_float(data + 6U);
+      bounds[2] = read_le_float(data + 10U);
+      bounds[3] = read_le_float(data + 14U);
+      color = read_le32(data + 18U);
+      for (float value : bounds) {
+        if (!std::isfinite(value) || std::fabs(value) > 100000.0f) {
+          return false;
+        }
+      }
+      action = SAMP_RAKNET_GANG_ZONE_ACTION_CREATE;
+      break;
+    case 120U:
+      action = SAMP_RAKNET_GANG_ZONE_ACTION_DESTROY;
+      break;
+    case 121U:
+      if (bytes < 6U) {
+        return false;
+      }
+      color = read_le32(data + 2U);
+      action = SAMP_RAKNET_GANG_ZONE_ACTION_FLASH;
+      break;
+    case 85U:
+      action = SAMP_RAKNET_GANG_ZONE_ACTION_STOP_FLASH;
+      break;
+    default:
+      return false;
+  }
+
+  event = queue_gang_zone_event(action, zone_id,
+                                action == SAMP_RAKNET_GANG_ZONE_ACTION_CREATE ? bounds : nullptr, color);
+  trace_netf("rpc-state id=%u gang_zone seq=%u action=%u zone=%u color=0x%08x "
+             "bounds=(%.3f,%.3f,%.3f,%.3f) evidence=STATIC_037:samp.dll+0x1D080,+0x1D1A0,+0x1D250,+0x1D310",
+             static_cast<unsigned int>(rpc_id), event->seq, static_cast<unsigned int>(action),
+             static_cast<unsigned int>(zone_id), color, static_cast<double>(bounds[0]),
+             static_cast<double>(bounds[1]), static_cast<double>(bounds[2]), static_cast<double>(bounds[3]));
   return true;
 }
 
@@ -5378,12 +5948,26 @@ void rpc_observer(RakNet::RPCParameters *rpc_params, void *extra) {
   if (rpc_id == 11U) {
     if (rpc_params == nullptr || !decode_set_player_name_payload(rpc_params->input, bytes))
       trace_netf("rpc-state id=11 set_player_name decode_failed bytes=%u", bytes);
+  } else if (rpc_id == 171U || rpc_id == 172U || rpc_id == 173U || rpc_id == 174U || rpc_id == 175U ||
+             rpc_id == 176U || rpc_id == 178U) {
+    const unsigned int bits = rpc_params != nullptr ? rpc_params->numberOfBitsOfData : 0U;
+    if (rpc_params == nullptr || !decode_actor_payload(rpc_id, rpc_params->input, bytes, bits)) {
+      trace_netf("rpc-state id=%u actor decode_failed bits=%u bytes=%u ignored=1 evidence=STATIC_037,PROBE_TRACE",
+                 rpc_id, bits, bytes);
+    }
   } else if (rpc_id == 17U) {
     if (rpc_params == nullptr || !decode_world_bounds_payload(rpc_params->input, bytes))
       trace_netf("rpc-state id=17 world_bounds decode_failed bytes=%u", bytes);
   } else if (rpc_id == 82U) {
     if (rpc_params == nullptr || !decode_camera_interpolate_payload(rpc_params->input, bytes))
       trace_netf("rpc-state id=82 camera_interpolate decode_failed bytes=%u", bytes);
+  } else if (rpc_id == 76U) {
+    if (rpc_params == nullptr || !decode_init_menu_payload(rpc_params->input, bytes))
+      trace_netf("rpc-state id=76 menu_init decode_failed bytes=%u ignored=1", bytes);
+  } else if (rpc_id == 77U || rpc_id == 78U) {
+    const unsigned char *input = rpc_params != nullptr ? rpc_params->input : nullptr;
+    if (!decode_menu_visibility_payload(rpc_id, input, bytes))
+      trace_netf("rpc-state id=%u menu_visibility decode_failed bytes=%u ignored=1", rpc_id, bytes);
   } else if (rpc_id == 40U || rpc_id == 74U || rpc_id == 81U || rpc_id == 88U || rpc_id == 124U ||
              rpc_id == 126U || rpc_id == 127U) {
     const unsigned char *input = rpc_params != nullptr ? rpc_params->input : nullptr;
@@ -5775,9 +6359,9 @@ void rpc_observer(RakNet::RPCParameters *rpc_params, void *extra) {
     if (rpc_params == nullptr || !decode_apply_animation_payload(rpc_params->input, bytes)) {
       trace_netf("rpc-state id=86 apply_animation decode_failed bytes=%u", bytes);
     }
-  } else if (rpc_id == 108U) {
-    if (rpc_params == nullptr || !decode_gang_zone_create_payload(rpc_params->input, bytes)) {
-      trace_netf("rpc-state id=108 gang_zone_create decode_failed bytes=%u", bytes);
+  } else if (rpc_id == 108U || rpc_id == 120U || rpc_id == 121U || rpc_id == 85U) {
+    if (rpc_params == nullptr || !decode_gang_zone_payload(rpc_id, rpc_params->input, bytes)) {
+      trace_netf("rpc-state id=%u gang_zone decode_failed bytes=%u", static_cast<unsigned int>(rpc_id), bytes);
     }
   } else if (rpc_id == 13U) {
     if (rpc_params != nullptr && bytes >= 12U) {
@@ -6536,6 +7120,56 @@ int samp_raknet_client_send_textdraw_click(void *client, uint16_t textdraw_id) {
   return sent ? 0 : -2;
 }
 
+int samp_raknet_client_send_menu_select(void *client, uint8_t row) {
+  RakNet::BitStream bs_send;
+
+  if (client == nullptr || client != g_rpc_probe.client || row >= SAMP_RAKNET_MENU_MAX_ITEMS ||
+      g_rpc_probe.active_menu_id >= SAMP_RAKNET_MAX_MENUS) {
+    return -1;
+  }
+  const unsigned char menu_id = g_rpc_probe.active_menu_id;
+  const samp_raknet_menu_state &menu = g_rpc_probe.menus[menu_id];
+  const unsigned int rows = menu.column_item_count[0] > menu.column_item_count[1]
+                                ? menu.column_item_count[0]
+                                : menu.column_item_count[1];
+  if (menu.valid == 0U || menu.interaction_enabled == 0U || row >= rows || menu.row_enabled[row] == 0U) {
+    return -1;
+  }
+
+  bs_send.Write(row);
+  const int sent = static_cast<RakNet::RakClientInterface *>(client)
+                       ->RPC(kRpcMenuSelect, &bs_send, RakNet::HIGH_PRIORITY, RakNet::RELIABLE, 0, false,
+                             RakNet::UNASSIGNED_NETWORK_ID, nullptr)
+                       ? 1
+                       : 0;
+  if (sent) {
+    g_rpc_probe.active_menu_id = 0xFFU;
+    queue_menu_event(SAMP_RAKNET_MENU_ACTION_HIDE, menu_id);
+  }
+  trace_netf("rpc-user-out id=132 name=MenuSelect menu=%u row=%u sent=%d evidence=STATIC_037,OPENMP_REF",
+             static_cast<unsigned int>(menu_id), static_cast<unsigned int>(row), sent);
+  return sent ? 0 : -2;
+}
+
+int samp_raknet_client_send_menu_quit(void *client) {
+  if (client == nullptr || client != g_rpc_probe.client || g_rpc_probe.active_menu_id >= SAMP_RAKNET_MAX_MENUS) {
+    return -1;
+  }
+  const unsigned char menu_id = g_rpc_probe.active_menu_id;
+  const int sent = static_cast<RakNet::RakClientInterface *>(client)
+                       ->RPC(kRpcMenuQuit, nullptr, RakNet::HIGH_PRIORITY, RakNet::RELIABLE, 0, false,
+                             RakNet::UNASSIGNED_NETWORK_ID, nullptr)
+                       ? 1
+                       : 0;
+  if (sent) {
+    g_rpc_probe.active_menu_id = 0xFFU;
+    queue_menu_event(SAMP_RAKNET_MENU_ACTION_HIDE, menu_id);
+  }
+  trace_netf("rpc-user-out id=140 name=MenuQuit menu=%u sent=%d evidence=STATIC_037,OPENMP_REF",
+             static_cast<unsigned int>(menu_id), sent);
+  return sent ? 0 : -2;
+}
+
 int samp_raknet_client_send_onfoot_sync(void *client, const samp_raknet_onfoot_sync *sync) {
   RakNet::BitStream bs_send;
   int sent = 0;
@@ -6866,6 +7500,10 @@ int samp_raknet_client_get_rpc_probe_snapshot(void *client, samp_raknet_rpc_prob
   out_snapshot->remote_player_event_count = 0U;
   out_snapshot->remote_player_sync_count = 0U;
   out_snapshot->map_icon_event_count = 0U;
+  out_snapshot->gang_zone_event_count = 0U;
+  out_snapshot->gang_zone_state_seq = g_rpc_probe.gang_zone_state_seq;
+  out_snapshot->actor_event_count = 0U;
+  out_snapshot->actor_state_seq = g_rpc_probe.actor_state_seq;
   out_snapshot->name_tag_event_count = 0U;
   out_snapshot->death_window_event_count = 0U;
   out_snapshot->game_text_event_count = 0U;
@@ -6875,6 +7513,19 @@ int samp_raknet_client_get_rpc_probe_snapshot(void *client, samp_raknet_rpc_prob
   out_snapshot->pickup_event_count = 0U;
   out_snapshot->explosion_event_count = 0U;
   out_snapshot->chat_bubble_event_count = 0U;
+  out_snapshot->menu_event_seq = g_rpc_probe.menu_event_seq;
+  out_snapshot->menu_event_action = g_rpc_probe.menu_event_action;
+  out_snapshot->menu_event_id = g_rpc_probe.menu_event_id;
+  out_snapshot->menu_active = 0U;
+  std::memset(&out_snapshot->menu, 0, sizeof(out_snapshot->menu));
+  if (g_rpc_probe.active_menu_id < SAMP_RAKNET_MAX_MENUS &&
+      g_rpc_probe.menus[g_rpc_probe.active_menu_id].valid != 0U) {
+    out_snapshot->menu_active = 1U;
+    out_snapshot->menu = g_rpc_probe.menus[g_rpc_probe.active_menu_id];
+  } else if (g_rpc_probe.menu_event_id < SAMP_RAKNET_MAX_MENUS &&
+             g_rpc_probe.menus[g_rpc_probe.menu_event_id].valid != 0U) {
+    out_snapshot->menu = g_rpc_probe.menus[g_rpc_probe.menu_event_id];
+  }
   out_snapshot->player_pool_event_count = 0U;
   out_snapshot->score_ping_count = 0U;
   out_snapshot->textdraw_select_active = g_rpc_probe.textdraw_select_active;
@@ -7232,6 +7883,37 @@ int samp_raknet_client_get_rpc_probe_snapshot(void *client, samp_raknet_rpc_prob
       }
     }
   }
+  std::memset(out_snapshot->gang_zone_events, 0, sizeof(out_snapshot->gang_zone_events));
+  if (g_rpc_probe.gang_zone_event_seq > 0U) {
+    const unsigned int available = g_rpc_probe.gang_zone_event_seq < SAMP_RAKNET_GANG_ZONE_EVENT_RING
+                                       ? g_rpc_probe.gang_zone_event_seq
+                                       : SAMP_RAKNET_GANG_ZONE_EVENT_RING;
+    const unsigned int first_seq = g_rpc_probe.gang_zone_event_seq - available + 1U;
+    for (unsigned int i = 0U; i < available; ++i) {
+      const unsigned int seq = first_seq + i;
+      const unsigned int slot = (seq - 1U) % SAMP_RAKNET_GANG_ZONE_EVENT_RING;
+      if (g_rpc_probe.gang_zone_events[slot].seq == seq) {
+        out_snapshot->gang_zone_events[out_snapshot->gang_zone_event_count++] =
+            g_rpc_probe.gang_zone_events[slot];
+      }
+    }
+  }
+  std::memcpy(out_snapshot->gang_zone_states, g_rpc_probe.gang_zone_states,
+              sizeof(out_snapshot->gang_zone_states));
+  std::memset(out_snapshot->actor_events, 0, sizeof(out_snapshot->actor_events));
+  if (g_rpc_probe.actor_event_seq > 0U) {
+    const unsigned int available = g_rpc_probe.actor_event_seq < SAMP_RAKNET_ACTOR_EVENT_RING
+                                       ? g_rpc_probe.actor_event_seq
+                                       : SAMP_RAKNET_ACTOR_EVENT_RING;
+    const unsigned int first_seq = g_rpc_probe.actor_event_seq - available + 1U;
+    for (unsigned int i = 0U; i < available; ++i) {
+      const unsigned int seq = first_seq + i;
+      const unsigned int slot = (seq - 1U) % SAMP_RAKNET_ACTOR_EVENT_RING;
+      if (g_rpc_probe.actor_events[slot].seq == seq) {
+        out_snapshot->actor_events[out_snapshot->actor_event_count++] = g_rpc_probe.actor_events[slot];
+      }
+    }
+  }
   std::memset(out_snapshot->name_tag_events, 0, sizeof(out_snapshot->name_tag_events));
   if (g_rpc_probe.name_tag_event_seq > 0U) {
     const unsigned int available = g_rpc_probe.name_tag_event_seq < SAMP_RAKNET_NAME_TAG_EVENT_RING
@@ -7329,6 +8011,22 @@ int samp_raknet_client_get_rpc_probe_snapshot(void *client, samp_raknet_rpc_prob
     std::memcpy(out_snapshot->score_ping_entries, g_rpc_probe.score_ping_entries,
                 out_snapshot->score_ping_count * sizeof(out_snapshot->score_ping_entries[0]));
   }
+  return 0;
+}
+
+int samp_raknet_client_get_actor_state(void *client, uint16_t actor_id,
+                                       samp_raknet_actor_state *out_state) {
+  if (out_state != nullptr) {
+    std::memset(out_state, 0, sizeof(*out_state));
+  }
+  if (client == nullptr || client != g_rpc_probe.client || out_state == nullptr ||
+      actor_id >= SAMP_RAKNET_MAX_ACTORS) {
+    return -1;
+  }
+
+  /* The state includes inactive slots and their destroy revision. That makes a
+   * bounded 0..999 scan a complete recovery mechanism after an event-ring gap. */
+  *out_state = g_rpc_probe.actor_states[actor_id];
   return 0;
 }
 

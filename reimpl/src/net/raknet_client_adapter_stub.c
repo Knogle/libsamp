@@ -66,6 +66,17 @@ int samp_raknet_client_send_textdraw_click(void *client, uint16_t textdraw_id) {
   return -1;
 }
 
+int samp_raknet_client_send_menu_select(void *client, uint8_t row) {
+  (void)client;
+  (void)row;
+  return -1;
+}
+
+int samp_raknet_client_send_menu_quit(void *client) {
+  (void)client;
+  return -1;
+}
+
 int samp_raknet_client_mark_class_selection_after_death(void *client) {
   (void)client;
   return -1;
@@ -79,6 +90,11 @@ int samp_raknet_client_request_class_selection_after_death(void *client) {
 int samp_raknet_client_request_class_delta(void *client, int delta) {
   (void)client;
   (void)delta;
+  return -1;
+}
+
+int samp_raknet_client_request_spawn(void *client) {
+  (void)client;
   return -1;
 }
 
@@ -115,6 +131,16 @@ int samp_raknet_client_get_rpc_probe_snapshot(void *client, samp_raknet_rpc_prob
     return -1;
   }
   memset(out_snapshot, 0, sizeof(*out_snapshot));
+  return -1;
+}
+
+int samp_raknet_client_get_actor_state(void *client, uint16_t actor_id,
+                                       samp_raknet_actor_state *out_state) {
+  (void)client;
+  (void)actor_id;
+  if (out_state != 0) {
+    memset(out_state, 0, sizeof(*out_state));
+  }
   return -1;
 }
 
@@ -174,6 +200,12 @@ int samp_raknet_client_send_onfoot_sync(void *client, const samp_raknet_onfoot_s
 }
 
 int samp_raknet_client_send_incar_sync(void *client, const samp_raknet_incar_sync *sync) {
+  (void)client;
+  (void)sync;
+  return -1;
+}
+
+int samp_raknet_client_send_spectator_sync(void *client, const samp_raknet_spectator_sync *sync) {
   (void)client;
   (void)sync;
   return -1;
