@@ -23,7 +23,7 @@ and an ASI probe for reproducible client-side instrumentation.
 
 <br>
 
-<img src="assets/readme/player-list.jpg" alt="Libre-SAMP gameplay with the in-game player list overlay" width="860">
+<img src="assets/readme/player-list.png" alt="Libre-SAMP open.mp test scene with the in-game player list overlay" width="860">
 
 </div>
 
@@ -144,9 +144,9 @@ Replacement-client snapshots from a local feature-heavy legacy gamemode run on
       <sub>Vehicle pools, map objects, labels, HUD, radar, and world streaming.</sub>
     </td>
     <td width="50%">
-      <img src="assets/readme/player-list.jpg" alt="Player list overlay during live vehicle gameplay">
+      <img src="assets/readme/player-list.png" alt="Player list overlay in the open.mp vehicle and object test scene">
       <br>
-      <sub>Live gameplay with vehicle sync, chat, HUD, radar, and TAB player list.</sub>
+      <sub>Bare open.mp fixture with vehicles, custom objects, HUD, radar, and TAB player list.</sub>
     </td>
   </tr>
 </table>
