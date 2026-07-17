@@ -99,6 +99,8 @@ int samp_raknet_client_send_bullet_sync(void *client, const samp_raknet_bullet_s
 int samp_raknet_client_send_spectator_sync(void *client, const samp_raknet_spectator_sync *sync);
 int samp_raknet_client_send_give_take_damage(void *client, uint8_t taking, uint16_t player_id, float damage,
                                              uint32_t weapon_id, uint32_t bodypart);
+int samp_raknet_client_send_actor_damage(void *client, uint16_t actor_id, float damage,
+                                         uint32_t weapon_id, uint32_t bodypart);
 
 typedef struct samp_raknet_join_profile {
   char nickname[25];

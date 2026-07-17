@@ -234,6 +234,16 @@ int samp_raknet_client_send_give_take_damage(void *client, uint8_t taking, uint1
   return -1;
 }
 
+int samp_raknet_client_send_actor_damage(void *client, uint16_t actor_id, float damage,
+                                         uint32_t weapon_id, uint32_t bodypart) {
+  (void)client;
+  (void)actor_id;
+  (void)damage;
+  (void)weapon_id;
+  (void)bodypart;
+  return -1;
+}
+
 int samp_raknet_client_queue_dialog_response(void *client, uint16_t dialog_id, uint8_t button, int16_t listitem,
                                              const char *input) {
   (void)client;

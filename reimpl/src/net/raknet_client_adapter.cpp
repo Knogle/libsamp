@@ -48,6 +48,7 @@ constexpr RakNet::RPCID kRpcClickTextDraw = static_cast<RakNet::RPCID>(83u);
 constexpr RakNet::RPCID kRpcMenuSelect = static_cast<RakNet::RPCID>(132u);
 constexpr RakNet::RPCID kRpcMenuQuit = static_cast<RakNet::RPCID>(140u);
 constexpr RakNet::RPCID kRpcGiveTakeDamage = static_cast<RakNet::RPCID>(115u);
+constexpr RakNet::RPCID kRpcActorDamage = static_cast<RakNet::RPCID>(177u);
 constexpr unsigned int kRpcScrDialogBox = 61U;
 constexpr RakNet::RPCID kRpcRequestClass = static_cast<RakNet::RPCID>(128u);
 constexpr RakNet::RPCID kRpcRequestSpawn = static_cast<RakNet::RPCID>(129u);
@@ -441,6 +442,8 @@ struct RpcProbeState {
   std::int32_t game_text_style;
   std::int32_t game_text_time_ms;
   char game_text[SAMP_RAKNET_GAMETEXT_TEXT_BYTES];
+  unsigned int actor_damage_out_trace_count;
+  unsigned int bullet_sync_out_trace_count;
   RakNet::RakNetTime last_request_class_time;
   RakNet::RakNetTime next_score_ping_update_time;
 #ifdef _WIN32
@@ -1014,6 +1017,8 @@ void reset_rpc_probe_runtime(RakNet::RakClientInterface *client) {
   std::strncpy(g_rpc_probe.local_nickname, kDefaultNickname, sizeof(g_rpc_probe.local_nickname) - 1U);
   std::memset(g_rpc_probe.counts, 0, sizeof(g_rpc_probe.counts));
   std::memset(g_rpc_probe.handler_logged, 0, sizeof(g_rpc_probe.handler_logged));
+  g_rpc_probe.actor_damage_out_trace_count = 0U;
+  g_rpc_probe.bullet_sync_out_trace_count = 0U;
   g_rpc_probe.saw_init_game = 0;
   g_rpc_probe.saw_request_class_reply = 0;
   g_rpc_probe.saw_request_spawn_reply = 0;
@@ -7238,6 +7243,42 @@ int samp_raknet_client_send_give_take_damage(void *client, uint8_t taking, uint1
   return sent ? 0 : -2;
 }
 
+int samp_raknet_client_send_actor_damage(void *client, uint16_t actor_id, float damage,
+                                         uint32_t weapon_id, uint32_t bodypart) {
+  RakNet::BitStream bs_send;
+  int sent = 0;
+  unsigned int trace_count = 0U;
+
+  if (client == nullptr || client != g_rpc_probe.client || actor_id >= 1000U || !std::isfinite(damage) ||
+      damage < 0.0f || bodypart < 3U || bodypart > 9U) {
+    return -1;
+  }
+
+  /* STATIC_037 + OPENMP_REF:
+   * Function samp.dll+0x000a3bb0 writes the ActorDamage RPC at
+   * samp.dll+0x000a3cda as one false bit, UINT16 actor id, float damage,
+   * UINT32 weapon and UINT32 bodypart.  The original send at
+   * samp.dll+0x00006b76 uses HIGH_PRIORITY, RELIABLE_ORDERED, channel 0. */
+  bs_send.Write(false);
+  bs_send.Write(static_cast<unsigned short>(actor_id));
+  bs_send.Write(damage);
+  bs_send.Write(static_cast<unsigned int>(weapon_id));
+  bs_send.Write(static_cast<unsigned int>(bodypart));
+  sent = static_cast<RakNet::RakClientInterface *>(client)
+             ->RPC(kRpcActorDamage, &bs_send, RakNet::HIGH_PRIORITY, RakNet::RELIABLE_ORDERED, 0, false,
+                   RakNet::UNASSIGNED_NETWORK_ID, nullptr)
+             ? 1
+             : 0;
+  trace_count = ++g_rpc_probe.actor_damage_out_trace_count;
+  if (trace_count <= 3U || (trace_count % 20U) == 0U) {
+    trace_netf("rpc-user-out id=177 name=ActorDamage event=%u sent=%d actor=%u damage=%.3f weapon=%u "
+               "bodypart=%u evidence=STATIC_037,OPENMP_REF,PROBE_TRACE",
+               trace_count, sent, static_cast<unsigned int>(actor_id), static_cast<double>(damage),
+               static_cast<unsigned int>(weapon_id), static_cast<unsigned int>(bodypart));
+  }
+  return sent ? 0 : -2;
+}
+
 int samp_raknet_client_send_aim_sync(void *client, const samp_raknet_aim_sync *sync) {
   RakNet::BitStream bs_send;
   int sent = 0;
@@ -7273,6 +7314,7 @@ int samp_raknet_client_send_aim_sync(void *client, const samp_raknet_aim_sync *s
 int samp_raknet_client_send_bullet_sync(void *client, const samp_raknet_bullet_sync *sync) {
   RakNet::BitStream bs_send;
   int sent = 0;
+  unsigned int trace_count = 0U;
 
   if (client == nullptr || client != g_rpc_probe.client || sync == nullptr) {
     return -1;
@@ -7290,16 +7332,19 @@ int samp_raknet_client_send_bullet_sync(void *client, const samp_raknet_bullet_s
              ->Send(&bs_send, RakNet::HIGH_PRIORITY, RakNet::UNRELIABLE_SEQUENCED, 0)
              ? 1
              : 0;
-  trace_netf("packet-user-out id=%u name=BulletSync sent=%d hit_type=%u hit_id=%u weapon=%u "
-             "origin=%.3f %.3f %.3f hit=%.3f %.3f %.3f offset=%.3f %.3f %.3f "
-             "evidence=OPENMP_REF,INFERRED,TODO_VERIFY",
-             static_cast<unsigned int>(kPacketBulletSync), sent, static_cast<unsigned int>(sync->hit_type),
-             static_cast<unsigned int>(sync->hit_id), static_cast<unsigned int>(sync->weapon_id),
-             static_cast<double>(sync->origin[0]), static_cast<double>(sync->origin[1]),
-             static_cast<double>(sync->origin[2]), static_cast<double>(sync->hit_position[0]),
-             static_cast<double>(sync->hit_position[1]), static_cast<double>(sync->hit_position[2]),
-             static_cast<double>(sync->offset[0]), static_cast<double>(sync->offset[1]),
-             static_cast<double>(sync->offset[2]));
+  trace_count = ++g_rpc_probe.bullet_sync_out_trace_count;
+  if (trace_count <= 3U || (trace_count % 20U) == 0U) {
+    trace_netf("packet-user-out id=%u name=BulletSync event=%u sent=%d hit_type=%u hit_id=%u weapon=%u "
+               "origin=%.3f %.3f %.3f hit=%.3f %.3f %.3f offset=%.3f %.3f %.3f "
+               "evidence=OPENMP_REF,INFERRED,TODO_VERIFY",
+               static_cast<unsigned int>(kPacketBulletSync), trace_count, sent,
+               static_cast<unsigned int>(sync->hit_type), static_cast<unsigned int>(sync->hit_id),
+               static_cast<unsigned int>(sync->weapon_id), static_cast<double>(sync->origin[0]),
+               static_cast<double>(sync->origin[1]), static_cast<double>(sync->origin[2]),
+               static_cast<double>(sync->hit_position[0]), static_cast<double>(sync->hit_position[1]),
+               static_cast<double>(sync->hit_position[2]), static_cast<double>(sync->offset[0]),
+               static_cast<double>(sync->offset[1]), static_cast<double>(sync->offset[2]));
+  }
   return sent ? 0 : -2;
 }
 

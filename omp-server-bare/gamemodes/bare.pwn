@@ -1062,10 +1062,6 @@ stock ApplyRpcActorBatchPhase(playerid, phase)
 				{
 					failures++;
 				}
-				if (!SetActorFacingAngle(gRpcActorIds[index], gRpcActorFacingAngles[index]))
-				{
-					failures++;
-				}
 				if (!SetActorHealth(gRpcActorIds[index], 100.0))
 				{
 					failures++;
@@ -1080,7 +1076,7 @@ stock ApplyRpcActorBatchPhase(playerid, phase)
 				}
 			}
 			SendClientMessage(playerid, 0xFFFFFFFF,
-				"[bare-rpctest] Actor phase 5: actors restored and streamed in with original positions and vulnerable state.");
+				"[bare-rpctest] Actor phase 5: actors restreamed at original positions with phase-3 reversed facing.");
 		}
 		case 6:
 		{

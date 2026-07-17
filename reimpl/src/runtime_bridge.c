@@ -18,6 +18,13 @@
 #include "sampdll/runtime/boot.h"
 #include "sampdll/runtime/hook_bridge.h"
 
+#ifndef GET_MODULE_HANDLE_EX_FLAG_PIN
+#define GET_MODULE_HANDLE_EX_FLAG_PIN 0x00000001u
+#endif
+#ifndef GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS
+#define GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS 0x00000004u
+#endif
+
 #define SAMP_SETTINGS_STRING_MAX 256
 #define SAMP_DEFAULT_CONNECT_PORT 7777
 #define SAMP_ENTRY_GATE_READY 7
@@ -173,6 +180,13 @@
 #define SAMP_GTA_FUNC_CPED_INTELLIGENCE_FLUSH_IMMEDIATELY 0x601640u
 #define SAMP_GTA_FUNC_CPED_GIVE_WEAPON 0x5E6080u
 #define SAMP_GTA_FUNC_CPED_CLEAR_WEAPONS 0x5E6320u
+#define SAMP_GTA_HOOK_DAMAGE_RESPONSE 0x4B5AC0u
+#define SAMP_GTA_HOOK_DAMAGE_RESPONSE_RVA 0x0B5AC0u
+#define SAMP_GTA_HOOK_DAMAGE_RESPONSE_SIZE 6u
+#define SAMP_GTA_HOOK_BULLET_IMPACT 0x73B550u
+#define SAMP_GTA_HOOK_BULLET_IMPACT_RVA 0x33B550u
+#define SAMP_GTA_HOOK_BULLET_IMPACT_SIZE 7u
+#define SAMP_GTA_ENTRY_HOOK_STUB_SIZE 64u
 #define SAMP_ADDR_PROCESS_ONE_COMMAND 0x469EB0u
 #define SAMP_ADDR_STREAMING_ADD_IMAGE_TO_LIST 0x407610u
 #define SAMP_ADDR_STREAMING_REQUEST_MODEL 0x4087E0u
@@ -359,6 +373,9 @@
 #define SAMP_PED_OFFSET_VEHICLE 1420u
 #define SAMP_PED_OFFSET_WEAPON_SLOTS 1440u
 #define SAMP_PED_OFFSET_CURRENT_WEAPON_SLOT 1816u
+#define SAMP_PED_INTELLIGENCE_TASK_MANAGER_OFFSET 4u
+#define SAMP_TASK_MANAGER_PRIMARY_COUNT 5u
+#define SAMP_TASK_MANAGER_ROOT_COUNT 11u
 #define SAMP_WEAPON_SLOT_SIZE 28u
 #define SAMP_WEAPON_SLOT_OFFSET_TYPE 0u
 #define SAMP_WEAPON_SLOT_OFFSET_STATE 4u
@@ -398,6 +415,8 @@
 #define SAMP_RW_TYPE_ATOMIC 1u
 #define SAMP_RW_TYPE_CLUMP 2u
 #define SAMP_MATRIX_OFFSET_RIGHT 0u
+#define SAMP_MATRIX_OFFSET_FORWARD_AXIS 16u
+#define SAMP_MATRIX_OFFSET_UP_AXIS 32u
 #define SAMP_MATRIX_OFFSET_FORWARD 32u
 #define SAMP_MATRIX_OFFSET_POS 48u
 #define SAMP_POOL_OFFSET_OBJECTS 0u
@@ -407,6 +426,7 @@
 #define SAMP_GTA_ACTOR_LOCAL_ID 1
 #define SAMP_GTA_PLAYER_LOCAL_ID 0
 #define SAMP_PICKUP_COMPAT_MAX 4096u
+#define SAMP_PI 3.14159265358979323846f
 #define SAMP_DEG_TO_RAD 0.01745329251994329577f
 #define SAMP_CHAT_COMPAT_MAX_LINES 20
 #define SAMP_CHAT_COMPAT_LINE_BYTES 256
@@ -795,6 +815,8 @@
 #define SAMP_ACTOR_COMPAT_MODEL_LOAD_FLAGS 0x02
 #define SAMP_ACTOR_COMPAT_CREATE_BUDGET 4u
 #define SAMP_ACTOR_COMPAT_ANIMATION_RETRY_BUDGET 4u
+#define SAMP_ACTOR_COMPAT_POSITION_EPSILON 0.05f
+#define SAMP_ACTOR_COMPAT_SCALAR_EPSILON 0.001f
 #define SAMP_ACTOR_NEUTRAL_DECISION_MAKER 65542u
 #define SAMP_LOCAL_ANALOG_LEFT ((int16_t)-128)
 #define SAMP_LOCAL_ANALOG_RIGHT ((int16_t)128)
@@ -934,6 +956,45 @@ typedef struct samp_gta_vector {
   float y;
   float z;
 } samp_gta_vector;
+
+typedef struct samp_gta_col_point_compat {
+  samp_gta_vector point;
+  float field_0c;
+  samp_gta_vector normal;
+  float field_1c;
+  uint8_t surface_type_a;
+  uint8_t piece_type_a;
+  uint8_t lighting_a;
+  uint8_t surface_type_b;
+  uint8_t piece_type_b;
+  uint8_t lighting_b;
+  uint8_t reserved_26[2];
+  float depth;
+} samp_gta_col_point_compat;
+
+_Static_assert(offsetof(samp_gta_col_point_compat, point) == 0x00u, "CColPoint point offset");
+_Static_assert(offsetof(samp_gta_col_point_compat, piece_type_b) == 0x24u, "CColPoint piece B offset");
+_Static_assert(sizeof(samp_gta_col_point_compat) == 0x2Cu, "CColPoint USA 1.0 layout");
+
+typedef struct samp_gta_damage_response_calculator_compat {
+  uint32_t damager;
+  float damage;
+  uint32_t bodypart;
+  uint32_t weapon;
+  uint8_t speak;
+  uint8_t reserved[3];
+} samp_gta_damage_response_calculator_compat;
+
+_Static_assert(offsetof(samp_gta_damage_response_calculator_compat, damager) == 0x00u,
+               "CPedDamageResponseCalculator damager offset");
+_Static_assert(offsetof(samp_gta_damage_response_calculator_compat, damage) == 0x04u,
+               "CPedDamageResponseCalculator damage offset");
+_Static_assert(offsetof(samp_gta_damage_response_calculator_compat, bodypart) == 0x08u,
+               "CPedDamageResponseCalculator bodypart offset");
+_Static_assert(offsetof(samp_gta_damage_response_calculator_compat, weapon) == 0x0Cu,
+               "CPedDamageResponseCalculator weapon offset");
+_Static_assert(sizeof(samp_gta_damage_response_calculator_compat) == 0x14u,
+               "CPedDamageResponseCalculator USA 1.0 layout");
 
 typedef struct samp_rw_video_mode {
   int32_t width;
@@ -1381,6 +1442,11 @@ typedef struct samp_actor_slot_compat {
   uint32_t applied_health_revision;
   uint32_t applied_invulnerable_revision;
   uint32_t applied_animation_revision;
+  uint32_t position_readback_failures;
+  uint32_t facing_readback_failures;
+  uint32_t health_readback_failures;
+  uint32_t animation_readback_failures;
+  uint32_t destroy_readback_failures;
 } samp_actor_slot_compat;
 
 typedef struct samp_map_icon_slot_compat {
@@ -1735,6 +1801,8 @@ _Static_assert(offsetof(samp_rp_geometry_header_compat, rep_entry) == 0x58u,
 #define SAMP_THISCALL
 #endif
 
+typedef void(SAMP_THISCALL *gta_entity_teleport_method_fn)(void *entity, float x, float y, float z,
+                                                           int reset_rotation);
 typedef uintptr_t(__cdecl *gta_object_from_id_fn)(int32_t id);
 typedef uintptr_t(__cdecl *gta_model_info_add_atomic_fn)(int32_t model);
 typedef void(__cdecl *gta_set_atomic_model_info_flags_fn)(void *model_info, uint32_t flags);
@@ -2161,12 +2229,18 @@ typedef struct samp_runtime_state {
   uintptr_t gang_zone_hook_stub;
   uintptr_t gang_zone_radar_original_target;
   uintptr_t gang_zone_pause_map_original_target;
+  uintptr_t bullet_impact_hook_stub;
+  uintptr_t bullet_impact_hook_trampoline;
+  uintptr_t actor_damage_hook_stub;
+  uintptr_t actor_damage_hook_trampoline;
   uint8_t game_process_hook_saved_code[6];
   uint8_t select_device_hook_saved_code[SAMP_SELECT_DEVICE_HOOK_SIZE];
   uint8_t game_process_hook_saved_storage[4];
   uint8_t script_hook_saved_disp[4];
   uint8_t gang_zone_radar_hook_saved_disp[4];
   uint8_t gang_zone_pause_map_hook_saved_disp[4];
+  uint8_t bullet_impact_hook_saved_code[SAMP_GTA_HOOK_BULLET_IMPACT_SIZE];
+  uint8_t actor_damage_hook_saved_code[SAMP_GTA_HOOK_DAMAGE_RESPONSE_SIZE];
   uint8_t script_thread[SAMP_SCRIPT_THREAD_BYTES];
   uint8_t script_buf[SAMP_SCRIPT_BUF_BYTES];
   float raknet_player_pos[3];
@@ -2294,6 +2368,7 @@ typedef struct samp_runtime_state {
   LONG actor_logged;
   LONG actor_version_blocked_logged;
   DWORD actor_game_thread_id;
+  DWORD actor_animation_retry_cursor;
   LONG text_label_active_count;
   LONG text_label_logged;
   LONG text_label_empty_logged;
@@ -2358,6 +2433,16 @@ typedef struct samp_runtime_state {
   LONG bullet_sync_send_count;
   LONG bullet_sync_failures;
   LONG bullet_sync_logged;
+  LONG bullet_impact_hook_attempted;
+  LONG bullet_impact_hook_installed;
+  LONG actor_damage_hook_attempted;
+  LONG actor_damage_hook_installed;
+  LONG weapon_hooks_module_pin_attempted;
+  LONG weapon_hooks_module_pinned;
+  LONG weapon_hooks_shutdown;
+  LONG actor_damage_send_count;
+  LONG actor_damage_hook_event_count;
+  LONG player_damage_hook_event_count;
   LONG loading_screen_logged;
   LONG loading_screen_fail_logged;
   DWORD textdraw_select_color;
@@ -2561,6 +2646,7 @@ static void loading_screen_compat_release_texture(void);
 static int gta_script_command_compat(uint16_t opcode, const char *params, ...);
 static int gta_script_command_condition_compat(uint16_t opcode, const char *params, ...);
 static int memory_is_readable_compat(const void *ptr, size_t size);
+static int gta_vtable_ptr_compat(uintptr_t ptr);
 static LONG read_game_entry_gate_value(void);
 static uint8_t read_game_u8(uintptr_t addr);
 static uintptr_t gta_find_player_ped_compat(void);
@@ -13110,6 +13196,7 @@ static uintptr_t actor_compat_resolve_ped(samp_actor_slot_compat *slot) {
 
 static int actor_compat_apply_health_physical(samp_actor_slot_compat *slot, float health) {
   uintptr_t ped = 0u;
+  float actual = 0.0f;
   if (slot == NULL || !isfinite(health) ||
       InterlockedCompareExchange(&g_runtime.gta_version, 0, 0) != SAMP_GTA_VERSION_USA10) {
     return 0;
@@ -13119,6 +13206,19 @@ static int actor_compat_apply_health_physical(samp_actor_slot_compat *slot, floa
     return 0;
   }
   memcpy((void *)(ped + SAMP_PED_OFFSET_HEALTH), &health, sizeof(health));
+  /* STATIC_037 + PROBE_TRACE: the original writes CPed+0x540 directly.  Do
+   * not consume the logical revision until that exact field confirms it. */
+  if (!memory_is_readable_compat((const void *)(ped + SAMP_PED_OFFSET_HEALTH), sizeof(actual))) {
+    return 0;
+  }
+  memcpy(&actual, (const void *)(ped + SAMP_PED_OFFSET_HEALTH), sizeof(actual));
+  if (!isfinite(actual) || fabsf(actual - health) > SAMP_ACTOR_COMPAT_SCALAR_EPSILON) {
+    return 0;
+  }
+  /* Confirm the exact SetHealth write before asking GTA to transition a zero
+   * health ped into its death state.  Opcode 0321 can change the field again;
+   * that later task-side effect must not turn this revision into a per-frame
+   * kill loop. */
   if (health <= 0.0f && !gta_script_command_compat(0x0321u, "i", (int)slot->gta_id)) {
     runtime_tracef("actor: set_health kill_partial gta=%lu health=%.3f opcode=0321", (unsigned long)slot->gta_id,
                    (double)health);
@@ -13139,6 +13239,8 @@ static float actor_compat_facing_radians(float angle) {
 static int actor_compat_apply_facing_physical(samp_actor_slot_compat *slot, float angle) {
   uintptr_t ped = 0u;
   float radians = 0.0f;
+  float actual = 0.0f;
+  float delta = 0.0f;
   if (slot == NULL || InterlockedCompareExchange(&g_runtime.gta_version, 0, 0) != SAMP_GTA_VERSION_USA10) {
     return 0;
   }
@@ -13148,7 +13250,21 @@ static int actor_compat_apply_facing_physical(samp_actor_slot_compat *slot, floa
   }
   radians = actor_compat_facing_radians(angle);
   memcpy((void *)(ped + SAMP_PED_OFFSET_ROTATION2), &radians, sizeof(radians));
-  return 1;
+  /* STATIC_037 + PROBE_TRACE: CActor::SetFacingAngle writes CPed+0x55c. */
+  if (!memory_is_readable_compat((const void *)(ped + SAMP_PED_OFFSET_ROTATION2), sizeof(actual))) {
+    return 0;
+  }
+  memcpy(&actual, (const void *)(ped + SAMP_PED_OFFSET_ROTATION2), sizeof(actual));
+  if (!isfinite(actual)) {
+    return 0;
+  }
+  delta = fmodf(actual - radians, 2.0f * SAMP_PI);
+  if (delta > SAMP_PI) {
+    delta -= 2.0f * SAMP_PI;
+  } else if (delta < -SAMP_PI) {
+    delta += 2.0f * SAMP_PI;
+  }
+  return fabsf(delta) <= SAMP_ACTOR_COMPAT_SCALAR_EPSILON;
 }
 
 static int actor_compat_apply_invulnerable_physical(samp_actor_slot_compat *slot, uint8_t invulnerable) {
@@ -13164,38 +13280,88 @@ static int actor_compat_apply_invulnerable_physical(samp_actor_slot_compat *slot
 static int actor_compat_apply_position_physical(samp_actor_slot_compat *slot,
                                                 const samp_actor_desired_state_compat *desired) {
   uintptr_t ped = 0u;
+  uintptr_t vtable = 0u;
+  uintptr_t method = 0u;
+  float actual[3] = {0.0f, 0.0f, 0.0f};
+  int called = 0;
   if (slot == NULL || desired == NULL || !actor_compat_vec_valid(desired->pos) || slot->gta_id == 0u ||
       InterlockedCompareExchange(&g_runtime.gta_version, 0, 0) != SAMP_GTA_VERSION_USA10) {
     return 0;
   }
   if (desired->skin == 449 || desired->skin == 537 || desired->skin == 538) {
-    return gta_script_command_compat(0x07C7u, "ifff", (int)slot->gta_id, desired->pos[0], desired->pos[1],
-                                     desired->pos[2]);
+    called = gta_script_command_compat(0x07C7u, "ifff", (int)slot->gta_id, desired->pos[0], desired->pos[1],
+                                       desired->pos[2]);
+  } else {
+    ped = actor_compat_resolve_ped(slot);
+    if (ped == 0u || !memory_is_readable_compat((const void *)ped, sizeof(vtable))) {
+      return 0;
+    }
+    memcpy(&vtable, (const void *)ped, sizeof(vtable));
+    if (!gta_vtable_ptr_compat(vtable) ||
+        !memory_is_readable_compat((const void *)(vtable + 56u), sizeof(method))) {
+      return 0;
+    }
+    memcpy(&method, (const void *)(vtable + 56u), sizeof(method));
+    if (!gta_code_ptr_compat(method)) {
+      return 0;
+    }
+#if defined(__i386__) || defined(_M_IX86)
+    /* OBSERVED_037 + PROBE_TRACE + STATIC_037:
+     * CActor::SetPosition dispatches CPed::Teleport through vtable+0x38.  A
+     * typed thiscall is required here: the former inline asm used ESP-relative
+     * memory operands while pushing arguments, so each push changed the source
+     * address and corrupted x/y/z in the generated Win32 code. */
+    ((gta_entity_teleport_method_fn)method)((void *)ped, desired->pos[0], desired->pos[1], desired->pos[2], 0);
+    called = 1;
+#endif
   }
-  ped = actor_compat_resolve_ped(slot);
-  if (ped == 0u || !gta_code_ptr_compat(SAMP_GTA_FUNC_CPED_TELEPORT)) {
+  if (!called) {
     return 0;
   }
-#if defined(__i386__) || defined(_M_IX86)
-  __asm__ __volatile__("pushl $0\n\t"
-                       "pushl %[z]\n\t"
-                       "pushl %[y]\n\t"
-                       "pushl %[x]\n\t"
-                       "movl %[ped], %%ecx\n\t"
-                       "call *%[function]\n\t"
-                       :
-                       : [ped] "r"(ped), [function] "r"((uintptr_t)SAMP_GTA_FUNC_CPED_TELEPORT),
-                         [x] "m"(desired->pos[0]), [y] "m"(desired->pos[1]), [z] "m"(desired->pos[2])
-                       : "eax", "ecx", "edx", "memory", "cc");
+  ped = actor_compat_resolve_ped(slot);
+  if (ped == 0u ||
+      !gta_entity_read_position_compat(ped, &actual[0], &actual[1], &actual[2])) {
+    return 0;
+  }
+  return fabsf(actual[0] - desired->pos[0]) <= SAMP_ACTOR_COMPAT_POSITION_EPSILON &&
+         fabsf(actual[1] - desired->pos[1]) <= SAMP_ACTOR_COMPAT_POSITION_EPSILON &&
+         fabsf(actual[2] - desired->pos[2]) <= SAMP_ACTOR_COMPAT_POSITION_EPSILON;
+}
+
+static int actor_compat_read_task_roots(uintptr_t intelligence,
+                                        uint32_t roots[SAMP_TASK_MANAGER_ROOT_COUNT]) {
+  uintptr_t task_manager = intelligence + SAMP_PED_INTELLIGENCE_TASK_MANAGER_OFFSET;
+  if (roots == NULL || intelligence < 0x10000u || intelligence >= 0x80000000u ||
+      !memory_is_readable_compat((const void *)task_manager,
+                                 sizeof(uint32_t) * SAMP_TASK_MANAGER_ROOT_COUNT)) {
+    return 0;
+  }
+  memcpy(roots, (const void *)task_manager, sizeof(uint32_t) * SAMP_TASK_MANAGER_ROOT_COUNT);
   return 1;
-#else
-  return 0;
-#endif
+}
+
+static int actor_compat_task_roots_clear_confirmed(
+    const uint32_t roots[SAMP_TASK_MANAGER_ROOT_COUNT]) {
+  if (roots == NULL) {
+    return 0;
+  }
+  /* GTA_REVERSED_REF + STATIC_037 + TODO_VERIFY:
+   * CPedIntelligence owns CTaskManager at +4. FlushImmediately(true) clears
+   * physical/event roots and secondary attack/duck/say/IK, then installs a
+   * default primary task. Group-primary, facial and held-entity tasks are
+   * intentionally cloned/restored by GTA and therefore are not required null. */
+  return roots[0] == 0u && roots[1] == 0u && roots[2] == 0u && roots[4] != 0u &&
+         roots[SAMP_TASK_MANAGER_PRIMARY_COUNT + 0u] == 0u &&
+         roots[SAMP_TASK_MANAGER_PRIMARY_COUNT + 1u] == 0u &&
+         roots[SAMP_TASK_MANAGER_PRIMARY_COUNT + 2u] == 0u &&
+         roots[SAMP_TASK_MANAGER_PRIMARY_COUNT + 5u] == 0u;
 }
 
 static int actor_compat_clear_animations_physical(samp_actor_slot_compat *slot) {
   uintptr_t ped = 0u;
   uintptr_t intelligence = 0u;
+  uint32_t roots_before[SAMP_TASK_MANAGER_ROOT_COUNT];
+  uint32_t roots_after[SAMP_TASK_MANAGER_ROOT_COUNT];
   if (slot == NULL || InterlockedCompareExchange(&g_runtime.gta_version, 0, 0) != SAMP_GTA_VERSION_USA10) {
     return 0;
   }
@@ -13206,7 +13372,8 @@ static int actor_compat_clear_animations_physical(samp_actor_slot_compat *slot) 
   }
   memcpy(&intelligence, (const void *)(ped + SAMP_PED_OFFSET_INTELLIGENCE), sizeof(intelligence));
   if (intelligence < 0x10000u || intelligence >= 0x80000000u ||
-      !gta_code_ptr_compat(SAMP_GTA_FUNC_CPED_INTELLIGENCE_FLUSH_IMMEDIATELY)) {
+      !gta_code_ptr_compat(SAMP_GTA_FUNC_CPED_INTELLIGENCE_FLUSH_IMMEDIATELY) ||
+      !actor_compat_read_task_roots(intelligence, roots_before)) {
     return 0;
   }
 #if defined(__i386__) || defined(_M_IX86)
@@ -13217,8 +13384,16 @@ static int actor_compat_clear_animations_physical(samp_actor_slot_compat *slot) 
                        : [intelligence] "r"(intelligence),
                          [function] "r"((uintptr_t)SAMP_GTA_FUNC_CPED_INTELLIGENCE_FLUSH_IMMEDIATELY)
                        : "eax", "ecx", "edx", "memory", "cc");
-  return 1;
+  if (!actor_compat_read_task_roots(intelligence, roots_after)) {
+    return 0;
+  }
+  /* This is a semantic GTA readback, not a return-value guess: even if the
+   * allocator reuses the old default-task pointer, the cleared slot pattern
+   * still confirms the physical task-manager state. */
+  return actor_compat_task_roots_clear_confirmed(roots_after);
 #else
+  (void)roots_before;
+  (void)roots_after;
   return 0;
 #endif
 }
@@ -13268,17 +13443,37 @@ static int actor_compat_apply_animation_physical(samp_actor_slot_compat *slot,
 
 static void actor_compat_destroy_physical(uint16_t actor_id, samp_actor_slot_compat *slot, const char *reason) {
   uint32_t gta_id = 0u;
+  uintptr_t ped_before = 0u;
+  uintptr_t ped_after = 0u;
   if (slot == NULL || InterlockedCompareExchange(&slot->spawned, 0, 0) == 0) {
     return;
   }
   gta_id = slot->gta_id;
-  if (gta_id != 0u && remote_player_compat_game_pool_get_at(gta_id) != 0u &&
-      !gta_script_command_compat(0x009Bu, "i", (int)gta_id)) {
-    /* Keep the handle live so the next graphics tick can retry. Forgetting it
-     * here would orphan the GTA ped and a later CREATE could duplicate it. */
-    runtime_tracef("actor: destroy_retry id=%u gta=%lu reason=%s opcode=009B evidence=STATIC_037,INFERRED",
-                   (unsigned)actor_id, (unsigned long)gta_id, reason != NULL ? reason : "unknown");
-    return;
+  if (gta_id != 0u) {
+    ped_before = remote_player_compat_game_pool_get_at(gta_id);
+    if (ped_before != 0u) {
+      if (!gta_script_command_compat(0x009Bu, "i", (int)gta_id)) {
+        ++slot->destroy_readback_failures;
+        if (slot->destroy_readback_failures <= 3u || (slot->destroy_readback_failures % 120u) == 0u) {
+          runtime_tracef("actor: destroy_retry id=%u gta=%lu reason=%s opcode=009B command=failed failures=%lu "
+                         "evidence=STATIC_037,INFERRED,TODO_VERIFY",
+                         (unsigned)actor_id, (unsigned long)gta_id, reason != NULL ? reason : "unknown",
+                         (unsigned long)slot->destroy_readback_failures);
+        }
+        return;
+      }
+      ped_after = remote_player_compat_game_pool_get_at(gta_id);
+      if (ped_after != 0u) {
+        ++slot->destroy_readback_failures;
+        if (slot->destroy_readback_failures <= 3u || (slot->destroy_readback_failures % 120u) == 0u) {
+          runtime_tracef("actor: destroy_retry id=%u gta=%lu reason=%s opcode=009B command=ok "
+                         "pool_ped=0x%08lx failures=%lu evidence=STATIC_037,INFERRED,TODO_VERIFY",
+                         (unsigned)actor_id, (unsigned long)gta_id, reason != NULL ? reason : "unknown",
+                         (unsigned long)ped_after, (unsigned long)slot->destroy_readback_failures);
+        }
+        return;
+      }
+    }
   }
   InterlockedExchange(&slot->spawned, 0);
   slot->gta_id = 0u;
@@ -13289,7 +13484,13 @@ static void actor_compat_destroy_physical(uint16_t actor_id, samp_actor_slot_com
   slot->applied_health_revision = 0u;
   slot->applied_invulnerable_revision = 0u;
   slot->applied_animation_revision = 0u;
-  runtime_tracef("actor: destroy id=%u gta=%lu reason=%s evidence=OBSERVED_037,PROBE_TRACE,STATIC_037",
+  slot->position_readback_failures = 0u;
+  slot->facing_readback_failures = 0u;
+  slot->health_readback_failures = 0u;
+  slot->animation_readback_failures = 0u;
+  slot->destroy_readback_failures = 0u;
+  runtime_tracef("actor: destroy id=%u gta=%lu reason=%s pool_readback=absent "
+                 "evidence=STATIC_037,INFERRED,TODO_VERIFY",
                  (unsigned)actor_id, (unsigned long)gta_id, reason != NULL ? reason : "unknown");
 }
 
@@ -13314,6 +13515,8 @@ static int actor_compat_create_physical(uint16_t actor_id, samp_actor_slot_compa
   unsigned int partial = 0u;
   int health_ok = 0;
   int invulnerable_ok = 0;
+  int position_ok = 0;
+  int facing_ok = 0;
 
   if (slot == NULL || desired == NULL || desired->active == 0u || !actor_compat_skin_valid(desired->skin) ||
       !actor_compat_vec_valid(desired->pos) || !isfinite(desired->rotation) || !isfinite(desired->health) ||
@@ -13338,12 +13541,41 @@ static int actor_compat_create_physical(uint16_t actor_id, samp_actor_slot_compa
   partial += gta_script_command_compat(0x060Bu, "ii", (int)gta_id, (int)SAMP_ACTOR_NEUTRAL_DECISION_MAKER) ? 0u : 1u;
   health_ok = actor_compat_apply_health_physical(slot, desired->health);
   invulnerable_ok = actor_compat_apply_invulnerable_physical(slot, desired->invulnerable);
+  {
+    float actual[3] = {0.0f, 0.0f, 0.0f};
+    position_ok = gta_entity_read_position_compat(ped, &actual[0], &actual[1], &actual[2]) &&
+                  fabsf(actual[0] - desired->pos[0]) <= SAMP_ACTOR_COMPAT_POSITION_EPSILON &&
+                  fabsf(actual[1] - desired->pos[1]) <= SAMP_ACTOR_COMPAT_POSITION_EPSILON &&
+                  fabsf(actual[2] - desired->pos[2]) <= SAMP_ACTOR_COMPAT_POSITION_EPSILON;
+  }
+  {
+    float actual = 0.0f;
+    float expected = actor_compat_facing_radians(desired->rotation);
+    if (memory_is_readable_compat((const void *)(ped + SAMP_PED_OFFSET_ROTATION2), sizeof(actual))) {
+      memcpy(&actual, (const void *)(ped + SAMP_PED_OFFSET_ROTATION2), sizeof(actual));
+      if (isfinite(actual)) {
+        float delta = fmodf(actual - expected, 2.0f * SAMP_PI);
+        if (delta > SAMP_PI) {
+          delta -= 2.0f * SAMP_PI;
+        } else if (delta < -SAMP_PI) {
+          delta += 2.0f * SAMP_PI;
+        }
+        facing_ok = fabsf(delta) <= SAMP_ACTOR_COMPAT_SCALAR_EPSILON;
+      }
+    }
+  }
   partial += health_ok ? 0u : 1u;
   partial += invulnerable_ok ? 0u : 1u;
+  partial += position_ok ? 0u : 1u;
+  partial += facing_ok ? 0u : 1u;
 
   slot->applied_create_revision = desired->create_revision;
-  slot->applied_position_revision = desired->position_revision;
-  slot->applied_facing_revision = desired->facing_revision;
+  if (position_ok) {
+    slot->applied_position_revision = desired->position_revision;
+  }
+  if (facing_ok) {
+    slot->applied_facing_revision = desired->facing_revision;
+  }
   if (health_ok) {
     slot->applied_health_revision = desired->health_revision;
   }
@@ -13354,17 +13586,23 @@ static int actor_compat_create_physical(uint16_t actor_id, samp_actor_slot_compa
     slot->applied_animation_revision = desired->animation_revision;
   }
   runtime_tracef("actor: create id=%u gta=%lu ped=0x%08lx skin=%ld pos=(%.3f,%.3f,%.3f) rot=%.3f "
-                 "health=%.3f invulnerable=%u partial=%u evidence=OBSERVED_037,PROBE_TRACE,STATIC_037",
+                 "health=%.3f invulnerable=%u readback_pos=%d readback_facing=%d readback_health=%d partial=%u "
+                 "evidence=OBSERVED_037,PROBE_TRACE,STATIC_037",
                  (unsigned)actor_id, (unsigned long)gta_id, (unsigned long)ped, (long)desired->skin,
                  (double)desired->pos[0], (double)desired->pos[1], (double)desired->pos[2],
-                 (double)desired->rotation, (double)desired->health, (unsigned)desired->invulnerable, partial);
+                 (double)desired->rotation, (double)desired->health, (unsigned)desired->invulnerable,
+                 position_ok, facing_ok, health_ok, partial);
   return 1;
 }
 
 static void actor_compat_process_game_thread(void) {
+  uint32_t scan_id = 0u;
   uint32_t actor_id = 0u;
   uint32_t creates = 0u;
   uint32_t animation_attempts = 0u;
+  uint32_t animation_cursor = 0u;
+  uint32_t last_animation_actor = 0u;
+  int animation_actor_seen = 0;
   LONG active = 0;
   LONG pending = 0;
   DWORD thread_id = GetCurrentThreadId();
@@ -13386,7 +13624,9 @@ static void actor_compat_process_game_thread(void) {
     return;
   }
 
-  for (actor_id = 0u; actor_id < SAMP_RAKNET_MAX_ACTORS; ++actor_id) {
+  animation_cursor = g_runtime.actor_animation_retry_cursor % SAMP_RAKNET_MAX_ACTORS;
+  for (scan_id = 0u; scan_id < SAMP_RAKNET_MAX_ACTORS; ++scan_id) {
+    actor_id = (animation_cursor + scan_id) % SAMP_RAKNET_MAX_ACTORS;
     samp_actor_slot_compat *slot = &g_runtime.actor_slots[actor_id];
     samp_actor_desired_state_compat desired;
     if (!actor_compat_read_desired(slot, &desired)) {
@@ -13395,6 +13635,9 @@ static void actor_compat_process_game_thread(void) {
     if (desired.active == 0u) {
       if (InterlockedCompareExchange(&slot->spawned, 0, 0) != 0) {
         actor_compat_destroy_physical((uint16_t)actor_id, slot, "desired_inactive");
+        if (InterlockedCompareExchange(&slot->spawned, 0, 0) != 0) {
+          ++pending;
+        }
       }
       continue;
     }
@@ -13426,36 +13669,114 @@ static void actor_compat_process_game_thread(void) {
       continue;
     }
     ++active;
-    if (slot->applied_position_revision != desired.position_revision &&
-        actor_compat_apply_position_physical(slot, &desired)) {
-      slot->applied_position_revision = desired.position_revision;
+    /* PROBE_TRACE: phase 2 arrives Clear -> Position -> Health.  Attempt the
+     * clear first when snapshot folding makes all revisions pending, but keep
+     * each RPC revision independent: a non-abortable GTA task must not block
+     * the later position/facing/health mutations forever. */
+    if (slot->applied_animation_revision != desired.animation_revision) {
+      if (animation_attempts < SAMP_ACTOR_COMPAT_ANIMATION_RETRY_BUDGET) {
+        int applied = 0;
+        ++animation_attempts;
+        last_animation_actor = actor_id;
+        animation_actor_seen = 1;
+        if (desired.has_animation != 0u) {
+          applied = actor_compat_apply_animation_physical(slot, &desired);
+        } else {
+          applied = actor_compat_clear_animations_physical(slot);
+        }
+        if (applied) {
+          slot->applied_animation_revision = desired.animation_revision;
+          slot->animation_readback_failures = 0u;
+          runtime_tracef("actor: apply_animation id=%lu gta=%lu revision=%lu clear=%u "
+                         "readback=%s evidence=PROBE_TRACE,STATIC_037,TODO_VERIFY",
+                         (unsigned long)actor_id, (unsigned long)slot->gta_id,
+                         (unsigned long)desired.animation_revision, desired.has_animation == 0u ? 1u : 0u,
+                         desired.has_animation == 0u ? "task_roots_confirmed" : "event_attempted");
+        } else {
+          ++slot->animation_readback_failures;
+          if (slot->animation_readback_failures <= 3u || (slot->animation_readback_failures % 120u) == 0u) {
+            runtime_tracef("actor: apply_animation_retry id=%lu gta=%lu revision=%lu clear=%u failures=%lu "
+                           "reason=task_readback_mismatch evidence=STATIC_037,GTA_REVERSED_REF,TODO_VERIFY",
+                           (unsigned long)actor_id, (unsigned long)slot->gta_id,
+                           (unsigned long)desired.animation_revision, desired.has_animation == 0u ? 1u : 0u,
+                           (unsigned long)slot->animation_readback_failures);
+          }
+        }
+      }
     }
-    if (slot->applied_facing_revision != desired.facing_revision &&
-        actor_compat_apply_facing_physical(slot, desired.rotation)) {
-      slot->applied_facing_revision = desired.facing_revision;
+    if (slot->applied_position_revision != desired.position_revision) {
+      if (actor_compat_apply_position_physical(slot, &desired)) {
+        slot->applied_position_revision = desired.position_revision;
+        slot->position_readback_failures = 0u;
+        runtime_tracef("actor: apply_position id=%lu gta=%lu revision=%lu target=(%.3f,%.3f,%.3f) "
+                       "readback=confirmed evidence=OBSERVED_037,PROBE_TRACE,STATIC_037",
+                       (unsigned long)actor_id, (unsigned long)slot->gta_id,
+                       (unsigned long)desired.position_revision, (double)desired.pos[0],
+                       (double)desired.pos[1], (double)desired.pos[2]);
+      } else {
+        ++slot->position_readback_failures;
+        if (slot->position_readback_failures <= 3u || (slot->position_readback_failures % 120u) == 0u) {
+          runtime_tracef("actor: apply_position_retry id=%lu gta=%lu revision=%lu failures=%lu "
+                         "reason=readback_mismatch evidence=STATIC_037,PROBE_TRACE,TODO_VERIFY",
+                         (unsigned long)actor_id, (unsigned long)slot->gta_id,
+                         (unsigned long)desired.position_revision,
+                         (unsigned long)slot->position_readback_failures);
+        }
+      }
     }
-    if (slot->applied_health_revision != desired.health_revision &&
-        actor_compat_apply_health_physical(slot, desired.health)) {
-      slot->applied_health_revision = desired.health_revision;
+    if (slot->applied_facing_revision != desired.facing_revision) {
+      if (actor_compat_apply_facing_physical(slot, desired.rotation)) {
+        slot->applied_facing_revision = desired.facing_revision;
+        slot->facing_readback_failures = 0u;
+        runtime_tracef("actor: apply_facing id=%lu gta=%lu revision=%lu angle=%.3f readback=confirmed "
+                       "evidence=OBSERVED_037,PROBE_TRACE,STATIC_037",
+                       (unsigned long)actor_id, (unsigned long)slot->gta_id,
+                       (unsigned long)desired.facing_revision, (double)desired.rotation);
+      } else {
+        ++slot->facing_readback_failures;
+        if (slot->facing_readback_failures <= 3u || (slot->facing_readback_failures % 120u) == 0u) {
+          runtime_tracef("actor: apply_facing_retry id=%lu gta=%lu revision=%lu failures=%lu "
+                         "reason=readback_mismatch evidence=STATIC_037,PROBE_TRACE,TODO_VERIFY",
+                         (unsigned long)actor_id, (unsigned long)slot->gta_id,
+                         (unsigned long)desired.facing_revision,
+                         (unsigned long)slot->facing_readback_failures);
+        }
+      }
+    }
+    if (slot->applied_health_revision != desired.health_revision) {
+      if (actor_compat_apply_health_physical(slot, desired.health)) {
+        slot->applied_health_revision = desired.health_revision;
+        slot->health_readback_failures = 0u;
+        runtime_tracef("actor: apply_health id=%lu gta=%lu revision=%lu health=%.3f readback=confirmed "
+                       "evidence=OBSERVED_037,PROBE_TRACE,STATIC_037",
+                       (unsigned long)actor_id, (unsigned long)slot->gta_id,
+                       (unsigned long)desired.health_revision, (double)desired.health);
+      } else {
+        ++slot->health_readback_failures;
+        if (slot->health_readback_failures <= 3u || (slot->health_readback_failures % 120u) == 0u) {
+          runtime_tracef("actor: apply_health_retry id=%lu gta=%lu revision=%lu failures=%lu "
+                         "reason=readback_mismatch evidence=STATIC_037,PROBE_TRACE,TODO_VERIFY",
+                         (unsigned long)actor_id, (unsigned long)slot->gta_id,
+                         (unsigned long)desired.health_revision,
+                         (unsigned long)slot->health_readback_failures);
+        }
+      }
     }
     if (slot->applied_invulnerable_revision != desired.invulnerable_revision &&
         actor_compat_apply_invulnerable_physical(slot, desired.invulnerable)) {
       slot->applied_invulnerable_revision = desired.invulnerable_revision;
     }
-    if (slot->applied_animation_revision != desired.animation_revision &&
-        animation_attempts < SAMP_ACTOR_COMPAT_ANIMATION_RETRY_BUDGET) {
-      int applied = 0;
-      ++animation_attempts;
-      if (desired.has_animation != 0u) {
-        applied = actor_compat_apply_animation_physical(slot, &desired);
-      } else {
-        applied = actor_compat_clear_animations_physical(slot);
-      }
-      if (applied) {
-        slot->applied_animation_revision = desired.animation_revision;
-      }
+    if (slot->applied_position_revision != desired.position_revision ||
+        slot->applied_facing_revision != desired.facing_revision ||
+        slot->applied_health_revision != desired.health_revision ||
+        slot->applied_invulnerable_revision != desired.invulnerable_revision ||
+        slot->applied_animation_revision != desired.animation_revision) {
+      ++pending;
     }
   }
+  g_runtime.actor_animation_retry_cursor =
+      animation_actor_seen ? (last_animation_actor + 1u) % SAMP_RAKNET_MAX_ACTORS
+                           : (animation_cursor + 1u) % SAMP_RAKNET_MAX_ACTORS;
   InterlockedExchange(&g_runtime.actor_active_count, active);
   InterlockedExchange(&g_runtime.actor_pending_count, pending);
 }
@@ -13473,6 +13794,7 @@ static void actor_compat_reset_pool(const char *reason) {
   InterlockedExchange(&g_runtime.actor_state_seq, 0);
   InterlockedExchange(&g_runtime.actor_logged, 0);
   InterlockedExchange(&g_runtime.actor_version_blocked_logged, 0);
+  g_runtime.actor_animation_retry_cursor = 0u;
   runtime_tracef("actor: logical_reset slots=%u reason=%s physical_destroy=graphics_tick "
                  "evidence=STATIC_037,PROBE_TRACE",
                  (unsigned)SAMP_RAKNET_MAX_ACTORS, reason != NULL ? reason : "unknown");
@@ -25222,15 +25544,9 @@ static int gta_entity_teleport_compat(uintptr_t entity, float x, float y, float 
   if (model_index != 449u && model_index != 537u && model_index != 538u && gta_vtable_ptr_compat(vtable)) {
     method = *(uintptr_t *)(vtable + 56u);
     if (gta_code_ptr_compat(method)) {
-      __asm__ __volatile__("pushl $0\n\t"
-                           "pushl %[z]\n\t"
-                           "pushl %[y]\n\t"
-                           "pushl %[x]\n\t"
-                           "movl %[entity], %%ecx\n\t"
-                           "call *%[method]\n\t"
-                           :
-                           : [entity] "r"(entity), [method] "r"(method), [x] "m"(x), [y] "m"(y), [z] "m"(z)
-                           : "eax", "ecx", "edx", "memory", "cc");
+      /* Use the real ABI so generated argument loads cannot move underneath
+       * ESP while the call frame is being built (the former inline asm did). */
+      ((gta_entity_teleport_method_fn)method)((void *)entity, x, y, z, 0);
       method_called = 1;
     }
   }
@@ -27465,6 +27781,15 @@ static void send_bullet_sync_compat(uintptr_t ped) {
   float damage = 0.0f;
   LONG send_count = 0;
 
+  /* STATIC_037 + TODO_VERIFY:
+   * The GTA impact hook emits one packet from the actual line-of-sight result.
+   * Keep the old ammo-poll fallback only when that byte-validated hook could
+   * not be installed; running both paths duplicates semi-auto shots and still
+   * loses automatic-fire impacts to the poller's cooldown. */
+  if (InterlockedCompareExchange(&g_runtime.bullet_impact_hook_installed, 0, 0) != 0) {
+    return;
+  }
+
   if (ped == 0u || g_runtime.net_mgr.raknet_client == NULL ||
       InterlockedCompareExchange(&g_runtime.mp_session_spawn_finalized, 0, 0) == 0 ||
       gta_ped_is_in_vehicle_compat(ped) || (GetAsyncKeyState(VK_LBUTTON) & 0x8000) == 0) {
@@ -27582,6 +27907,678 @@ static void send_bullet_sync_compat(uintptr_t ped) {
       runtime_tracef("bullet_sync: send failed result=%d failures=%ld", result, (long)failures);
     }
   }
+}
+
+static int bullet_impact_read_weapon_compat(uintptr_t weapon_ptr, uint8_t *out_weapon) {
+  uint32_t weapon = 0u;
+  if (out_weapon == NULL || weapon_ptr < 0x10000u || weapon_ptr >= 0x80000000u ||
+      !memory_is_readable_compat((const void *)weapon_ptr, sizeof(weapon))) {
+    return 0;
+  }
+  memcpy(&weapon, (const void *)weapon_ptr, sizeof(weapon));
+  if (weapon > 0xFFu || !local_weapon_is_firearm_compat((uint8_t)weapon)) {
+    return 0;
+  }
+  *out_weapon = (uint8_t)weapon;
+  return 1;
+}
+
+static int bullet_impact_find_actor_compat(uintptr_t ped, uint16_t *out_actor_id) {
+  uint16_t actor_id = 0u;
+  if (out_actor_id == NULL || ped < 0x10000u || ped >= 0x80000000u) {
+    return 0;
+  }
+  *out_actor_id = 0xFFFFu;
+  for (actor_id = 0u; actor_id < SAMP_RAKNET_MAX_ACTORS; ++actor_id) {
+    samp_actor_slot_compat *slot = &g_runtime.actor_slots[actor_id];
+    if (InterlockedCompareExchange(&slot->spawned, 0, 0) != 0 && actor_compat_resolve_ped(slot) == ped) {
+      *out_actor_id = actor_id;
+      return 1;
+    }
+  }
+  return 0;
+}
+
+static int bullet_impact_find_remote_player_compat(uintptr_t ped, uint16_t *out_player_id) {
+  uint16_t player_id = 0u;
+  if (out_player_id == NULL || ped < 0x10000u || ped >= 0x80000000u) {
+    return 0;
+  }
+  *out_player_id = 0xFFFFu;
+  for (player_id = 0u; player_id < SAMP_RAKNET_MAX_PLAYERS; ++player_id) {
+    samp_remote_player_slot_compat *slot = &g_runtime.remote_player_slots[player_id];
+    if (InterlockedCompareExchange(&slot->active, 0, 0) != 0 &&
+        InterlockedCompareExchange(&slot->spawned, 0, 0) != 0 &&
+        remote_player_compat_resolve_ped(slot) == ped) {
+      *out_player_id = player_id;
+      return 1;
+    }
+  }
+  return 0;
+}
+
+static int bullet_impact_find_object_compat(uintptr_t entity, uint16_t *out_object_id) {
+  uint16_t object_id = 0u;
+  if (out_object_id == NULL || entity < 0x10000u || entity >= 0x80000000u) {
+    return 0;
+  }
+  *out_object_id = 0xFFFFu;
+  for (object_id = 0u; object_id < SAMP_RAKNET_MAX_OBJECTS; ++object_id) {
+    samp_object_slot_compat *slot = &g_runtime.object_slots[object_id];
+    if (InterlockedCompareExchange(&slot->active, 0, 0) != 0 && slot->entity == entity) {
+      *out_object_id = object_id;
+      return 1;
+    }
+  }
+  return 0;
+}
+
+static int bullet_impact_world_to_entity_offset_compat(uintptr_t entity, const float world[3], float local[3]) {
+  uintptr_t matrix = 0u;
+  float right[3];
+  float forward[3];
+  float up[3];
+  float pos[3];
+  float delta[3];
+  unsigned int i = 0u;
+
+  if (world == NULL || local == NULL || entity < 0x10000u || entity >= 0x80000000u ||
+      !memory_is_readable_compat((const void *)(entity + SAMP_PED_OFFSET_MATRIX), sizeof(matrix))) {
+    return 0;
+  }
+  memcpy(&matrix, (const void *)(entity + SAMP_PED_OFFSET_MATRIX), sizeof(matrix));
+  if (matrix < 0x10000u || matrix >= 0x80000000u ||
+      !memory_is_readable_compat((const void *)(matrix + SAMP_MATRIX_OFFSET_RIGHT), sizeof(right)) ||
+      !memory_is_readable_compat((const void *)(matrix + SAMP_MATRIX_OFFSET_FORWARD_AXIS), sizeof(forward)) ||
+      !memory_is_readable_compat((const void *)(matrix + SAMP_MATRIX_OFFSET_UP_AXIS), sizeof(up)) ||
+      !memory_is_readable_compat((const void *)(matrix + SAMP_MATRIX_OFFSET_POS), sizeof(pos))) {
+    return 0;
+  }
+  memcpy(right, (const void *)(matrix + SAMP_MATRIX_OFFSET_RIGHT), sizeof(right));
+  memcpy(forward, (const void *)(matrix + SAMP_MATRIX_OFFSET_FORWARD_AXIS), sizeof(forward));
+  memcpy(up, (const void *)(matrix + SAMP_MATRIX_OFFSET_UP_AXIS), sizeof(up));
+  memcpy(pos, (const void *)(matrix + SAMP_MATRIX_OFFSET_POS), sizeof(pos));
+  for (i = 0u; i < 3u; ++i) {
+    if (!isfinite(world[i]) || !isfinite(right[i]) || !isfinite(forward[i]) || !isfinite(up[i]) ||
+        !isfinite(pos[i])) {
+      return 0;
+    }
+    delta[i] = world[i] - pos[i];
+  }
+  local[0] = delta[0] * right[0] + delta[1] * right[1] + delta[2] * right[2];
+  local[1] = delta[0] * forward[0] + delta[1] * forward[1] + delta[2] * forward[2];
+  local[2] = delta[0] * up[0] + delta[1] * up[1] + delta[2] * up[2];
+  return isfinite(local[0]) && isfinite(local[1]) && isfinite(local[2]);
+}
+
+/*
+ * STATIC_037 + PROBE_TRACE + OBSERVED_037:
+ * Original R5 samp.dll+0x000a5410 consumes the real GTA line-of-sight result.
+ * Remote players, vehicles and objects become hit types 1/2/3 with an
+ * entity-local offset.  Actors are intentionally not mapped: type NONE,
+ * id 0xffff and the CColPoint world position in both hit/offset.  A miss must
+ * never read CColPoint because GTA leaves it uninitialised on that path.
+ */
+static void __cdecl bullet_impact_hook_callback_compat(uintptr_t weapon_ptr, uintptr_t fired_by,
+                                                       uintptr_t victim, const samp_gta_vector *start,
+                                                       const samp_gta_vector *end,
+                                                       const samp_gta_col_point_compat *col_point) {
+  samp_raknet_bullet_sync sync;
+  samp_gta_vector start_value;
+  samp_gta_vector hit_value;
+  uint16_t hit_id = 0xFFFFu;
+  uint16_t actor_id = 0xFFFFu;
+  uint8_t weapon = 0u;
+  int actor_hit = 0;
+  int mapped_entity = 0;
+  int result = 0;
+  LONG send_count = 0;
+
+  if (InterlockedCompareExchange(&g_runtime.weapon_hooks_shutdown, 0, 0) != 0 ||
+      InterlockedCompareExchange(&g_runtime.bullet_impact_hook_installed, 0, 0) == 0 ||
+      g_runtime.net_mgr.raknet_client == NULL ||
+      InterlockedCompareExchange(&g_runtime.mp_session_spawn_finalized, 0, 0) == 0 ||
+      fired_by == 0u || fired_by != gta_find_player_ped_compat() ||
+      !bullet_impact_read_weapon_compat(weapon_ptr, &weapon) || start == NULL ||
+      !memory_is_readable_compat(start, sizeof(start_value))) {
+    return;
+  }
+  memcpy(&start_value, start, sizeof(start_value));
+  if (!valid_world_position_compat(start_value.x, start_value.y, start_value.z)) {
+    return;
+  }
+
+  memset(&sync, 0, sizeof(sync));
+  sync.hit_type = 0u;
+  sync.hit_id = 0xFFFFu;
+  sync.weapon_id = weapon;
+  sync.origin[0] = start_value.x;
+  sync.origin[1] = start_value.y;
+  sync.origin[2] = start_value.z;
+
+  if (victim == 0u) {
+    if (end == NULL || !memory_is_readable_compat(end, sizeof(hit_value))) {
+      return;
+    }
+    memcpy(&hit_value, end, sizeof(hit_value));
+  } else {
+    if (col_point == NULL || !memory_is_readable_compat(col_point, sizeof(*col_point))) {
+      return;
+    }
+    memcpy(&hit_value, &col_point->point, sizeof(hit_value));
+  }
+  if (!valid_world_position_compat(hit_value.x, hit_value.y, hit_value.z)) {
+    return;
+  }
+  sync.hit_position[0] = hit_value.x;
+  sync.hit_position[1] = hit_value.y;
+  sync.hit_position[2] = hit_value.z;
+
+  if (victim != 0u) {
+    actor_hit = bullet_impact_find_actor_compat(victim, &actor_id);
+    if (actor_hit) {
+      sync.offset[0] = hit_value.x;
+      sync.offset[1] = hit_value.y;
+      sync.offset[2] = hit_value.z;
+    } else if (bullet_impact_find_remote_player_compat(victim, &hit_id)) {
+      sync.hit_type = 1u;
+      sync.hit_id = hit_id;
+      mapped_entity = 1;
+    } else if (vehicle_compat_find_id_from_gta_ptr(victim, &hit_id)) {
+      sync.hit_type = 2u;
+      sync.hit_id = hit_id;
+      mapped_entity = 1;
+    } else if (bullet_impact_find_object_compat(victim, &hit_id)) {
+      sync.hit_type = 3u;
+      sync.hit_id = hit_id;
+      mapped_entity = 1;
+    } else {
+      sync.offset[0] = hit_value.x;
+      sync.offset[1] = hit_value.y;
+      sync.offset[2] = hit_value.z;
+    }
+
+    if (mapped_entity &&
+        !bullet_impact_world_to_entity_offset_compat(victim, sync.hit_position, sync.offset)) {
+      /* A typed hit with an invented local offset is worse than a precise
+       * world hit.  Preserve the impact point and conservatively demote it. */
+      sync.hit_type = 0u;
+      sync.hit_id = 0xFFFFu;
+      sync.offset[0] = hit_value.x;
+      sync.offset[1] = hit_value.y;
+      sync.offset[2] = hit_value.z;
+      mapped_entity = 0;
+    }
+  }
+
+  result = samp_raknet_client_send_bullet_sync(g_runtime.net_mgr.raknet_client, &sync);
+  if (result == 0) {
+    send_count = InterlockedIncrement(&g_runtime.bullet_sync_send_count);
+    g_runtime.bullet_sync_last_tick = GetTickCount();
+    if (InterlockedCompareExchange(&g_runtime.bullet_sync_logged, 1, 0) == 0 || send_count <= 3 ||
+        (send_count % 20) == 0) {
+      runtime_tracef("bullet_impact_hook: send #%ld actor=%d actor_id=%u hit_type=%u hit_id=%u weapon=%u "
+                     "origin=(%.3f,%.3f,%.3f) hit=(%.3f,%.3f,%.3f) offset=(%.3f,%.3f,%.3f) "
+                     "evidence=STATIC_037,PROBE_TRACE,OBSERVED_037,TODO_VERIFY",
+                     (long)send_count, actor_hit, (unsigned)actor_id, (unsigned)sync.hit_type,
+                     (unsigned)sync.hit_id, (unsigned)sync.weapon_id, (double)sync.origin[0],
+                     (double)sync.origin[1], (double)sync.origin[2], (double)sync.hit_position[0],
+                     (double)sync.hit_position[1], (double)sync.hit_position[2], (double)sync.offset[0],
+                     (double)sync.offset[1], (double)sync.offset[2]);
+    }
+  } else {
+    LONG failures = InterlockedIncrement(&g_runtime.bullet_sync_failures);
+    if (failures <= 3 || (failures % 20) == 0) {
+      runtime_tracef("bullet_impact_hook: send failed result=%d failures=%ld actor=%d actor_id=%u",
+                     result, (long)failures, actor_hit, (unsigned)actor_id);
+    }
+  }
+}
+
+/*
+ * STATIC_037 + PROBE_TRACE:
+ * Original R5's actor branch reads the calculator at the GTA damage-response
+ * entry and sends RPC 177 before returning without applying GTA's local actor
+ * damage.  Suppress the physical damage for a recognised streamed actor even
+ * if network send fails; otherwise client health/death state diverges.
+ */
+static int __cdecl actor_damage_hook_callback_compat(
+    const samp_gta_damage_response_calculator_compat *calculator, uintptr_t victim) {
+  samp_gta_damage_response_calculator_compat value;
+  uintptr_t local_ped = 0u;
+  uint16_t actor_id = 0xFFFFu;
+  uint16_t player_id = 0xFFFFu;
+  int result = -1;
+  LONG event_count = 0;
+
+  if (InterlockedCompareExchange(&g_runtime.weapon_hooks_shutdown, 0, 0) != 0 ||
+      InterlockedCompareExchange(&g_runtime.actor_damage_hook_installed, 0, 0) == 0 ||
+      calculator == NULL || !memory_is_readable_compat(calculator, sizeof(value)) || victim == 0u) {
+    return 0;
+  }
+  memcpy(&value, calculator, sizeof(value));
+  local_ped = gta_find_player_ped_compat();
+  if ((uintptr_t)value.damager != local_ped || local_ped == 0u) {
+    return 0;
+  }
+
+  if (bullet_impact_find_actor_compat(victim, &actor_id)) {
+    if (g_runtime.net_mgr.raknet_client != NULL &&
+        InterlockedCompareExchange(&g_runtime.mp_session_spawn_finalized, 0, 0) != 0 &&
+        isfinite(value.damage) && value.damage >= 0.0f && value.bodypart >= 3u && value.bodypart <= 9u) {
+      result = samp_raknet_client_send_actor_damage(g_runtime.net_mgr.raknet_client, actor_id, value.damage,
+                                                    value.weapon, value.bodypart);
+      if (result == 0) {
+        InterlockedIncrement(&g_runtime.actor_damage_send_count);
+      }
+    }
+    event_count = InterlockedIncrement(&g_runtime.actor_damage_hook_event_count);
+    if (event_count <= 3 || (event_count % 20) == 0) {
+      runtime_tracef("actor_damage_hook: event=%ld actor=%u damage=%.3f weapon=%lu bodypart=%lu result=%d "
+                     "suppress=1 evidence=STATIC_037,PROBE_TRACE,OBSERVED_037,TODO_VERIFY",
+                     (long)event_count, (unsigned)actor_id, (double)value.damage,
+                     (unsigned long)value.weapon, (unsigned long)value.bodypart, result);
+    }
+    return 1;
+  }
+
+  /* Preserve the pre-existing remote-player damage path when the ammo poller
+   * is disabled.  Unlike that fallback, this uses GTA's calculated damage and
+   * body part.  Exact remote-player parity remains TODO_VERIFY. */
+  if (bullet_impact_find_remote_player_compat(victim, &player_id) &&
+      g_runtime.net_mgr.raknet_client != NULL && isfinite(value.damage) && value.damage >= 0.0f &&
+      value.bodypart >= 3u && value.bodypart <= 9u) {
+    result = samp_raknet_client_send_give_take_damage(g_runtime.net_mgr.raknet_client, 0u, player_id,
+                                                       value.damage, value.weapon, value.bodypart);
+    event_count = InterlockedIncrement(&g_runtime.player_damage_hook_event_count);
+    if (event_count <= 3 || (event_count % 20) == 0) {
+      runtime_tracef("player_damage_hook: event=%ld player=%u damage=%.3f weapon=%lu bodypart=%lu result=%d "
+                     "suppress=1 evidence=STATIC_037,INFERRED,TODO_VERIFY",
+                     (long)event_count, (unsigned)player_id, (double)value.damage,
+                     (unsigned long)value.weapon, (unsigned long)value.bodypart, result);
+    }
+    return 1;
+  }
+  return 0;
+}
+
+static int gta_entry_hook_rel32_compat(uintptr_t from_next, uintptr_t target, int32_t *out_rel32) {
+  int64_t delta = 0;
+  if (out_rel32 == NULL) {
+    return 0;
+  }
+  delta = (int64_t)(intptr_t)target - (int64_t)(intptr_t)from_next;
+  if (delta < -2147483648LL || delta > 2147483647LL) {
+    return 0;
+  }
+  *out_rel32 = (int32_t)delta;
+  return 1;
+}
+
+static int gta_entry_hook_build_jump_compat(uintptr_t entry, uintptr_t target, uint8_t *patch, size_t patch_size) {
+  int32_t rel32 = 0;
+  if (patch == NULL || patch_size < 5u ||
+      !gta_entry_hook_rel32_compat(entry + 5u, target, &rel32)) {
+    return 0;
+  }
+  memset(patch, 0x90, patch_size);
+  patch[0] = 0xE9u;
+  write_u32_unaligned_compat(&patch[1], (uint32_t)rel32);
+  return 1;
+}
+
+static uintptr_t gta_entry_hook_create_trampoline_compat(uintptr_t entry, const uint8_t *saved,
+                                                          size_t saved_size) {
+  uint8_t *code = NULL;
+  int32_t rel32 = 0;
+#if !defined(__i386__) && !defined(_M_IX86)
+  (void)entry;
+  (void)saved;
+  (void)saved_size;
+  return 0u;
+#else
+  if (saved == NULL || saved_size == 0u || saved_size + 5u > SAMP_GTA_ENTRY_HOOK_STUB_SIZE) {
+    return 0u;
+  }
+  code = (uint8_t *)VirtualAlloc(NULL, SAMP_GTA_ENTRY_HOOK_STUB_SIZE, MEM_COMMIT | MEM_RESERVE,
+                                 PAGE_EXECUTE_READWRITE);
+  if (code == NULL) {
+    return 0u;
+  }
+  memset(code, 0xCC, SAMP_GTA_ENTRY_HOOK_STUB_SIZE);
+  memcpy(code, saved, saved_size);
+  code[saved_size] = 0xE9u;
+  if (!gta_entry_hook_rel32_compat((uintptr_t)&code[saved_size + 5u], entry + saved_size, &rel32)) {
+    VirtualFree(code, 0u, MEM_RELEASE);
+    return 0u;
+  }
+  write_u32_unaligned_compat(&code[saved_size + 1u], (uint32_t)rel32);
+  FlushInstructionCache(GetCurrentProcess(), code, SAMP_GTA_ENTRY_HOOK_STUB_SIZE);
+  return (uintptr_t)code;
+#endif
+}
+
+static uintptr_t bullet_impact_hook_create_stub_compat(uintptr_t trampoline) {
+  uint8_t *code = NULL;
+  size_t n = 0u;
+  unsigned int i = 0u;
+#if !defined(__i386__) && !defined(_M_IX86)
+  (void)trampoline;
+  return 0u;
+#else
+  code = (uint8_t *)VirtualAlloc(NULL, SAMP_GTA_ENTRY_HOOK_STUB_SIZE, MEM_COMMIT | MEM_RESERVE,
+                                 PAGE_EXECUTE_READWRITE);
+  if (code == NULL) {
+    return 0u;
+  }
+  memset(code, 0xCC, SAMP_GTA_ENTRY_HOOK_STUB_SIZE);
+  code[n++] = 0x60u; /* pushad */
+  /* After pushad, CColPoint is [esp+0x34].  Repeating the same addressing
+   * while ESP moves yields col/end/start/victim/firedBy in cdecl order. */
+  for (i = 0u; i < 5u; ++i) {
+    code[n++] = 0xFFu;
+    code[n++] = 0x74u;
+    code[n++] = 0x24u;
+    code[n++] = 0x34u;
+  }
+  code[n++] = 0xFFu; /* saved ECX / CWeapon after the five pushes */
+  code[n++] = 0x74u;
+  code[n++] = 0x24u;
+  code[n++] = 0x2Cu;
+  code[n++] = 0xB8u;
+  write_u32_unaligned_compat(&code[n], (uint32_t)(uintptr_t)bullet_impact_hook_callback_compat);
+  n += 4u;
+  code[n++] = 0xFFu;
+  code[n++] = 0xD0u;
+  code[n++] = 0x83u;
+  code[n++] = 0xC4u;
+  code[n++] = 0x18u;
+  code[n++] = 0x61u; /* popad */
+  code[n++] = 0xB8u;
+  write_u32_unaligned_compat(&code[n], (uint32_t)trampoline);
+  n += 4u;
+  code[n++] = 0xFFu;
+  code[n++] = 0xE0u;
+  FlushInstructionCache(GetCurrentProcess(), code, n);
+  return (uintptr_t)code;
+#endif
+}
+
+static uintptr_t actor_damage_hook_create_stub_compat(uintptr_t trampoline) {
+  uint8_t *code = NULL;
+  size_t n = 0u;
+  size_t branch_disp = 0u;
+  size_t fallback = 0u;
+#if !defined(__i386__) && !defined(_M_IX86)
+  (void)trampoline;
+  return 0u;
+#else
+  code = (uint8_t *)VirtualAlloc(NULL, SAMP_GTA_ENTRY_HOOK_STUB_SIZE, MEM_COMMIT | MEM_RESERVE,
+                                 PAGE_EXECUTE_READWRITE);
+  if (code == NULL) {
+    return 0u;
+  }
+  memset(code, 0xCC, SAMP_GTA_ENTRY_HOOK_STUB_SIZE);
+  code[n++] = 0x60u; /* pushad */
+  code[n++] = 0xFFu; /* victim: original [esp+4], now [esp+0x24] */
+  code[n++] = 0x74u;
+  code[n++] = 0x24u;
+  code[n++] = 0x24u;
+  code[n++] = 0xFFu; /* saved ECX / calculator after victim push */
+  code[n++] = 0x74u;
+  code[n++] = 0x24u;
+  code[n++] = 0x1Cu;
+  code[n++] = 0xB8u;
+  write_u32_unaligned_compat(&code[n], (uint32_t)(uintptr_t)actor_damage_hook_callback_compat);
+  n += 4u;
+  code[n++] = 0xFFu;
+  code[n++] = 0xD0u;
+  code[n++] = 0x83u;
+  code[n++] = 0xC4u;
+  code[n++] = 0x08u;
+  code[n++] = 0x85u;
+  code[n++] = 0xC0u;
+  code[n++] = 0x74u; /* jz fallback */
+  branch_disp = n++;
+  code[n++] = 0x61u; /* popad; handled actor/remote damage */
+  code[n++] = 0xC2u;
+  code[n++] = 0x0Cu;
+  code[n++] = 0x00u;
+  fallback = n;
+  code[n++] = 0x61u;
+  code[n++] = 0xB8u;
+  write_u32_unaligned_compat(&code[n], (uint32_t)trampoline);
+  n += 4u;
+  code[n++] = 0xFFu;
+  code[n++] = 0xE0u;
+  if (fallback <= branch_disp + 1u || fallback - (branch_disp + 1u) > 0x7Fu) {
+    VirtualFree(code, 0u, MEM_RELEASE);
+    return 0u;
+  }
+  code[branch_disp] = (uint8_t)(fallback - (branch_disp + 1u));
+  FlushInstructionCache(GetCurrentProcess(), code, n);
+  return (uintptr_t)code;
+#endif
+}
+
+static void gta_entry_hook_free_code_compat(uintptr_t *address, const char *name, const char *kind) {
+  if (address == NULL || *address == 0u) {
+    return;
+  }
+  if (!VirtualFree((LPVOID)*address, 0u, MEM_RELEASE)) {
+    runtime_tracef("%s: %s free failed addr=0x%08lx", name != NULL ? name : "entry_hook",
+                   kind != NULL ? kind : "code", (unsigned long)*address);
+    return;
+  }
+  *address = 0u;
+}
+
+/* These GTA entry hooks are process-lifetime code.  Pinning samp.dll before
+ * publishing either entry jump prevents a late FreeLibrary from unmapping the
+ * C callbacks while GTA or a generated trampoline can still reach them. */
+static int weapon_hooks_pin_module_compat(void) {
+  HMODULE pinned_module = NULL;
+  DWORD error = ERROR_SUCCESS;
+
+  if (InterlockedCompareExchange(&g_runtime.weapon_hooks_module_pinned, 0, 0) != 0) {
+    return 1;
+  }
+  if (InterlockedCompareExchange(&g_runtime.weapon_hooks_module_pin_attempted, 1, 0) != 0) {
+    return InterlockedCompareExchange(&g_runtime.weapon_hooks_module_pinned, 0, 0) != 0;
+  }
+  if (!GetModuleHandleExA(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_PIN,
+                          (LPCSTR)(uintptr_t)&weapon_hooks_pin_module_compat, &pinned_module)) {
+    error = GetLastError();
+    runtime_tracef("weapon_hooks: module_pin failed error=%lu action=hooks_disabled",
+                   (unsigned long)error);
+    return 0;
+  }
+  InterlockedExchange(&g_runtime.weapon_hooks_module_pinned, 1);
+  runtime_tracef("weapon_hooks: module_pinned process_lifetime=1");
+  return 1;
+}
+
+static void install_bullet_impact_hook_compat(void) {
+  static const uint8_t expected[SAMP_GTA_HOOK_BULLET_IMPACT_SIZE] = {
+      0x6Au, 0xFFu, 0x68u, 0x50u, 0x8Eu, 0x84u, 0x00u};
+  uint8_t patch[SAMP_GTA_HOOK_BULLET_IMPACT_SIZE];
+
+  if (InterlockedCompareExchange(&g_runtime.bullet_impact_hook_attempted, 1, 0) != 0) {
+    return;
+  }
+  if (!env_flag_enabled_default_compat("SAMPDLL_BULLET_IMPACT_HOOK", 1)) {
+    runtime_tracef("bullet_impact_hook: disabled env=SAMPDLL_BULLET_IMPACT_HOOK");
+    return;
+  }
+  if (InterlockedCompareExchange(&g_runtime.gta_version, 0, 0) != SAMP_GTA_VERSION_USA10 ||
+      !gta_code_ptr_compat(SAMP_GTA_HOOK_BULLET_IMPACT) ||
+      !memory_is_readable_compat((const void *)(uintptr_t)SAMP_GTA_HOOK_BULLET_IMPACT, sizeof(expected)) ||
+      memcmp((const void *)(uintptr_t)SAMP_GTA_HOOK_BULLET_IMPACT, expected, sizeof(expected)) != 0) {
+    runtime_tracef("bullet_impact_hook: skipped module=gta_sa.exe rva=0x%08lx reason=version_or_bytes",
+                   (unsigned long)SAMP_GTA_HOOK_BULLET_IMPACT_RVA);
+    return;
+  }
+  memcpy(g_runtime.bullet_impact_hook_saved_code, expected, sizeof(expected));
+  g_runtime.bullet_impact_hook_trampoline =
+      gta_entry_hook_create_trampoline_compat(SAMP_GTA_HOOK_BULLET_IMPACT, expected, sizeof(expected));
+  if (g_runtime.bullet_impact_hook_trampoline != 0u) {
+    g_runtime.bullet_impact_hook_stub =
+        bullet_impact_hook_create_stub_compat(g_runtime.bullet_impact_hook_trampoline);
+  }
+  if (g_runtime.bullet_impact_hook_trampoline == 0u || g_runtime.bullet_impact_hook_stub == 0u ||
+      !gta_entry_hook_build_jump_compat(SAMP_GTA_HOOK_BULLET_IMPACT, g_runtime.bullet_impact_hook_stub,
+                                        patch, sizeof(patch))) {
+    gta_entry_hook_free_code_compat(&g_runtime.bullet_impact_hook_stub, "bullet_impact_hook", "stub");
+    gta_entry_hook_free_code_compat(&g_runtime.bullet_impact_hook_trampoline, "bullet_impact_hook", "trampoline");
+    runtime_tracef("bullet_impact_hook: install failed module=gta_sa.exe rva=0x%08lx reason=allocation_or_stub",
+                   (unsigned long)SAMP_GTA_HOOK_BULLET_IMPACT_RVA);
+    return;
+  }
+  if (!weapon_hooks_pin_module_compat()) {
+    gta_entry_hook_free_code_compat(&g_runtime.bullet_impact_hook_stub, "bullet_impact_hook", "stub");
+    gta_entry_hook_free_code_compat(&g_runtime.bullet_impact_hook_trampoline, "bullet_impact_hook", "trampoline");
+    runtime_tracef("bullet_impact_hook: install failed module=gta_sa.exe rva=0x%08lx reason=module_pin",
+                   (unsigned long)SAMP_GTA_HOOK_BULLET_IMPACT_RVA);
+    return;
+  }
+  if (!patch_copy(SAMP_GTA_HOOK_BULLET_IMPACT, patch, sizeof(patch)) ||
+      memcmp((const void *)(uintptr_t)SAMP_GTA_HOOK_BULLET_IMPACT, patch, sizeof(patch)) != 0) {
+    if (memcmp((const void *)(uintptr_t)SAMP_GTA_HOOK_BULLET_IMPACT, expected, sizeof(expected)) == 0) {
+      gta_entry_hook_free_code_compat(&g_runtime.bullet_impact_hook_stub, "bullet_impact_hook", "stub");
+      gta_entry_hook_free_code_compat(&g_runtime.bullet_impact_hook_trampoline, "bullet_impact_hook", "trampoline");
+      runtime_tracef("bullet_impact_hook: install failed module=gta_sa.exe rva=0x%08lx reason=write",
+                     (unsigned long)SAMP_GTA_HOOK_BULLET_IMPACT_RVA);
+    } else {
+      /* A hook installed after our validated read may chain through our stub.
+       * Never overwrite it and keep both executable allocations alive. */
+      runtime_tracef("bullet_impact_hook: install raced module=gta_sa.exe rva=0x%08lx "
+                     "reason=foreign_bytes allocations=kept",
+                     (unsigned long)SAMP_GTA_HOOK_BULLET_IMPACT_RVA);
+    }
+    return;
+  }
+  InterlockedExchange(&g_runtime.bullet_impact_hook_installed, 1);
+  runtime_tracef("bullet_impact_hook: installed module=gta_sa.exe rva=0x%08lx original=6aff68508e8400 "
+                 "patch=e9<rel32>9090 length=7 restore=guarded_saved_bytes "
+                 "evidence=STATIC_037,PROBE_TRACE,TODO_VERIFY",
+                 (unsigned long)SAMP_GTA_HOOK_BULLET_IMPACT_RVA);
+}
+
+static void install_actor_damage_hook_compat(void) {
+  static const uint8_t expected[SAMP_GTA_HOOK_DAMAGE_RESPONSE_SIZE] = {
+      0x64u, 0xA1u, 0x00u, 0x00u, 0x00u, 0x00u};
+  uint8_t patch[SAMP_GTA_HOOK_DAMAGE_RESPONSE_SIZE];
+
+  if (InterlockedCompareExchange(&g_runtime.actor_damage_hook_attempted, 1, 0) != 0) {
+    return;
+  }
+  if (!env_flag_enabled_default_compat("SAMPDLL_ACTOR_DAMAGE_HOOK", 1)) {
+    runtime_tracef("actor_damage_hook: disabled env=SAMPDLL_ACTOR_DAMAGE_HOOK");
+    return;
+  }
+  if (InterlockedCompareExchange(&g_runtime.gta_version, 0, 0) != SAMP_GTA_VERSION_USA10 ||
+      !gta_code_ptr_compat(SAMP_GTA_HOOK_DAMAGE_RESPONSE) ||
+      !memory_is_readable_compat((const void *)(uintptr_t)SAMP_GTA_HOOK_DAMAGE_RESPONSE, sizeof(expected)) ||
+      memcmp((const void *)(uintptr_t)SAMP_GTA_HOOK_DAMAGE_RESPONSE, expected, sizeof(expected)) != 0) {
+    runtime_tracef("actor_damage_hook: skipped module=gta_sa.exe rva=0x%08lx reason=version_or_bytes",
+                   (unsigned long)SAMP_GTA_HOOK_DAMAGE_RESPONSE_RVA);
+    return;
+  }
+  memcpy(g_runtime.actor_damage_hook_saved_code, expected, sizeof(expected));
+  g_runtime.actor_damage_hook_trampoline =
+      gta_entry_hook_create_trampoline_compat(SAMP_GTA_HOOK_DAMAGE_RESPONSE, expected, sizeof(expected));
+  if (g_runtime.actor_damage_hook_trampoline != 0u) {
+    g_runtime.actor_damage_hook_stub =
+        actor_damage_hook_create_stub_compat(g_runtime.actor_damage_hook_trampoline);
+  }
+  if (g_runtime.actor_damage_hook_trampoline == 0u || g_runtime.actor_damage_hook_stub == 0u ||
+      !gta_entry_hook_build_jump_compat(SAMP_GTA_HOOK_DAMAGE_RESPONSE, g_runtime.actor_damage_hook_stub,
+                                        patch, sizeof(patch))) {
+    gta_entry_hook_free_code_compat(&g_runtime.actor_damage_hook_stub, "actor_damage_hook", "stub");
+    gta_entry_hook_free_code_compat(&g_runtime.actor_damage_hook_trampoline, "actor_damage_hook", "trampoline");
+    runtime_tracef("actor_damage_hook: install failed module=gta_sa.exe rva=0x%08lx reason=allocation_or_stub",
+                   (unsigned long)SAMP_GTA_HOOK_DAMAGE_RESPONSE_RVA);
+    return;
+  }
+  if (!weapon_hooks_pin_module_compat()) {
+    gta_entry_hook_free_code_compat(&g_runtime.actor_damage_hook_stub, "actor_damage_hook", "stub");
+    gta_entry_hook_free_code_compat(&g_runtime.actor_damage_hook_trampoline, "actor_damage_hook", "trampoline");
+    runtime_tracef("actor_damage_hook: install failed module=gta_sa.exe rva=0x%08lx reason=module_pin",
+                   (unsigned long)SAMP_GTA_HOOK_DAMAGE_RESPONSE_RVA);
+    return;
+  }
+  if (!patch_copy(SAMP_GTA_HOOK_DAMAGE_RESPONSE, patch, sizeof(patch)) ||
+      memcmp((const void *)(uintptr_t)SAMP_GTA_HOOK_DAMAGE_RESPONSE, patch, sizeof(patch)) != 0) {
+    if (memcmp((const void *)(uintptr_t)SAMP_GTA_HOOK_DAMAGE_RESPONSE, expected, sizeof(expected)) == 0) {
+      gta_entry_hook_free_code_compat(&g_runtime.actor_damage_hook_stub, "actor_damage_hook", "stub");
+      gta_entry_hook_free_code_compat(&g_runtime.actor_damage_hook_trampoline, "actor_damage_hook", "trampoline");
+      runtime_tracef("actor_damage_hook: install failed module=gta_sa.exe rva=0x%08lx reason=write",
+                     (unsigned long)SAMP_GTA_HOOK_DAMAGE_RESPONSE_RVA);
+    } else {
+      runtime_tracef("actor_damage_hook: install raced module=gta_sa.exe rva=0x%08lx "
+                     "reason=foreign_bytes allocations=kept",
+                     (unsigned long)SAMP_GTA_HOOK_DAMAGE_RESPONSE_RVA);
+    }
+    return;
+  }
+  InterlockedExchange(&g_runtime.actor_damage_hook_installed, 1);
+  runtime_tracef("actor_damage_hook: installed module=gta_sa.exe rva=0x%08lx original=64a100000000 "
+                 "patch=e9<rel32>90 length=6 restore=guarded_saved_bytes "
+                 "evidence=STATIC_037,PROBE_TRACE,TODO_VERIFY",
+                 (unsigned long)SAMP_GTA_HOOK_DAMAGE_RESPONSE_RVA);
+}
+
+static void uninstall_bullet_impact_hook_compat(void) {
+  uint8_t patch[SAMP_GTA_HOOK_BULLET_IMPACT_SIZE];
+  if (InterlockedCompareExchange(&g_runtime.bullet_impact_hook_installed, 0, 0) == 0) {
+    return;
+  }
+  if (!gta_entry_hook_build_jump_compat(SAMP_GTA_HOOK_BULLET_IMPACT, g_runtime.bullet_impact_hook_stub,
+                                        patch, sizeof(patch)) ||
+      !memory_is_readable_compat((const void *)(uintptr_t)SAMP_GTA_HOOK_BULLET_IMPACT, sizeof(patch)) ||
+      memcmp((const void *)(uintptr_t)SAMP_GTA_HOOK_BULLET_IMPACT, patch, sizeof(patch)) != 0) {
+    InterlockedExchange(&g_runtime.bullet_impact_hook_installed, 0);
+    runtime_tracef("bullet_impact_hook: restore skipped rva=0x%08lx reason=foreign_bytes allocations=kept",
+                   (unsigned long)SAMP_GTA_HOOK_BULLET_IMPACT_RVA);
+    return;
+  }
+  if (!patch_copy(SAMP_GTA_HOOK_BULLET_IMPACT, g_runtime.bullet_impact_hook_saved_code,
+                  sizeof(g_runtime.bullet_impact_hook_saved_code))) {
+    runtime_tracef("bullet_impact_hook: restore failed rva=0x%08lx allocations=kept",
+                   (unsigned long)SAMP_GTA_HOOK_BULLET_IMPACT_RVA);
+    return;
+  }
+  InterlockedExchange(&g_runtime.bullet_impact_hook_installed, 0);
+  /* Process-lifetime allocations deliberately remain valid after restore: a
+   * CPU may already have followed the old entry jump before these bytes were
+   * restored.  The pinned module keeps the callback target valid as well. */
+  runtime_tracef("bullet_impact_hook: restored rva=0x%08lx length=7 allocations=kept process_lifetime=1",
+                 (unsigned long)SAMP_GTA_HOOK_BULLET_IMPACT_RVA);
+}
+
+static void uninstall_actor_damage_hook_compat(void) {
+  uint8_t patch[SAMP_GTA_HOOK_DAMAGE_RESPONSE_SIZE];
+  if (InterlockedCompareExchange(&g_runtime.actor_damage_hook_installed, 0, 0) == 0) {
+    return;
+  }
+  if (!gta_entry_hook_build_jump_compat(SAMP_GTA_HOOK_DAMAGE_RESPONSE, g_runtime.actor_damage_hook_stub,
+                                        patch, sizeof(patch)) ||
+      !memory_is_readable_compat((const void *)(uintptr_t)SAMP_GTA_HOOK_DAMAGE_RESPONSE, sizeof(patch)) ||
+      memcmp((const void *)(uintptr_t)SAMP_GTA_HOOK_DAMAGE_RESPONSE, patch, sizeof(patch)) != 0) {
+    InterlockedExchange(&g_runtime.actor_damage_hook_installed, 0);
+    runtime_tracef("actor_damage_hook: restore skipped rva=0x%08lx reason=foreign_bytes allocations=kept",
+                   (unsigned long)SAMP_GTA_HOOK_DAMAGE_RESPONSE_RVA);
+    return;
+  }
+  if (!patch_copy(SAMP_GTA_HOOK_DAMAGE_RESPONSE, g_runtime.actor_damage_hook_saved_code,
+                  sizeof(g_runtime.actor_damage_hook_saved_code))) {
+    runtime_tracef("actor_damage_hook: restore failed rva=0x%08lx allocations=kept",
+                   (unsigned long)SAMP_GTA_HOOK_DAMAGE_RESPONSE_RVA);
+    return;
+  }
+  InterlockedExchange(&g_runtime.actor_damage_hook_installed, 0);
+  runtime_tracef("actor_damage_hook: restored rva=0x%08lx length=6 allocations=kept process_lifetime=1",
+                 (unsigned long)SAMP_GTA_HOOK_DAMAGE_RESPONSE_RVA);
 }
 
 static void send_incar_sync_compat(uintptr_t ped) {
@@ -28846,6 +29843,8 @@ static void launch_start_game_compat(void) {
   InterlockedExchange(&g_runtime.hooks_install_attempted, 1);
   install_game_process_hook_compat();
   install_scripts_process_hook_compat();
+  install_bullet_impact_hook_compat();
+  install_actor_damage_hook_compat();
   gang_zone_compat_install_render_hooks();
   samp_object_material_install_render_hook_compat();
   rc = samp_hook_bridge_install_graphics_callback(&g_runtime.hook_bridge, launch_graphics_loop_hook_callback);
@@ -28854,6 +29853,8 @@ static void launch_start_game_compat(void) {
       InterlockedCompareExchange(&g_runtime.gang_zone_radar_hook_installed, 0, 0) ||
       InterlockedCompareExchange(&g_runtime.gang_zone_pause_map_hook_installed, 0, 0) ||
       InterlockedCompareExchange(&g_runtime.object_material_render_hook_installed, 0, 0) ||
+      InterlockedCompareExchange(&g_runtime.bullet_impact_hook_installed, 0, 0) ||
+      InterlockedCompareExchange(&g_runtime.actor_damage_hook_installed, 0, 0) ||
       (rc == 0 && (g_runtime.hook_bridge.install_succeeded || g_runtime.hook_bridge.installed ||
                    g_runtime.hook_bridge.secondary_installed))) {
     InterlockedExchange(&g_runtime.hooks_installed, 1);
@@ -28861,7 +29862,7 @@ static void launch_start_game_compat(void) {
   apply_startgame_flags_compat();
   runtime_tracef(
       "start_game: hooks_attempted=1 rc=%d game_process=%ld script_installed=%ld gang_zone=%ld/%ld "
-      "material_render=%ld "
+      "material_render=%ld bullet_impact=%ld actor_damage=%ld "
       "installed=%d installed2=%d "
       "configured=%d configured2=%d enabled=%d disp=0x%08lx disp2=0x%08lx",
       rc, (long)InterlockedCompareExchange(&g_runtime.game_process_hook_installed, 0, 0),
@@ -28869,6 +29870,8 @@ static void launch_start_game_compat(void) {
       (long)InterlockedCompareExchange(&g_runtime.gang_zone_radar_hook_installed, 0, 0),
       (long)InterlockedCompareExchange(&g_runtime.gang_zone_pause_map_hook_installed, 0, 0),
       (long)InterlockedCompareExchange(&g_runtime.object_material_render_hook_installed, 0, 0),
+      (long)InterlockedCompareExchange(&g_runtime.bullet_impact_hook_installed, 0, 0),
+      (long)InterlockedCompareExchange(&g_runtime.actor_damage_hook_installed, 0, 0),
       g_runtime.hook_bridge.installed,
       g_runtime.hook_bridge.secondary_installed, g_runtime.hook_bridge.configured, g_runtime.hook_bridge.secondary_configured,
       g_runtime.hook_bridge.enabled, (unsigned long)g_runtime.hook_bridge.graphics_call_disp_addr,
@@ -29030,6 +30033,7 @@ static void launch_prepare_network_compat(void) {
     InterlockedExchange(&g_runtime.bullet_sync_send_count, 0);
     InterlockedExchange(&g_runtime.bullet_sync_failures, 0);
     InterlockedExchange(&g_runtime.bullet_sync_logged, 0);
+    InterlockedExchange(&g_runtime.actor_damage_send_count, 0);
     g_runtime.bullet_sync_last_tick = 0u;
     g_runtime.bullet_sync_last_clip_ammo = 0u;
     g_runtime.bullet_sync_last_total_ammo = 0u;
@@ -29636,9 +30640,12 @@ static void rollback_from_phase(samp_boot_phase phase) {
   if (phase >= BOOT_PHASE_6_LAUNCH_MONITOR) {
     phase_launch_monitor_stop();
   }
+  InterlockedExchange(&g_runtime.weapon_hooks_shutdown, 1);
   samp_object_material_uninstall_render_hook_compat();
   samp_object_material_release_all_compat("rollback");
   gang_zone_compat_uninstall_render_hooks();
+  uninstall_actor_damage_hook_compat();
+  uninstall_bullet_impact_hook_compat();
   uninstall_game_process_hook_compat();
   uninstall_scripts_process_hook_compat();
   uninstall_select_device_hook_compat();
@@ -29700,9 +30707,18 @@ static int process_attach(HINSTANCE instance) {
 }
 
 static void process_detach(LPVOID reserved) {
-  (void)reserved;
-
   if (!InterlockedCompareExchange(&g_runtime.initialized, 0, 0)) {
+    return;
+  }
+
+  InterlockedExchange(&g_runtime.weapon_hooks_shutdown, 1);
+  if (reserved != NULL) {
+    /* DLL_PROCESS_DETACH during process termination runs under loader lock.
+     * All address space is about to be reclaimed, so waiting for the launch
+     * thread, logging through CRT stdio, restoring entries or freeing
+     * trampolines only creates deadlock and use-after-free opportunities. */
+    InterlockedExchange(&g_runtime.actor_damage_hook_installed, 0);
+    InterlockedExchange(&g_runtime.bullet_impact_hook_installed, 0);
     return;
   }
 
@@ -29710,6 +30726,8 @@ static void process_detach(LPVOID reserved) {
   samp_object_material_uninstall_render_hook_compat();
   samp_object_material_release_all_compat("process_detach");
   gang_zone_compat_uninstall_render_hooks();
+  uninstall_actor_damage_hook_compat();
+  uninstall_bullet_impact_hook_compat();
   uninstall_game_process_hook_compat();
   uninstall_scripts_process_hook_compat();
   uninstall_select_device_hook_compat();

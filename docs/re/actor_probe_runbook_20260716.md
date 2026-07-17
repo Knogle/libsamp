@@ -6,6 +6,8 @@ This runbook captures one deterministic `/rpcactors` cycle against the local
 original SA-MP 0.3.7-R5 client. It is intentionally limited to the Actor RPC
 handlers and must not be combined with the stale generic SA-MP network hooks.
 
+Replacement diagnosis and combat-hook follow-up: [Actor runtime and combat compatibility](actor_runtime_combat_compat_20260717.md).
+
 Original client identity:
 
 ```text
@@ -150,11 +152,11 @@ The local GTA executable identity used for downstream validation is:
 gta_sa.exe SHA256=a559aa772fd136379155efa71f00c47aad34bbfeae6196b0fe1047d0645cbd26
 ```
 
-| GTA address | Meaning | Whole-instruction prologue |
+| GTA RVA | Meaning | Whole-instruction prologue |
 | --- | --- | --- |
-| `0x5e4110` | `CPed::Teleport(x,y,z,reset)` | `56 8b f1 8b 86 98 05 00 00` |
-| `0x601640` | `CPedIntelligence::FlushImmediately(bool)` | `6a ff 68 26 e8 83 00` |
-| `0x469eb0` | `CRunningScript::ProcessOneCommand()` | `66 ff 05 f4 47 a4 00` |
+| `gta_sa.exe+0x001e4110` | `CPed::Teleport(x,y,z,reset)` | `56 8b f1 8b 86 98 05 00 00` |
+| `gta_sa.exe+0x00201640` | `CPedIntelligence::FlushImmediately(bool)` | `6a ff 68 26 e8 83 00` |
+| `gta_sa.exe+0x00069eb0` | `CRunningScript::ProcessOneCommand()` | `66 ff 05 f4 47 a4 00` |
 
 The script dispatcher is extremely hot process-wide. The hook therefore emits
 `actor_heavy_scm` only while a typed Actor hook owns the TLS scope and only for
