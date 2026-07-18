@@ -66,6 +66,13 @@ int samp_raknet_client_send_textdraw_click(void *client, uint16_t textdraw_id) {
   return -1;
 }
 
+int samp_raknet_client_send_player_click(void *client, uint16_t player_id, uint8_t source) {
+  (void)client;
+  (void)player_id;
+  (void)source;
+  return -1;
+}
+
 int samp_raknet_client_send_menu_select(void *client, uint8_t row) {
   (void)client;
   (void)row;

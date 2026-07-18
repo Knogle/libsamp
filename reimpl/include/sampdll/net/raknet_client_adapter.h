@@ -23,6 +23,7 @@ int samp_raknet_client_send_spawn_notification(void *client);
 int samp_raknet_client_send_spawn_notification_for_seq(void *client, uint32_t spawn_info_seq);
 int samp_raknet_client_send_death_notification(void *client, uint8_t death_reason, uint8_t responsible_player);
 int samp_raknet_client_send_textdraw_click(void *client, uint16_t textdraw_id);
+int samp_raknet_client_send_player_click(void *client, uint16_t player_id, uint8_t source);
 int samp_raknet_client_send_menu_select(void *client, uint8_t row);
 int samp_raknet_client_send_menu_quit(void *client);
 int samp_raknet_client_mark_class_selection_after_death(void *client);

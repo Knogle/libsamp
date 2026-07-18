@@ -362,6 +362,7 @@ stock SendPlayerAudioChatRpcHelp(playerid)
 	SendClientMessage(playerid, 0xFFFFFFFF, "[bare-rpctest] /rpczones cycles RPC108/121/85/120 on four radar quadrants; /rpczonesoff cleans up.");
 	SendClientMessage(playerid, 0xFFFFFFFF, "[bare-rpctest] /rpcactors cycles legacy actor create/state/animation/stream operations; /rpcactorsoff cleans up.");
 	SendClientMessage(playerid, 0xFFFFFFFF, "[bare-rpctest] /menutest mirrors stock 0.3.7; /rpcmenu tests RPC76/77/78 plus outgoing RPC132/140.");
+	SendClientMessage(playerid, 0xFFFFFFFF, "[bare-clicktest] Hold TAB, enable the cursor with RMB, then double-click a player row (RPC23/source 0).");
 	SendClientMessage(playerid, 0xFFCC66FF, "[bare-rpctest] RPC137/138 join/quit are automatic; RPC59 needs a second client/NPC as the visible target.");
 	return 1;
 }
@@ -2896,6 +2897,31 @@ public OnGameModeExit()
 		DestroyMenu(gOriginalMenuTest);
 		gOriginalMenuTest = INVALID_MENU;
 	}
+	return 1;
+}
+
+/// Confirms the outgoing RPC23 scoreboard double-click with visible output and a server log entry.
+/// Reference: https://open.mp/docs/scripting/callbacks/OnPlayerClickPlayer
+public OnPlayerClickPlayer(playerid, clickedplayerid, CLICK_SOURCE:source)
+{
+	if (!IsPlayerConnected(clickedplayerid))
+	{
+		SendClientMessage(playerid, 0xFF6666FF, "[bare-clicktest] Callback received an invalid or disconnected clicked player.");
+		printf("[bare-clicktest] OnPlayerClickPlayer player=%d clicked=%d source=%d connected=0", playerid, clickedplayerid, _:source);
+		return 1;
+	}
+
+	new playerName[MAX_PLAYER_NAME + 1];
+	new clickedName[MAX_PLAYER_NAME + 1];
+	new message[180];
+	GetPlayerName(playerid, playerName, sizeof(playerName));
+	GetPlayerName(clickedplayerid, clickedName, sizeof(clickedName));
+	format(message, sizeof(message), "[bare-clicktest] OnPlayerClickPlayer: %s (%d), source=%d%s",
+		clickedName, clickedplayerid, _:source,
+		source == CLICK_SOURCE_SCOREBOARD ? " (scoreboard OK)" : " (unexpected source)");
+	SendClientMessage(playerid, 0x66FF66FF, message);
+	printf("[bare-clicktest] OnPlayerClickPlayer player=%d name=%s clicked=%d clicked_name=%s source=%d scoreboard=%d",
+		playerid, playerName, clickedplayerid, clickedName, _:source, source == CLICK_SOURCE_SCOREBOARD);
 	return 1;
 }
 

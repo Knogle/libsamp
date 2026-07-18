@@ -45,6 +45,7 @@ constexpr RakNet::RPCID kRpcServerCommand = static_cast<RakNet::RPCID>(50u);
 constexpr RakNet::RPCID kRpcChat = static_cast<RakNet::RPCID>(101u);
 constexpr RakNet::RPCID kRpcClientCheck = static_cast<RakNet::RPCID>(103u);
 constexpr RakNet::RPCID kRpcClickTextDraw = static_cast<RakNet::RPCID>(83u);
+constexpr RakNet::RPCID kRpcClickPlayer = static_cast<RakNet::RPCID>(23u);
 constexpr RakNet::RPCID kRpcMenuSelect = static_cast<RakNet::RPCID>(132u);
 constexpr RakNet::RPCID kRpcMenuQuit = static_cast<RakNet::RPCID>(140u);
 constexpr RakNet::RPCID kRpcGiveTakeDamage = static_cast<RakNet::RPCID>(115u);
@@ -5561,8 +5562,16 @@ bool decode_chat_payload(const unsigned char *data, unsigned int bytes) {
     copy_text(name, sizeof(name), kDefaultNickname);
   }
 
-  std::snprintf(line, sizeof(line), "%s: %s", name, text);
-  seq = queue_client_message_line(color, line);
+  /*
+   * ALT_02X_CODE + TODO_VERIFY:
+   * The legacy chat window stores the nickname and message as separate
+   * segments: "Name:" uses the player's color and ordinary chat text uses
+   * the default opaque white.  Reproduce that split with the renderer's
+   * inline color tags until the original 0.3.7 chat entry layout is mapped.
+   */
+  std::snprintf(line, sizeof(line), "{%06X}%s:{FFFFFF} %s",
+                static_cast<unsigned int>((color >> 8U) & 0x00FFFFFFU), name, text);
+  seq = queue_client_message_line(0xFFFFFFFFU, line);
   trace_netf("rpc-state id=101 chat seq=%u player=%u local=%u color=0x%08x len=%u text='%s'",
              seq, static_cast<unsigned int>(player_id), local_player ? 1U : 0U, color,
              static_cast<unsigned int>(text_len), text);
@@ -7276,6 +7285,34 @@ int samp_raknet_client_send_textdraw_click(void *client, uint16_t textdraw_id) {
   }
   trace_netf("rpc-user-out id=83 name=ClickTextDraw textdraw=%u sent=%d",
              static_cast<unsigned int>(textdraw_id), sent);
+  return sent ? 0 : -2;
+}
+
+int samp_raknet_client_send_player_click(void *client, uint16_t player_id, uint8_t source) {
+  RakNet::BitStream bs_send;
+  const unsigned short clicked_player = player_id;
+  const unsigned char click_source = source;
+  int sent = 0;
+
+  /* OPENMP_REF + INFERRED + TODO_VERIFY:
+   * RPC 23 carries WORD clickedplayerid followed by BYTE source.  open.mp only
+   * defines source 0 (scoreboard), while the matching SAMPFUNCS compatibility
+   * API exposes the same uint16/uint8 pair.  Keep the sender restricted to the
+   * sole documented source until a direct original-0.3.7 trace is recorded.
+   */
+  if (client == nullptr || client != g_rpc_probe.client || player_id >= SAMP_RAKNET_MAX_PLAYERS || source != 0u) {
+    return -1;
+  }
+
+  bs_send.Write(clicked_player);
+  bs_send.Write(click_source);
+  sent = static_cast<RakNet::RakClientInterface *>(client)
+             ->RPC(kRpcClickPlayer, &bs_send, RakNet::HIGH_PRIORITY, RakNet::RELIABLE, 0, false,
+                   RakNet::UNASSIGNED_NETWORK_ID, nullptr)
+             ? 1
+             : 0;
+  trace_netf("rpc-user-out id=23 name=ClickPlayer player=%u source=%u sent=%d evidence=OPENMP_REF,INFERRED,TODO_VERIFY",
+             static_cast<unsigned int>(player_id), static_cast<unsigned int>(source), sent);
   return sent ? 0 : -2;
 }
 

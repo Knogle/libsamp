@@ -148,6 +148,9 @@
 #define SAMP_D3DFMT_X8R8G8B8 22u
 #define SAMP_ADDR_ENABLE_HUD 0xBA6769u
 #define SAMP_ADDR_RADAR_BLANK 0xBAA3FBu
+#define SAMP_ADDR_GAME_INPUT_UPDATE_CALL 0x541DF5u
+#define SAMP_GAME_INPUT_UPDATE_CALL_SIZE 5u
+#define SAMP_GAME_INPUT_RELEASE_FRAMES 2
 #define SAMP_ADDR_GANG_ZONE_DRAW 0x5853D0u
 #define SAMP_ADDR_GANG_ZONE_RADAR_CALL 0x5869BFu
 #define SAMP_ADDR_GANG_ZONE_RADAR_CALL_DISP (SAMP_ADDR_GANG_ZONE_RADAR_CALL + 1u)
@@ -485,6 +488,7 @@
 #define SAMP_SCOREBOARD_COLOR_GRID SAMP_MODERN_UI_DIVIDER_COLOR
 #define SAMP_SCOREBOARD_COLOR_LABEL SAMP_MODERN_UI_TEXT_COLOR
 #define SAMP_SCOREBOARD_COLOR_MUTED SAMP_MODERN_UI_MUTED_COLOR
+#define SAMP_SCOREBOARD_COLOR_HOVER 0x60FFFFFFu
 #define SAMP_CHAT_INPUT_MAX 128
 #define SAMP_CHAT_INPUT_HISTORY 10
 #define SAMP_CHAT_INPUT_DRAW_BYTES 160
@@ -493,6 +497,7 @@
 #define SAMP_CHAT_QUIT_AFTER_FRAME_MS 1000u
 #define SAMP_CLIENT_DEBUG_MAX_LEVEL 3
 #define SAMP_CLIENT_DEBUG_COLOR 0xFF66D9EFu
+#define SAMP_D3D9_RESET_INDEX 16u
 #define SAMP_D3D9_END_SCENE_INDEX 42u
 #define SAMP_D3D9_SET_CURSOR_POSITION_INDEX 11u
 #define SAMP_D3D9_SHOW_CURSOR_INDEX 12u
@@ -518,6 +523,7 @@
 #define SAMP_D3DTS_VIEW 2u
 #define SAMP_D3DTS_PROJECTION 3u
 #define SAMP_D3DRS_ZENABLE 7u
+#define SAMP_D3DRS_ALPHATESTENABLE 15u
 #define SAMP_D3DRS_SRCBLEND 19u
 #define SAMP_D3DRS_DESTBLEND 20u
 #define SAMP_D3DRS_ALPHABLENDENABLE 27u
@@ -530,6 +536,7 @@
 #define SAMP_D3DTSS_ALPHAOP 4u
 #define SAMP_D3DTSS_ALPHAARG1 5u
 #define SAMP_D3DTSS_ALPHAARG2 6u
+#define SAMP_D3DTOP_SELECTARG1 2u
 #define SAMP_D3DTOP_MODULATE 4u
 #define SAMP_D3DTA_DIFFUSE 0u
 #define SAMP_D3DTA_TEXTURE 2u
@@ -543,13 +550,15 @@
 #define SAMP_D3DPOOL_SCRATCH 3u
 #define SAMP_D3DXIFF_PNG 3u
 #define SAMP_CHAT_INPUT_BOX_COLOR 0x33000000u
+#define SAMP_CHAT_INPUT_BORDER_COLOR 0xA0FFFFFFu
 #define SAMP_DIALOG_COMPAT_MAX_VISIBLE_ITEMS 8
 #define SAMP_DIALOG_COMPAT_MAX_ITEM_BYTES 256
-#define SAMP_DIALOG_COMPAT_COLOR_PANEL 0xE0000000u
-#define SAMP_DIALOG_COMPAT_COLOR_HEADER 0xFF202020u
-#define SAMP_DIALOG_COMPAT_COLOR_BODY 0xFF050505u
+#define SAMP_DIALOG_COMPAT_COLOR_PANEL 0xA0000000u
+#define SAMP_DIALOG_COMPAT_COLOR_HEADER 0x90000000u
+#define SAMP_DIALOG_COMPAT_COLOR_BODY 0x70000000u
 #define SAMP_DIALOG_COMPAT_COLOR_SELECTED 0xFF9E1B1Bu
-#define SAMP_DIALOG_COMPAT_COLOR_BUTTON 0xFF171717u
+#define SAMP_DIALOG_COMPAT_COLOR_PRIMARY_BUTTON 0xA0000000u
+#define SAMP_DIALOG_COMPAT_COLOR_BUTTON 0x80000000u
 #define SAMP_DIALOG_COMPAT_COLOR_TEXT 0xFFFFFFFFu
 #define SAMP_DIALOG_COMPAT_COLOR_MUTED 0xFFB8B8B8u
 #define SAMP_MENU_COMPAT_SCRIPT_WIDTH 640.0f
@@ -1087,6 +1096,7 @@ typedef DWORD(WINAPI *samp_set_file_pointer_fn)(HANDLE, LONG, PLONG, DWORD);
 typedef BOOL(WINAPI *samp_close_handle_fn)(HANDLE);
 typedef DWORD(WINAPI *samp_get_file_type_fn)(HANDLE);
 typedef int(WINAPI *samp_show_cursor_fn)(BOOL);
+typedef HRESULT(WINAPI *samp_d3d9_reset_fn)(void *, void *);
 typedef HRESULT(WINAPI *samp_d3d9_end_scene_fn)(void *);
 typedef HRESULT(WINAPI *samp_d3d9_clear_fn)(void *, DWORD, const void *, DWORD, DWORD, float, DWORD);
 typedef HRESULT(WINAPI *samp_d3d9_set_render_state_fn)(void *, DWORD, DWORD);
@@ -1387,6 +1397,16 @@ typedef struct samp_scoreboard_player_compat {
   uint32_t color;
   char name[SAMP_RAKNET_PLAYER_NAME_BYTES];
 } samp_scoreboard_player_compat;
+
+typedef struct samp_scoreboard_layout_compat {
+  int panel_x;
+  int panel_y;
+  int panel_w;
+  int panel_h;
+  int row_y;
+  int page_rows;
+  int offset;
+} samp_scoreboard_layout_compat;
 
 typedef struct samp_remote_player_slot_compat {
   LONG active;
@@ -1966,6 +1986,8 @@ typedef struct samp_game_text_slot_compat {
   int32_t style;
   DWORD expire_tick;
   char text[SAMP_RAKNET_GAMETEXT_TEXT_BYTES];
+  samp_textdraw_slot_compat native_textdraw;
+  LONG native_draw_logged;
 } samp_game_text_slot_compat;
 
 typedef struct samp_death_window_entry_compat {
@@ -2075,6 +2097,10 @@ typedef struct samp_runtime_state {
   LONG chat_d3d_draw_active;
   LONG chat_d3d_font_fail_logged;
   LONG chat_input_active;
+  LONG chat_game_input_patch_applied;
+  LONG chat_game_input_release_frames;
+  uint8_t chat_game_input_patch_saved[SAMP_GAME_INPUT_UPDATE_CALL_SIZE];
+  uint8_t chat_game_input_patch_owned;
   LONG chat_input_hooked;
   LONG chat_input_len;
   LONG chat_input_history_count;
@@ -2097,6 +2123,15 @@ typedef struct samp_runtime_state {
   LONG scoreboard_player_count;
   LONG scoreboard_local_player_id_valid;
   LONG scoreboard_local_player_id;
+  LONG scoreboard_hud_hidden;
+  LONG scoreboard_game_input_owner;
+  LONG scoreboard_mouse_mode;
+  LONG scoreboard_mouse_down;
+  LONG scoreboard_hover_valid;
+  LONG scoreboard_hover_player_id;
+  LONG scoreboard_click_count;
+  uint8_t scoreboard_hud_saved;
+  uint8_t scoreboard_radar_blank_saved;
   LONG object_visual_fallback_count;
   LONG object_visual_fallback_logged;
   LONG object_visual_fallback_draw_logged;
@@ -2519,7 +2554,11 @@ typedef struct samp_runtime_state {
   void *scoreboard_d3d_device;
   void *death_window_d3d_device;
   void **chat_d3d_vtbl;
+  samp_d3d9_reset_fn chat_reset_original;
   samp_d3d9_end_scene_fn chat_end_scene_original;
+  LONG chat_d3d_reset_active;
+  LONG chat_d3d_device_lost;
+  LONG chat_d3d_reset_count;
   samp_d3dx_create_font_a_fn d3dx_create_font_a;
   samp_d3dx_save_surface_to_file_a_fn d3dx_save_surface_to_file_a;
   samp_id3dx_font_compat *chat_d3dx_font;
@@ -2593,18 +2632,27 @@ static samp_boot_phase g_last_phase = BOOT_PHASE_0_NONE;
 static samp_script_process_fn g_script_process_original = NULL;
 static uint8_t g_scan_list_memory[SAMP_SCANLIST_SIZE];
 static LONG read_game_entry_gate_value(void);
+static void write_game_u8(uintptr_t addr, uint8_t value);
 static int gta_code_ptr_compat(uintptr_t ptr);
 static int game_pointer_plausible_compat(uintptr_t ptr);
 static HRESULT WINAPI chat_compat_end_scene_hook(void *device);
 static void chat_compat_release_d3dx_font(void);
 static int chat_compat_font_size(void);
 static void chat_compat_viewport_rect(int *out_x, int *out_y, int *out_w, int *out_h);
+static void dialog_compat_set_mouse_mode(int enabled);
 static int scoreboard_compat_active(void);
+static void scoreboard_compat_update_hud(void);
+static void scoreboard_compat_restore_hud(const char *reason);
 static int scoreboard_compat_draw_d3dx_overlay(void *device);
 static int scoreboard_compat_handle_key(UINT msg, WPARAM wparam);
+static int scoreboard_compat_handle_mouse(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam);
+static void scoreboard_compat_clear_mouse_mode(const char *reason);
+static int scoreboard_compat_layout(int player_count, samp_scoreboard_layout_compat *layout);
+static int scoreboard_compat_hit_test(int x, int y, uint16_t *out_player_id);
 static int scoreboard_compat_local_id(void);
 static void scoreboard_compat_release_font(void);
 static void scoreboard_compat_update_from_snapshot(const samp_raknet_rpc_probe_snapshot *snapshot);
+static void ui_compat_draw_cursor(void *device, int x, int y);
 static void death_window_compat_update_from_snapshot(const samp_raknet_rpc_probe_snapshot *snapshot);
 static int death_window_compat_active(void);
 static int death_window_compat_handle_key(UINT msg, WPARAM wparam, LPARAM lparam);
@@ -2612,6 +2660,7 @@ static int death_window_compat_draw_d3dx_overlay(void *device, samp_id3dx_font_c
 static void death_window_compat_release_weapon_font(void);
 static void death_window_compat_reset(const char *reason);
 static int game_text_compat_active(void);
+static int game_text_compat_draw_gta_font_game_process_overlay(void);
 static void game_text_compat_update_from_snapshot(const samp_raknet_rpc_probe_snapshot *snapshot);
 static void dialog_compat_normalize_selection(void);
 static void dialog_compat_submit(unsigned char button);
@@ -2648,6 +2697,9 @@ static void textdraw_preview_release_all_compat(const char *reason);
 static void textdraw_compat_release_fonts(void);
 static void visible_cursor_recenter_patch_apply_compat(const char *reason);
 static void visible_cursor_recenter_patch_restore_compat(const char *reason);
+static int chat_input_game_controls_apply_compat(const char *reason);
+static void chat_input_game_controls_update_compat(void);
+static void chat_input_game_controls_restore_compat(const char *reason);
 static void center_hwnd_cursor_compat(HWND hwnd);
 static void d3d9_cursor_show_compat(int show, const char *reason);
 static void d3d9_cursor_sync_client_compat(HWND hwnd, int client_x, int client_y, const char *reason);
@@ -3514,7 +3566,19 @@ static LRESULT chat_input_call_original_compat(HWND hwnd, UINT msg, WPARAM wpara
 
 static void chat_input_close_compat(void) {
   if (InterlockedExchange(&g_runtime.chat_input_active, 0) != 0) {
-    runtime_tracef("chat_input: closed");
+    int other_mouse_owner =
+        InterlockedCompareExchange(&g_runtime.dialog_overlay_active, 0, 0) != 0 ||
+        InterlockedCompareExchange(&g_runtime.edit_active, 0, 0) != 0 ||
+        InterlockedCompareExchange(&g_runtime.textdraw_select_active, 0, 0) != 0 ||
+        InterlockedCompareExchange(&g_runtime.class_selection_mouse_mode, 0, 0) != 0 ||
+        InterlockedCompareExchange(&g_runtime.scoreboard_mouse_mode, 0, 0) != 0;
+
+    if (!other_mouse_owner) {
+      dialog_compat_set_mouse_mode(0);
+    }
+    InterlockedExchange(&g_runtime.chat_game_input_release_frames, SAMP_GAME_INPUT_RELEASE_FRAMES);
+    runtime_tracef("chat_input: closed mouse_mode=disabled other_owner=%d evidence=ALT_02X_CODE,TODO_VERIFY",
+                   other_mouse_owner);
   }
   InterlockedExchange(&g_runtime.chat_input_len, 0);
   InterlockedExchange(&g_runtime.chat_input_history_index, -1);
@@ -3532,7 +3596,10 @@ static void chat_input_open_compat(void) {
   InterlockedExchange(&g_runtime.chat_input_len, 0);
   InterlockedExchange(&g_runtime.chat_input_history_index, -1);
   if (InterlockedExchange(&g_runtime.chat_input_active, 1) == 0) {
-    runtime_tracef("chat_input: opened");
+    InterlockedExchange(&g_runtime.chat_game_input_release_frames, 0);
+    (void)chat_input_game_controls_apply_compat("chat_open");
+    dialog_compat_set_mouse_mode(1);
+    runtime_tracef("chat_input: opened mouse_mode=enabled evidence=ALT_02X_CODE,TODO_VERIFY");
   }
 }
 
@@ -8672,6 +8739,22 @@ static LRESULT CALLBACK chat_input_wndproc_compat(HWND hwnd, UINT msg, WPARAM wp
     }
   }
 
+  if (active &&
+      (msg == WM_MOUSEMOVE || msg == WM_RBUTTONDOWN || msg == WM_RBUTTONDBLCLK || msg == WM_RBUTTONUP ||
+       msg == WM_LBUTTONDOWN || msg == WM_LBUTTONDBLCLK || msg == WM_LBUTTONUP)) {
+    if (msg == WM_MOUSEMOVE) {
+      dialog_compat_record_mouse(hwnd, lparam);
+    }
+    return 0;
+  }
+
+  if (!dialog_active && !textdraw_select_active &&
+      (msg == WM_MOUSEMOVE || msg == WM_RBUTTONDOWN || msg == WM_RBUTTONDBLCLK || msg == WM_RBUTTONUP ||
+       msg == WM_LBUTTONDOWN || msg == WM_LBUTTONDBLCLK || msg == WM_LBUTTONUP) &&
+      scoreboard_compat_handle_mouse(hwnd, msg, wparam, lparam)) {
+    return 0;
+  }
+
   if (scoreboard_compat_handle_key(msg, wparam)) {
     return 0;
   }
@@ -9848,10 +9931,17 @@ static void dialog_compat_d3d_fill_rect(void *device, int x, int y, int w, int h
 
 static int dialog_compat_d3d_alpha_rect(void *device, int x, int y, int w, int h, DWORD argb_color) {
   void **vtbl = NULL;
+  void **state_block_vtbl = NULL;
+  void *state_block = NULL;
+  samp_d3d9_create_state_block_fn create_state_block = NULL;
+  samp_d3d9_state_block_apply_fn apply_state_block = NULL;
   samp_d3d9_set_render_state_fn set_render_state = NULL;
+  samp_d3d9_set_texture_fn set_texture = NULL;
+  samp_d3d9_set_texture_stage_state_fn set_texture_stage_state = NULL;
   samp_d3d9_set_fvf_fn set_fvf = NULL;
   samp_d3d9_draw_primitive_up_fn draw_primitive_up = NULL;
   samp_d3d9_overlay_vertex_compat vertices[4];
+  HRESULT draw_hr = E_FAIL;
 
   if (device == NULL || w <= 0 || h <= 0 || x < 0 || y < 0) {
     return 0;
@@ -9862,8 +9952,13 @@ static int dialog_compat_d3d_alpha_rect(void *device, int x, int y, int w, int h
   vtbl = *(void ***)device;
   if (vtbl == NULL || !memory_is_readable_compat(&vtbl[SAMP_D3D9_SET_RENDER_STATE_INDEX], sizeof(void *)) ||
       !memory_is_readable_compat(&vtbl[SAMP_D3D9_SET_FVF_INDEX], sizeof(void *)) ||
+      !memory_is_readable_compat(&vtbl[SAMP_D3D9_CREATE_STATE_BLOCK_INDEX], sizeof(void *)) ||
+      !memory_is_readable_compat(&vtbl[SAMP_D3D9_SET_TEXTURE_INDEX], sizeof(void *)) ||
+      !memory_is_readable_compat(&vtbl[SAMP_D3D9_SET_TEXTURE_STAGE_STATE_INDEX], sizeof(void *)) ||
       !memory_is_readable_compat(&vtbl[SAMP_D3D9_DRAW_PRIMITIVE_UP_INDEX], sizeof(void *)) ||
       vtbl[SAMP_D3D9_SET_RENDER_STATE_INDEX] == NULL || vtbl[SAMP_D3D9_SET_FVF_INDEX] == NULL ||
+      vtbl[SAMP_D3D9_CREATE_STATE_BLOCK_INDEX] == NULL || vtbl[SAMP_D3D9_SET_TEXTURE_INDEX] == NULL ||
+      vtbl[SAMP_D3D9_SET_TEXTURE_STAGE_STATE_INDEX] == NULL ||
       vtbl[SAMP_D3D9_DRAW_PRIMITIVE_UP_INDEX] == NULL) {
     return 0;
   }
@@ -9889,15 +9984,54 @@ static int dialog_compat_d3d_alpha_rect(void *device, int x, int y, int w, int h
   vertices[3].rhw = 1.0f;
   vertices[3].color = argb_color;
 
+  create_state_block = (samp_d3d9_create_state_block_fn)vtbl[SAMP_D3D9_CREATE_STATE_BLOCK_INDEX];
   set_render_state = (samp_d3d9_set_render_state_fn)vtbl[SAMP_D3D9_SET_RENDER_STATE_INDEX];
+  set_texture = (samp_d3d9_set_texture_fn)vtbl[SAMP_D3D9_SET_TEXTURE_INDEX];
+  set_texture_stage_state =
+      (samp_d3d9_set_texture_stage_state_fn)vtbl[SAMP_D3D9_SET_TEXTURE_STAGE_STATE_INDEX];
   set_fvf = (samp_d3d9_set_fvf_fn)vtbl[SAMP_D3D9_SET_FVF_INDEX];
   draw_primitive_up = (samp_d3d9_draw_primitive_up_fn)vtbl[SAMP_D3D9_DRAW_PRIMITIVE_UP_INDEX];
+
+  /* INFERRED + TODO_VERIFY:
+   * EndScene inherits GTA's last texture-stage configuration. A diffuse-only
+   * overlay quad must explicitly detach that texture or its colour/alpha can
+   * vary with the previously rendered primitive. Preserve the complete state
+   * so UI panels do not contaminate the following D3DX text pass either.
+   */
+  if (SUCCEEDED(create_state_block(device, SAMP_D3DSBT_ALL, &state_block)) && state_block != NULL &&
+      memory_is_readable_compat(state_block, sizeof(void **))) {
+    state_block_vtbl = *(void ***)state_block;
+    if (state_block_vtbl != NULL &&
+        memory_is_readable_compat(&state_block_vtbl[SAMP_D3D9_STATE_BLOCK_APPLY_INDEX], sizeof(void *)) &&
+        state_block_vtbl[SAMP_D3D9_STATE_BLOCK_APPLY_INDEX] != NULL) {
+      apply_state_block =
+          (samp_d3d9_state_block_apply_fn)state_block_vtbl[SAMP_D3D9_STATE_BLOCK_APPLY_INDEX];
+    }
+  }
   (void)set_render_state(device, SAMP_D3DRS_ZENABLE, 0u);
+  /* PROBE_TRACE + INFERRED:
+   * The initial class-selection scene can leave GTA's alpha test enabled with
+   * a threshold above the UI panel alpha (0x70). DrawPrimitiveUP then succeeds
+   * while every panel pixel is discarded, leaving only the later opaque
+   * outlines visible. The saved state block restores GTA's alpha-test state
+   * immediately after this compatibility quad.
+   */
+  (void)set_render_state(device, SAMP_D3DRS_ALPHATESTENABLE, 0u);
   (void)set_render_state(device, SAMP_D3DRS_ALPHABLENDENABLE, 1u);
   (void)set_render_state(device, SAMP_D3DRS_SRCBLEND, SAMP_D3DBLEND_SRCALPHA);
   (void)set_render_state(device, SAMP_D3DRS_DESTBLEND, SAMP_D3DBLEND_INVSRCALPHA);
+  (void)set_texture(device, 0u, NULL);
+  (void)set_texture_stage_state(device, 0u, SAMP_D3DTSS_COLOROP, SAMP_D3DTOP_SELECTARG1);
+  (void)set_texture_stage_state(device, 0u, SAMP_D3DTSS_COLORARG1, SAMP_D3DTA_DIFFUSE);
+  (void)set_texture_stage_state(device, 0u, SAMP_D3DTSS_ALPHAOP, SAMP_D3DTOP_SELECTARG1);
+  (void)set_texture_stage_state(device, 0u, SAMP_D3DTSS_ALPHAARG1, SAMP_D3DTA_DIFFUSE);
   (void)set_fvf(device, SAMP_D3DFVF_XYZRHW_DIFFUSE);
-  return SUCCEEDED(draw_primitive_up(device, SAMP_D3DPT_TRIANGLESTRIP, 2u, vertices, sizeof(vertices[0])));
+  draw_hr = draw_primitive_up(device, SAMP_D3DPT_TRIANGLESTRIP, 2u, vertices, sizeof(vertices[0]));
+  if (apply_state_block != NULL) {
+    (void)apply_state_block(state_block);
+  }
+  screenshot_compat_release_unknown(state_block);
+  return SUCCEEDED(draw_hr);
 }
 
 static void textdraw_compat_d3d_fill_rect(void *device, int x, int y, int w, int h, DWORD argb_color) {
@@ -9950,7 +10084,89 @@ static int scoreboard_compat_active(void) {
   return (GetAsyncKeyState(VK_TAB) & 0x8000) != 0;
 }
 
+static void scoreboard_compat_clear_mouse_mode(const char *reason) {
+  LONG was_mode = InterlockedExchange(&g_runtime.scoreboard_mouse_mode, 0);
+  LONG was_down = InterlockedExchange(&g_runtime.scoreboard_mouse_down, 0);
+  int other_mouse_owner = dialog_compat_active() || edit_state_compat_active() ||
+                          InterlockedCompareExchange(&g_runtime.textdraw_select_active, 0, 0) != 0 ||
+                          InterlockedCompareExchange(&g_runtime.class_selection_mouse_mode, 0, 0) != 0 ||
+                          InterlockedCompareExchange(&g_runtime.chat_input_active, 0, 0) != 0;
+
+  InterlockedExchange(&g_runtime.scoreboard_hover_valid, 0);
+  if (was_mode != 0 && !other_mouse_owner) {
+    dialog_compat_set_mouse_mode(0);
+  }
+  if (was_mode != 0 || was_down != 0) {
+    runtime_tracef("scoreboard: mouse mode cleared reason=%s other_owner=%d evidence=INFERRED,TODO_VERIFY",
+                   reason != NULL ? reason : "unknown", other_mouse_owner);
+  }
+}
+
+static void scoreboard_compat_restore_hud(const char *reason) {
+  LONG input_owner = 0;
+
+  scoreboard_compat_clear_mouse_mode(reason);
+  input_owner = InterlockedExchange(&g_runtime.scoreboard_game_input_owner, 0);
+  if (input_owner != 0 && InterlockedCompareExchange(&g_runtime.chat_input_active, 0, 0) == 0) {
+    if (reason != NULL && strcmp(reason, "module_shutdown") == 0) {
+      chat_input_game_controls_restore_compat(reason);
+    } else {
+      InterlockedExchange(&g_runtime.chat_game_input_release_frames, SAMP_GAME_INPUT_RELEASE_FRAMES);
+    }
+  }
+  if (InterlockedExchange(&g_runtime.scoreboard_hud_hidden, 0) == 0) {
+    return;
+  }
+  if (memory_is_readable_compat((const void *)(uintptr_t)SAMP_ADDR_ENABLE_HUD, 1u) &&
+      memory_is_readable_compat((const void *)(uintptr_t)SAMP_ADDR_RADAR_BLANK, 1u)) {
+    write_game_u8(SAMP_ADDR_ENABLE_HUD, g_runtime.scoreboard_hud_saved);
+    write_game_u8(SAMP_ADDR_RADAR_BLANK, g_runtime.scoreboard_radar_blank_saved);
+  }
+  runtime_tracef("scoreboard: hud restore reason=%s hud=%u radar_blank=%u evidence=ALT_02X_CODE,TODO_VERIFY",
+                 reason != NULL ? reason : "unknown", (unsigned)g_runtime.scoreboard_hud_saved,
+                 (unsigned)g_runtime.scoreboard_radar_blank_saved);
+}
+
+static void scoreboard_compat_update_hud(void) {
+  int active = scoreboard_compat_active() && !gta_frontend_menu_active_compat();
+
+  if (!active) {
+    scoreboard_compat_restore_hud("tab_release");
+    return;
+  }
+  if (InterlockedCompareExchange(&g_runtime.scoreboard_game_input_owner, 1, 0) == 0 &&
+      !chat_input_game_controls_apply_compat("scoreboard_tab")) {
+    InterlockedExchange(&g_runtime.scoreboard_game_input_owner, 0);
+  }
+  if (InterlockedExchange(&g_runtime.scoreboard_mouse_mode, 1) == 0) {
+    dialog_compat_set_mouse_mode(1);
+    runtime_tracef("scoreboard: mouse mode enabled trigger=tab evidence=ALT_02X_CODE,TODO_VERIFY");
+  }
+  if (!memory_is_readable_compat((const void *)(uintptr_t)SAMP_ADDR_ENABLE_HUD, 1u) ||
+      !memory_is_readable_compat((const void *)(uintptr_t)SAMP_ADDR_RADAR_BLANK, 1u)) {
+    return;
+  }
+  if (InterlockedCompareExchange(&g_runtime.scoreboard_hud_hidden, 1, 0) == 0) {
+    g_runtime.scoreboard_hud_saved = read_game_u8(SAMP_ADDR_ENABLE_HUD);
+    g_runtime.scoreboard_radar_blank_saved = read_game_u8(SAMP_ADDR_RADAR_BLANK);
+    runtime_tracef("scoreboard: hud hide hud=%u radar_blank=%u evidence=ALT_02X_CODE,TODO_VERIFY",
+                   (unsigned)g_runtime.scoreboard_hud_saved,
+                   (unsigned)g_runtime.scoreboard_radar_blank_saved);
+  }
+  /* ALT_02X_CODE: CGame::DisplayHud(FALSE) writes HUD=0 and ToggleRadar(0)
+   * writes radar_blank=1 for every scoreboard frame. */
+  write_game_u8(SAMP_ADDR_ENABLE_HUD, 0u);
+  write_game_u8(SAMP_ADDR_RADAR_BLANK, 1u);
+}
+
 static int scoreboard_compat_handle_key(UINT msg, WPARAM wparam) {
+  if (msg == WM_KEYUP && wparam == VK_TAB) {
+    int consume = scoreboard_compat_available() ||
+                  InterlockedCompareExchange(&g_runtime.scoreboard_hud_hidden, 0, 0) != 0 ||
+                  InterlockedCompareExchange(&g_runtime.scoreboard_mouse_mode, 0, 0) != 0;
+    scoreboard_compat_restore_hud("tab_keyup");
+    return consume;
+  }
   if (!scoreboard_compat_available()) {
     return 0;
   }
@@ -10126,6 +10342,183 @@ static int scoreboard_compat_recount_visible_players(void) {
   }
   InterlockedExchange(&g_runtime.scoreboard_player_count, (LONG)count);
   return count;
+}
+
+static int scoreboard_compat_layout(int player_count, samp_scoreboard_layout_compat *layout) {
+  int viewport_x = 0;
+  int viewport_y = 0;
+  int viewport_w = 0;
+  int viewport_h = 0;
+  int offset = 0;
+
+  if (layout == NULL) {
+    return 0;
+  }
+  memset(layout, 0, sizeof(*layout));
+  chat_compat_viewport_rect(&viewport_x, &viewport_y, &viewport_w, &viewport_h);
+  if (viewport_w <= 0 || viewport_h <= 0) {
+    return 0;
+  }
+
+  offset = (int)InterlockedCompareExchange(&g_runtime.scoreboard_offset, 0, 0);
+  if (offset < 0 || player_count <= SAMP_SCOREBOARD_MAX_VISIBLE) {
+    offset = 0;
+  } else if (offset >= player_count) {
+    offset = player_count - SAMP_SCOREBOARD_MAX_VISIBLE;
+  }
+  InterlockedExchange(&g_runtime.scoreboard_offset, (LONG)offset);
+  layout->offset = offset;
+  layout->page_rows = player_count - offset;
+  if (layout->page_rows < 0) {
+    layout->page_rows = 0;
+  }
+  if (layout->page_rows > SAMP_SCOREBOARD_MAX_VISIBLE) {
+    layout->page_rows = SAMP_SCOREBOARD_MAX_VISIBLE;
+  }
+
+  layout->panel_w = viewport_w - 80;
+  if (layout->panel_w > 900) {
+    layout->panel_w = 900;
+  }
+  if (layout->panel_w < 560) {
+    layout->panel_w = viewport_w - 24;
+  }
+  layout->panel_h = 90 + (layout->page_rows * SAMP_SCOREBOARD_LINE_HEIGHT);
+  if (layout->panel_h < 150) {
+    layout->panel_h = 150;
+  }
+  if (layout->panel_h > 560) {
+    layout->panel_h = 560;
+  }
+  if (layout->panel_h > viewport_h - 24) {
+    layout->panel_h = viewport_h - 24;
+  }
+  if (layout->panel_w <= 0 || layout->panel_h <= 0) {
+    return 0;
+  }
+  layout->panel_x = viewport_x + ((viewport_w - layout->panel_w) / 2);
+  layout->panel_y = viewport_y + ((viewport_h - layout->panel_h) / 2);
+  if (layout->panel_x < 0) {
+    layout->panel_x = 0;
+  }
+  if (layout->panel_y < 0) {
+    layout->panel_y = 0;
+  }
+  layout->row_y = layout->panel_y + 48 + SAMP_SCOREBOARD_LINE_HEIGHT + 8;
+  return 1;
+}
+
+static int scoreboard_compat_hit_test(int x, int y, uint16_t *out_player_id) {
+  samp_scoreboard_layout_compat layout;
+  int player_count = scoreboard_compat_recount_visible_players();
+  int target_row = 0;
+  int visible_index = 0;
+  int drawn_row = 0;
+  uint16_t player_id = 0u;
+
+  if (out_player_id != NULL) {
+    *out_player_id = 0xFFFFu;
+  }
+  if (!scoreboard_compat_connected() || !scoreboard_compat_layout(player_count, &layout) ||
+      !dialog_compat_point_in_rect(x, y, layout.panel_x + 8, layout.row_y, layout.panel_w - 16,
+                                   layout.page_rows * SAMP_SCOREBOARD_LINE_HEIGHT)) {
+    return 0;
+  }
+
+  target_row = (y - layout.row_y) / SAMP_SCOREBOARD_LINE_HEIGHT;
+  for (player_id = 0u; player_id < SAMP_SCOREBOARD_MAX_PLAYERS; ++player_id) {
+    const samp_scoreboard_player_compat *slot = &g_runtime.scoreboard_players[player_id];
+
+    if (!scoreboard_compat_player_visible(slot)) {
+      continue;
+    }
+    if (visible_index++ < layout.offset) {
+      continue;
+    }
+    if (drawn_row++ == target_row) {
+      if (out_player_id != NULL) {
+        *out_player_id = slot->player_id;
+      }
+      return 1;
+    }
+    if (drawn_row >= layout.page_rows) {
+      break;
+    }
+  }
+  return 0;
+}
+
+static int scoreboard_compat_submit_click(uint16_t player_id) {
+  int result = -1;
+
+  if (g_runtime.net_mgr.raknet_client != NULL) {
+    result = samp_raknet_client_send_player_click(g_runtime.net_mgr.raknet_client, player_id, 0u);
+  }
+  if (result == 0) {
+    InterlockedIncrement(&g_runtime.scoreboard_click_count);
+  }
+  runtime_tracef("scoreboard: click player=%u source=0 result=%d evidence=OPENMP_REF,INFERRED,TODO_VERIFY",
+                 (unsigned)player_id, result);
+  return result;
+}
+
+static int scoreboard_compat_handle_mouse(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam) {
+  POINT cursor;
+  uint16_t player_id = 0xFFFFu;
+  int hit = 0;
+
+  (void)wparam;
+  if (!scoreboard_compat_active()) {
+    return 0;
+  }
+
+  /* INFERRED + TODO_VERIFY:
+   * TAB normally enables mouse mode from scoreboard_compat_update_hud.  Keep
+   * RMB as a harmless fallback if its window message arrives before the first
+   * active scoreboard frame.
+   */
+  if (msg == WM_RBUTTONDOWN || msg == WM_RBUTTONDBLCLK) {
+    if (InterlockedExchange(&g_runtime.scoreboard_mouse_mode, 1) == 0) {
+      dialog_compat_set_mouse_mode(1);
+      runtime_tracef("scoreboard: mouse mode enabled trigger=right_button evidence=INFERRED,TODO_VERIFY");
+    }
+    InterlockedExchange(&g_runtime.scoreboard_mouse_down, 0);
+    return 1;
+  }
+  if (InterlockedCompareExchange(&g_runtime.scoreboard_mouse_mode, 0, 0) == 0) {
+    return 0;
+  }
+
+  dialog_compat_record_mouse(hwnd, lparam);
+  cursor.x = (LONG)InterlockedCompareExchange(&g_runtime.dialog_mouse_x, 0, 0);
+  cursor.y = (LONG)InterlockedCompareExchange(&g_runtime.dialog_mouse_y, 0, 0);
+  hit = scoreboard_compat_hit_test((int)cursor.x, (int)cursor.y, &player_id);
+  InterlockedExchange(&g_runtime.scoreboard_hover_valid, hit ? 1 : 0);
+  if (hit) {
+    InterlockedExchange(&g_runtime.scoreboard_hover_player_id, (LONG)player_id);
+  }
+
+  /*
+   * OPENMP_REF + TODO_VERIFY:
+   * OnPlayerClickPlayer is documented as a scoreboard double-click.  Windows
+   * reports the first DOWN/UP before WM_LBUTTONDBLCLK, so arm submission only
+   * for the button-up following the double-click message.
+   */
+  if (msg == WM_LBUTTONDOWN) {
+    InterlockedExchange(&g_runtime.scoreboard_mouse_down, 0);
+    return 1;
+  }
+  if (msg == WM_LBUTTONDBLCLK) {
+    InterlockedExchange(&g_runtime.scoreboard_mouse_down, 1);
+    return 1;
+  }
+  if (msg == WM_LBUTTONUP) {
+    if (InterlockedExchange(&g_runtime.scoreboard_mouse_down, 0) != 0 && hit) {
+      (void)scoreboard_compat_submit_click(player_id);
+    }
+    return 1;
+  }
+  return 1;
 }
 
 static int scoreboard_compat_slot_name_conflicts_with_local(const samp_scoreboard_player_compat *slot) {
@@ -10516,10 +10909,7 @@ static void scoreboard_compat_draw_text_shadowed(samp_id3dx_font_compat *font, R
 
 static int scoreboard_compat_draw_d3dx_overlay(void *device) {
   samp_id3dx_font_compat *font = NULL;
-  int viewport_x = 0;
-  int viewport_y = 0;
-  int viewport_w = 0;
-  int viewport_h = 0;
+  samp_scoreboard_layout_compat layout;
   int panel_w = 0;
   int panel_h = 0;
   int panel_x = 0;
@@ -10536,8 +10926,10 @@ static int scoreboard_compat_draw_d3dx_overlay(void *device) {
   int last_visible = 0;
   int visible_index = 0;
   int drawn_rows = 0;
-  int page_rows = 0;
   int local_id = -1;
+  int mouse_mode = 0;
+  int hover_valid = 0;
+  int hover_player_id = -1;
   uint16_t player_id = 0u;
   RECT rect;
   char players_text[64];
@@ -10554,57 +10946,23 @@ static int scoreboard_compat_draw_d3dx_overlay(void *device) {
     scoreboard_compat_ensure_local_player();
   }
   player_count = scoreboard_compat_recount_visible_players();
-  offset = (int)InterlockedCompareExchange(&g_runtime.scoreboard_offset, 0, 0);
-  if (offset < 0 || player_count <= SAMP_SCOREBOARD_MAX_VISIBLE) {
-    offset = 0;
-  } else if (offset >= player_count) {
-    offset = player_count - SAMP_SCOREBOARD_MAX_VISIBLE;
+  if (!scoreboard_compat_layout(player_count, &layout)) {
+    return 0;
   }
-  InterlockedExchange(&g_runtime.scoreboard_offset, (LONG)offset);
+  offset = layout.offset;
+  panel_x = layout.panel_x;
+  panel_y = layout.panel_y;
+  panel_w = layout.panel_w;
+  panel_h = layout.panel_h;
   first_visible = player_count > 0 ? offset + 1 : 0;
   last_visible = offset + SAMP_SCOREBOARD_MAX_VISIBLE;
   if (last_visible > player_count) {
     last_visible = player_count;
   }
-  page_rows = player_count - offset;
-  if (page_rows < 0) {
-    page_rows = 0;
-  }
-  if (page_rows > SAMP_SCOREBOARD_MAX_VISIBLE) {
-    page_rows = SAMP_SCOREBOARD_MAX_VISIBLE;
-  }
   local_id = scoreboard_compat_local_id();
-
-  chat_compat_viewport_rect(&viewport_x, &viewport_y, &viewport_w, &viewport_h);
-  if (viewport_w <= 0 || viewport_h <= 0) {
-    return 0;
-  }
-
-  panel_w = viewport_w - 80;
-  if (panel_w > 900) {
-    panel_w = 900;
-  }
-  if (panel_w < 560) {
-    panel_w = viewport_w - 24;
-  }
-  panel_h = 90 + (page_rows * SAMP_SCOREBOARD_LINE_HEIGHT);
-  if (panel_h < 150) {
-    panel_h = 150;
-  }
-  if (panel_h > 560) {
-    panel_h = 560;
-  }
-  if (panel_h > viewport_h - 24) {
-    panel_h = viewport_h - 24;
-  }
-  panel_x = viewport_x + ((viewport_w - panel_w) / 2);
-  panel_y = viewport_y + ((viewport_h - panel_h) / 2);
-  if (panel_x < 0) {
-    panel_x = 0;
-  }
-  if (panel_y < 0) {
-    panel_y = 0;
-  }
+  mouse_mode = InterlockedCompareExchange(&g_runtime.scoreboard_mouse_mode, 0, 0) != 0;
+  hover_valid = InterlockedCompareExchange(&g_runtime.scoreboard_hover_valid, 0, 0) != 0;
+  hover_player_id = (int)InterlockedCompareExchange(&g_runtime.scoreboard_hover_player_id, 0, 0);
 
   if (!dialog_compat_d3d_alpha_rect(device, panel_x, panel_y, panel_w, panel_h, SAMP_SCOREBOARD_COLOR_PANEL)) {
     dialog_compat_d3d_fill_rect(device, panel_x, panel_y, panel_w, panel_h, SAMP_MODERN_UI_PANEL_FALLBACK);
@@ -10658,11 +11016,16 @@ static int scoreboard_compat_draw_d3dx_overlay(void *device) {
   scoreboard_compat_draw_text_shadowed(font, rect, "ping", SAMP_SCOREBOARD_COLOR_LABEL,
                                        DT_SINGLELINE | DT_CENTER | DT_NOCLIP);
 
-  row_y += SAMP_SCOREBOARD_LINE_HEIGHT + 8;
+  row_y = layout.row_y;
   dialog_compat_d3d_fill_rect(device, panel_x + 10, row_y - 5, panel_w - 20, 1, SAMP_SCOREBOARD_COLOR_GRID);
   if (!connected) {
     if (InterlockedCompareExchange(&g_runtime.scoreboard_logged, 1, 0) == 0) {
       runtime_tracef("scoreboard: drawing enabled preconnect evidence=STATIC_037 TODO_VERIFY remote_pool=decoded");
+    }
+    if (mouse_mode) {
+      ui_compat_draw_cursor(device,
+                            (int)InterlockedCompareExchange(&g_runtime.dialog_mouse_x, 0, 0),
+                            (int)InterlockedCompareExchange(&g_runtime.dialog_mouse_y, 0, 0));
     }
     return 1;
   }
@@ -10682,7 +11045,10 @@ static int scoreboard_compat_draw_d3dx_overlay(void *device) {
     }
     row_color = slot->color != 0u ? chat_compat_samp_color_to_argb(slot->color) : 0xFFFFFFFFu;
 
-    if ((int)slot->player_id == local_id) {
+    if (mouse_mode && hover_valid && (int)slot->player_id == hover_player_id) {
+      (void)dialog_compat_d3d_alpha_rect(device, panel_x + 8, row_y - 1, panel_w - 16,
+                                         SAMP_SCOREBOARD_LINE_HEIGHT, SAMP_SCOREBOARD_COLOR_HOVER);
+    } else if ((int)slot->player_id == local_id) {
       (void)dialog_compat_d3d_alpha_rect(device, panel_x + 8, row_y - 1, panel_w - 16,
                                          SAMP_SCOREBOARD_LINE_HEIGHT, 0x38FFFFFFu);
     } else if ((drawn_rows & 1) != 0) {
@@ -10722,6 +11088,11 @@ static int scoreboard_compat_draw_d3dx_overlay(void *device) {
   if (InterlockedCompareExchange(&g_runtime.scoreboard_logged, 1, 0) == 0) {
     runtime_tracef("scoreboard: drawing enabled local_id=%d players=%d host='%s' evidence=STATIC_037,OPENMP_REF,PROBE_TRACE remote_pool=decoded",
                    scoreboard_compat_local_id(), player_count, host);
+  }
+  if (mouse_mode) {
+    ui_compat_draw_cursor(device,
+                          (int)InterlockedCompareExchange(&g_runtime.dialog_mouse_x, 0, 0),
+                          (int)InterlockedCompareExchange(&g_runtime.dialog_mouse_y, 0, 0));
   }
   return 1;
 }
@@ -15126,10 +15497,10 @@ static void ui_compat_draw_cursor(void *device, int x, int y) {
   }
   for (row = 0; row < (int)(sizeof(outline_widths) / sizeof(outline_widths[0])); ++row) {
     if (outline_widths[row] != 0u) {
-      dialog_compat_d3d_fill_rect(device, x, y + (row * 2), outline_widths[row] * 2, 2, 0xFF000000u);
+      dialog_compat_d3d_fill_rect(device, x, y + row, outline_widths[row], 1, 0xFF000000u);
     }
     if (fill_widths[row] != 0u) {
-      dialog_compat_d3d_fill_rect(device, x + (fill_offsets[row] * 2), y + (row * 2), fill_widths[row] * 2, 2,
+      dialog_compat_d3d_fill_rect(device, x + fill_offsets[row], y + row, fill_widths[row], 1,
                                   0xFFFFFFFFu);
     }
   }
@@ -17073,12 +17444,17 @@ static int textdraw_compat_draw_gta_font_game_process_overlay(void) {
   static LONG slot_order_logged = 0;
   void *device = NULL;
   int drawn = 0;
+  int game_text_drawn = 0;
   int preview_drawn = 0;
   int hard_draw_failure = 0;
   size_t i = 0u;
 
-  if (active_count <= 0 || !textdraw_compat_gta_font_game_process_enabled()) {
+  if (!textdraw_compat_gta_font_game_process_enabled()) {
     return 0;
+  }
+  game_text_drawn = game_text_compat_draw_gta_font_game_process_overlay();
+  if (active_count <= 0) {
+    return game_text_drawn;
   }
 
   device = read_game_d3d_device_compat();
@@ -17122,9 +17498,9 @@ static int textdraw_compat_draw_gta_font_game_process_overlay(void) {
                    preview_drawn, drawn, (long)active_count);
   }
   if (hard_draw_failure) {
-    return 0;
+    return game_text_drawn;
   }
-  return drawn > 0 || preview_drawn > 0 ? 1 : 0;
+  return game_text_drawn || drawn > 0 || preview_drawn > 0 ? 1 : 0;
 }
 
 static int game_text_compat_style_bucket(int style) {
@@ -17208,6 +17584,43 @@ static int game_text_compat_style_valid(int style) {
   return style >= 0 && style < (int)SAMP_RAKNET_GAMETEXT_MAX_STYLES;
 }
 
+static void game_text_compat_prepare_native_style5(samp_game_text_slot_compat *slot) {
+  samp_textdraw_slot_compat *native_slot = NULL;
+
+  if (slot == NULL || slot->style != 5) {
+    return;
+  }
+
+  native_slot = &slot->native_textdraw;
+  memset(native_slot, 0, sizeof(*native_slot));
+  native_slot->seq = slot->seq;
+  native_slot->transmit.letter_width = 0.6f;
+  native_slot->transmit.letter_height = 2.75f;
+  native_slot->transmit.letter_color = 0xFFE1E1E1u;
+  native_slot->transmit.line_width = 200.0f;
+  native_slot->transmit.line_height = 620.0f;
+  native_slot->transmit.box_color = 0x00000000u;
+  native_slot->transmit.flags = 0x19u;
+  native_slot->transmit.shadow = 0u;
+  native_slot->transmit.outline = 2u;
+  native_slot->transmit.background_color = 0xFF000000u;
+  native_slot->transmit.style = 2u;
+  native_slot->transmit.x = 320.0f;
+  native_slot->transmit.y = 217.0f;
+  strncpy(native_slot->text, slot->text, sizeof(native_slot->text) - 1u);
+  native_slot->text[sizeof(native_slot->text) - 1u] = '\0';
+  InterlockedExchange(&native_slot->active, 1);
+
+  /* OPENMP_REF + PROBE_TRACE:
+   * open.mp Fixes.so turns style-5 GameText into a player textdraw with these
+   * exact values. The initial bare-server join sends the same text as raw RPC
+   * 73 before IPlayerFixesData exists; after GMX the resulting RPC 134 carries
+   * this transmit state and renders through GTA CFont as intended.
+   * open.mp commit=4875dae28d36bdd58dac8ff88b0517fe58e29295
+   * Fixes.so SHA256=7db07fa62f4e7e3607ad828ef2eb4b537af427adc072086605dedf1467b265c6
+   */
+}
+
 static DWORD game_text_compat_display_time_ms(int32_t time_ms) {
   DWORD display_ms = 0u;
 
@@ -17275,6 +17688,7 @@ static void game_text_compat_show_slot(int style, uint32_t seq, int32_t time_ms,
   slot->style = style;
   strncpy(slot->text, text, sizeof(slot->text) - 1u);
   slot->text[sizeof(slot->text) - 1u] = '\0';
+  game_text_compat_prepare_native_style5(slot);
   now = GetTickCount();
   slot->expire_tick = now + display_ms;
   InterlockedExchange(&slot->active, 1);
@@ -17332,6 +17746,38 @@ static int game_text_compat_active(void) {
   }
   InterlockedExchange(&g_runtime.game_text_active, 1);
   return 1;
+}
+
+static int game_text_compat_draw_gta_font_game_process_overlay(void) {
+  int style = 0;
+  int drawn = 0;
+
+  if (!game_text_compat_active()) {
+    return 0;
+  }
+
+  for (style = 0; style < (int)SAMP_RAKNET_GAMETEXT_MAX_STYLES; ++style) {
+    samp_game_text_slot_compat *slot = &g_runtime.game_text_slots[style];
+    samp_textdraw_slot_compat *native_slot = &slot->native_textdraw;
+
+    if (InterlockedCompareExchange(&slot->active, 0, 0) == 0 ||
+        InterlockedCompareExchange(&native_slot->active, 0, 0) == 0 || native_slot->seq != slot->seq) {
+      continue;
+    }
+    if (textdraw_compat_draw_gta_font_slot(native_slot, SAMP_TEXTDRAW_GTA_FONT_PHASE_GAME_PROCESS)) {
+      ++drawn;
+      if (InterlockedCompareExchange(&slot->native_draw_logged, 1, 0) == 0) {
+        runtime_tracef("game_text: native_textdraw drawing seq=%lu style=%ld pos=(%.3f,%.3f) "
+                       "size=(%.3f,%.3f) font_style=%u flags=0x%02x outline=%u "
+                       "evidence=OPENMP_REF,PROBE_TRACE",
+                       (unsigned long)slot->seq, (long)slot->style, native_slot->transmit.x,
+                       native_slot->transmit.y, native_slot->transmit.line_width,
+                       native_slot->transmit.line_height, (unsigned)native_slot->transmit.style,
+                       (unsigned)native_slot->transmit.flags, (unsigned)native_slot->transmit.outline);
+      }
+    }
+  }
+  return drawn > 0 ? 1 : 0;
 }
 
 static void game_text_compat_update_from_snapshot(const samp_raknet_rpc_probe_snapshot *snapshot) {
@@ -17405,6 +17851,12 @@ static int game_text_compat_draw_d3dx_overlay(void *device) {
     samp_id3dx_font_compat *font = NULL;
 
     if (InterlockedCompareExchange(&slot->active, 0, 0) == 0) {
+      continue;
+    }
+    if (style == 5 && InterlockedCompareExchange(&slot->native_textdraw.active, 0, 0) != 0 &&
+        slot->native_textdraw.gta_font_last_draw_tick != 0u &&
+        (DWORD)(GetTickCount() - slot->native_textdraw.gta_font_last_draw_tick) <=
+            SAMP_TEXTDRAW_GTA_FONT_DRAW_RECENT_MS) {
       continue;
     }
     bucket = game_text_compat_style_bucket(style);
@@ -17482,8 +17934,8 @@ static void dialog_compat_draw_button(samp_id3dx_font_compat *font, void *device
                                       const char *text, int primary) {
   RECT rect;
 
-  dialog_compat_d3d_fill_rect(device, x, y, w, h, primary ? SAMP_DIALOG_COMPAT_COLOR_SELECTED
-                                                          : SAMP_DIALOG_COMPAT_COLOR_BUTTON);
+  textdraw_compat_d3d_fill_rect(device, x, y, w, h, primary ? SAMP_DIALOG_COMPAT_COLOR_PRIMARY_BUTTON
+                                                            : SAMP_DIALOG_COMPAT_COLOR_BUTTON);
   rect.left = x;
   rect.top = y + 5;
   rect.right = x + w;
@@ -17528,9 +17980,9 @@ static int dialog_compat_draw_d3dx_overlay(void *device, samp_id3dx_font_compat 
   body_h = layout.body_h;
 
   dialog_compat_d3d_fill_rect(device, panel_x - 2, panel_y - 2, panel_w + 4, panel_h + 4, 0xFF000000u);
-  dialog_compat_d3d_fill_rect(device, panel_x, panel_y, panel_w, panel_h, SAMP_DIALOG_COMPAT_COLOR_PANEL);
-  dialog_compat_d3d_fill_rect(device, panel_x, panel_y, panel_w, 30, SAMP_DIALOG_COMPAT_COLOR_HEADER);
-  dialog_compat_d3d_fill_rect(device, body_x, body_y, body_w, body_h, SAMP_DIALOG_COMPAT_COLOR_BODY);
+  textdraw_compat_d3d_fill_rect(device, panel_x, panel_y, panel_w, panel_h, SAMP_DIALOG_COMPAT_COLOR_PANEL);
+  textdraw_compat_d3d_fill_rect(device, panel_x, panel_y, panel_w, 30, SAMP_DIALOG_COMPAT_COLOR_HEADER);
+  textdraw_compat_d3d_fill_rect(device, body_x, body_y, body_w, body_h, SAMP_DIALOG_COMPAT_COLOR_BODY);
 
   rect.left = panel_x + 12;
   rect.top = panel_y + 7;
@@ -17810,59 +18262,28 @@ static int chat_compat_draw_d3dx_overlay(void *device) {
     (void)edit_state_compat_draw_d3dx_overlay(device, g_runtime.chat_d3dx_font);
   }
   chat_compat_viewport_origin(&x, &y);
-  if (count > 0 || input_active != 0) {
-    int measured_w = 0;
+  /* INFERRED + TODO_VERIFY:
+   * Normal chat history has no shared panel. Only the fresh line opened by T
+   * gets the 80%-transparent black backing, sized to its current text.
+   */
+  if (input_active != 0) {
+    char input_line[SAMP_CHAT_INPUT_DRAW_BYTES];
+    int input_w = 0;
+    int input_y = y + (display_count * line_height) + 5;
 
-    for (i = 0; i < display_count; ++i) {
-      char visible_line[SAMP_CHAT_COMPAT_LINE_BYTES + 16];
-      int line_w = 0;
-      LONG line_index = display_start + i;
-
-      chat_compat_format_stored_line(line_index, visible_line, sizeof(visible_line));
-      chat_compat_strip_samp_color_tags(visible_line);
-      line_w = chat_compat_d3dx_measure_text_width(g_runtime.chat_d3dx_font, visible_line,
-                                                   (int)strlen(visible_line) * 8);
-      if (line_w > measured_w) {
-        measured_w = line_w;
-      }
+    chat_input_format_draw_line_compat(input_line, sizeof(input_line));
+    input_w = chat_compat_d3dx_measure_text_width(g_runtime.chat_d3dx_font, input_line,
+                                                  (int)strlen(input_line) * 8);
+    panel_x = x - 4;
+    panel_y = input_y - 2;
+    panel_w = input_w + 8;
+    panel_h = line_height + 5;
+    if (panel_w < 28) {
+      panel_w = 28;
     }
-    if (input_active != 0) {
-      char input_line[SAMP_CHAT_INPUT_DRAW_BYTES];
-      int input_w = 0;
-
-      chat_input_format_draw_line_compat(input_line, sizeof(input_line));
-      input_w = chat_compat_d3dx_measure_text_width(g_runtime.chat_d3dx_font, input_line,
-                                                    (int)strlen(input_line) * 8);
-      if (input_w > measured_w) {
-        measured_w = input_w;
-      }
-    }
-
-    panel_x = x - SAMP_CHAT_PANEL_PADDING_X;
-    panel_y = y - SAMP_CHAT_PANEL_PADDING_Y;
-    panel_w = measured_w + (SAMP_CHAT_PANEL_PADDING_X * 2);
-    if (panel_w < SAMP_CHAT_PANEL_MIN_WIDTH) {
-      panel_w = SAMP_CHAT_PANEL_MIN_WIDTH;
-    }
-    if (panel_w > SAMP_CHAT_PANEL_MAX_WIDTH) {
-      panel_w = SAMP_CHAT_PANEL_MAX_WIDTH;
-    }
-    panel_h = (display_count * line_height) + (SAMP_CHAT_PANEL_PADDING_Y * 2);
-    if (input_active != 0) {
-      panel_h += line_height + 9;
-    }
-    if (panel_x < 0) {
-      panel_x = 0;
-    }
-    if (!dialog_compat_d3d_alpha_rect(device, panel_x, panel_y, panel_w, panel_h, SAMP_MODERN_UI_PANEL_COLOR)) {
-      dialog_compat_d3d_fill_rect(device, panel_x, panel_y, panel_w, panel_h, SAMP_MODERN_UI_PANEL_FALLBACK);
-    }
-    textdraw_compat_draw_rect_outline(device, panel_x, panel_y, panel_w, panel_h, SAMP_MODERN_UI_BORDER_COLOR);
-    if (input_active != 0 && display_count > 0) {
-      dialog_compat_d3d_fill_rect(device, panel_x + 1,
-                                  y + (display_count * line_height) + 1, panel_w - 2, 1,
-                                  SAMP_MODERN_UI_DIVIDER_COLOR);
-    }
+    textdraw_compat_d3d_fill_rect(device, panel_x, panel_y, panel_w, panel_h, SAMP_CHAT_INPUT_BOX_COLOR);
+    textdraw_compat_draw_rect_outline(device, panel_x, panel_y, panel_w, panel_h,
+                                      SAMP_CHAT_INPUT_BORDER_COLOR);
   }
   for (i = 0; i < display_count; ++i) {
     char display_line[SAMP_CHAT_COMPAT_LINE_BYTES + 16];
@@ -17923,11 +18344,49 @@ static int chat_compat_draw_d3dx_overlay(void *device) {
   return 1;
 }
 
+static HRESULT WINAPI chat_compat_reset_hook(void *device, void *present_parameters) {
+  samp_d3d9_reset_fn original = g_runtime.chat_reset_original;
+  HRESULT result = E_FAIL;
+  LONG reset_count = 0;
+
+  if (original == NULL) {
+    return E_FAIL;
+  }
+  if (InterlockedExchange(&g_runtime.chat_d3d_reset_active, 1) != 0) {
+    return original(device, present_parameters);
+  }
+
+  reset_count = InterlockedIncrement(&g_runtime.chat_d3d_reset_count);
+  InterlockedExchange(&g_runtime.chat_d3d_device_lost, 1);
+
+  /* GTA_REVERSED_REF + PROBE_TRACE:
+   * gta_sa.exe+0x3F9A3C is RenderWare's D3D9DeviceRestoreVideoMemory path.  The
+   * Jul 18 pre-connect trace reached it with _RwD3D9RenderSurface == NULL
+   * because Reset failed while our D3DX default-pool resources were alive.
+   * Releasing the complete compatibility overlay resource set before Reset is
+   * equivalent to the lost-device half of the D3DX lifecycle; all resources
+   * are created lazily again after a successful reset.
+   */
+  chat_compat_release_d3dx_font();
+  result = original(device, present_parameters);
+  if (SUCCEEDED(result)) {
+    InterlockedExchange(&g_runtime.chat_d3d_device_lost, 0);
+  }
+  InterlockedExchange(&g_runtime.chat_d3d_reset_active, 0);
+  runtime_tracef("chat_d3d: Reset #%ld hr=0x%08lx resources=released recreate=lazy "
+                 "device_lost=%d evidence=GTA_REVERSED_REF,PROBE_TRACE",
+                 (long)reset_count, (unsigned long)result, FAILED(result) ? 1 : 0);
+  return result;
+}
+
 static HRESULT WINAPI chat_compat_end_scene_hook(void *device) {
   samp_d3d9_end_scene_fn original = g_runtime.chat_end_scene_original;
   HRESULT result = S_OK;
 
-  if (InterlockedCompareExchange(&g_runtime.chat_d3d_draw_active, 1, 0) == 0) {
+  scoreboard_compat_update_hud();
+  chat_input_game_controls_update_compat();
+  if (InterlockedCompareExchange(&g_runtime.chat_d3d_device_lost, 0, 0) == 0 &&
+      InterlockedCompareExchange(&g_runtime.chat_d3d_draw_active, 1, 0) == 0) {
     (void)chat_compat_draw_d3dx_overlay(device);
     screenshot_compat_capture_if_requested(device);
     InterlockedExchange(&g_runtime.chat_d3d_draw_active, 0);
@@ -18000,13 +18459,36 @@ static void chat_compat_try_install_d3d_hook(void) {
   }
 
   vtbl = *(void ***)device;
-  if (vtbl == NULL || !memory_is_readable_compat(&vtbl[SAMP_D3D9_END_SCENE_INDEX], sizeof(void *)) ||
-      vtbl[SAMP_D3D9_END_SCENE_INDEX] == NULL ||
+  if (vtbl == NULL || !memory_is_readable_compat(&vtbl[SAMP_D3D9_RESET_INDEX], sizeof(void *)) ||
+      !memory_is_readable_compat(&vtbl[SAMP_D3D9_END_SCENE_INDEX], sizeof(void *)) ||
+      vtbl[SAMP_D3D9_RESET_INDEX] == NULL || vtbl[SAMP_D3D9_END_SCENE_INDEX] == NULL ||
+      vtbl[SAMP_D3D9_RESET_INDEX] == (void *)chat_compat_reset_hook ||
       vtbl[SAMP_D3D9_END_SCENE_INDEX] == (void *)chat_compat_end_scene_hook) {
     return;
   }
 
+  if (!VirtualProtect(&vtbl[SAMP_D3D9_RESET_INDEX], sizeof(void *), PAGE_EXECUTE_READWRITE, &old_protect)) {
+    if (InterlockedCompareExchange(&g_runtime.chat_d3d_hook_install_logged, 1, 0) == 0) {
+      runtime_tracef("chat_d3d: Reset hook VirtualProtect failed vtbl=0x%08lx",
+                     (unsigned long)(uintptr_t)vtbl);
+    }
+    return;
+  }
+
+  g_runtime.chat_d3d_vtbl = vtbl;
+  g_runtime.chat_reset_original = (samp_d3d9_reset_fn)vtbl[SAMP_D3D9_RESET_INDEX];
+  vtbl[SAMP_D3D9_RESET_INDEX] = (void *)chat_compat_reset_hook;
+  FlushInstructionCache(GetCurrentProcess(), &vtbl[SAMP_D3D9_RESET_INDEX], sizeof(void *));
+  (void)VirtualProtect(&vtbl[SAMP_D3D9_RESET_INDEX], sizeof(void *), old_protect, &ignored_protect);
+
   if (!VirtualProtect(&vtbl[SAMP_D3D9_END_SCENE_INDEX], sizeof(void *), PAGE_EXECUTE_READWRITE, &old_protect)) {
+    if (VirtualProtect(&vtbl[SAMP_D3D9_RESET_INDEX], sizeof(void *), PAGE_EXECUTE_READWRITE, &old_protect)) {
+      vtbl[SAMP_D3D9_RESET_INDEX] = (void *)g_runtime.chat_reset_original;
+      FlushInstructionCache(GetCurrentProcess(), &vtbl[SAMP_D3D9_RESET_INDEX], sizeof(void *));
+      (void)VirtualProtect(&vtbl[SAMP_D3D9_RESET_INDEX], sizeof(void *), old_protect, &ignored_protect);
+    }
+    g_runtime.chat_d3d_vtbl = NULL;
+    g_runtime.chat_reset_original = NULL;
     if (InterlockedCompareExchange(&g_runtime.chat_d3d_hook_install_logged, 1, 0) == 0) {
       runtime_tracef("chat_d3d: EndScene hook VirtualProtect failed vtbl=0x%08lx",
                      (unsigned long)(uintptr_t)vtbl);
@@ -18014,15 +18496,19 @@ static void chat_compat_try_install_d3d_hook(void) {
     return;
   }
 
-  g_runtime.chat_d3d_vtbl = vtbl;
   g_runtime.chat_end_scene_original = (samp_d3d9_end_scene_fn)vtbl[SAMP_D3D9_END_SCENE_INDEX];
   vtbl[SAMP_D3D9_END_SCENE_INDEX] = (void *)chat_compat_end_scene_hook;
   FlushInstructionCache(GetCurrentProcess(), &vtbl[SAMP_D3D9_END_SCENE_INDEX], sizeof(void *));
   (void)VirtualProtect(&vtbl[SAMP_D3D9_END_SCENE_INDEX], sizeof(void *), old_protect, &ignored_protect);
   InterlockedExchange(&g_runtime.chat_d3d_hooked, 1);
 
-  runtime_tracef("chat_d3d: EndScene hook installed device=0x%08lx vtbl=0x%08lx original=0x%08lx hook=0x%08lx",
+  runtime_tracef("chat_d3d: hooks installed device=0x%08lx vtbl=0x%08lx "
+                 "Reset[index=16 original=0x%08lx hook=0x%08lx restore=guarded_vtable] "
+                 "EndScene[index=42 original=0x%08lx hook=0x%08lx restore=guarded_vtable] "
+                 "evidence=GTA_REVERSED_REF,PROBE_TRACE",
                  (unsigned long)(uintptr_t)device, (unsigned long)(uintptr_t)vtbl,
+                 (unsigned long)(uintptr_t)g_runtime.chat_reset_original,
+                 (unsigned long)(uintptr_t)chat_compat_reset_hook,
                  (unsigned long)(uintptr_t)g_runtime.chat_end_scene_original,
                  (unsigned long)(uintptr_t)chat_compat_end_scene_hook);
 }
@@ -18031,11 +18517,23 @@ static void chat_compat_uninstall_d3d_hook(void) {
   DWORD old_protect = 0;
   DWORD ignored_protect = 0;
 
-  if (g_runtime.chat_d3d_vtbl == NULL || g_runtime.chat_end_scene_original == NULL) {
+  if (g_runtime.chat_d3d_vtbl == NULL) {
     return;
   }
 
-  if (g_runtime.chat_d3d_vtbl[SAMP_D3D9_END_SCENE_INDEX] == (void *)chat_compat_end_scene_hook &&
+  if (g_runtime.chat_reset_original != NULL &&
+      g_runtime.chat_d3d_vtbl[SAMP_D3D9_RESET_INDEX] == (void *)chat_compat_reset_hook &&
+      VirtualProtect(&g_runtime.chat_d3d_vtbl[SAMP_D3D9_RESET_INDEX], sizeof(void *), PAGE_EXECUTE_READWRITE,
+                     &old_protect)) {
+    g_runtime.chat_d3d_vtbl[SAMP_D3D9_RESET_INDEX] = (void *)g_runtime.chat_reset_original;
+    FlushInstructionCache(GetCurrentProcess(), &g_runtime.chat_d3d_vtbl[SAMP_D3D9_RESET_INDEX], sizeof(void *));
+    (void)VirtualProtect(&g_runtime.chat_d3d_vtbl[SAMP_D3D9_RESET_INDEX], sizeof(void *), old_protect,
+                         &ignored_protect);
+    runtime_tracef("chat_d3d: Reset hook restored");
+  }
+
+  if (g_runtime.chat_end_scene_original != NULL &&
+      g_runtime.chat_d3d_vtbl[SAMP_D3D9_END_SCENE_INDEX] == (void *)chat_compat_end_scene_hook &&
       VirtualProtect(&g_runtime.chat_d3d_vtbl[SAMP_D3D9_END_SCENE_INDEX], sizeof(void *), PAGE_EXECUTE_READWRITE,
                      &old_protect)) {
     g_runtime.chat_d3d_vtbl[SAMP_D3D9_END_SCENE_INDEX] = (void *)g_runtime.chat_end_scene_original;
@@ -18046,7 +18544,10 @@ static void chat_compat_uninstall_d3d_hook(void) {
   }
 
   InterlockedExchange(&g_runtime.chat_d3d_hooked, 0);
+  InterlockedExchange(&g_runtime.chat_d3d_reset_active, 0);
+  InterlockedExchange(&g_runtime.chat_d3d_device_lost, 0);
   g_runtime.chat_d3d_vtbl = NULL;
+  g_runtime.chat_reset_original = NULL;
   g_runtime.chat_end_scene_original = NULL;
 }
 
@@ -21354,6 +21855,96 @@ static int patch_copy(uintptr_t addr, const void *src, size_t size) {
   return 1;
 }
 
+static int chat_input_game_controls_apply_compat(const char *reason) {
+  static const uint8_t original[SAMP_GAME_INPUT_UPDATE_CALL_SIZE] = {
+      0xE8u, 0x46u, 0xF3u, 0xFEu, 0xFFu};
+  static const uint8_t patch[SAMP_GAME_INPUT_UPDATE_CALL_SIZE] = {
+      0x90u, 0x90u, 0x90u, 0x90u, 0x90u};
+  uint8_t current[SAMP_GAME_INPUT_UPDATE_CALL_SIZE];
+
+  InterlockedExchange(&g_runtime.chat_game_input_release_frames, 0);
+  if (!memory_is_readable_compat((const void *)(uintptr_t)SAMP_ADDR_GAME_INPUT_UPDATE_CALL, sizeof(current))) {
+    runtime_tracef("chat_input_controls: apply_skip reason=%s address_unreadable=1 addr=0x%08lx "
+                   "evidence=ALT_02X_CODE,TODO_VERIFY",
+                   reason != NULL ? reason : "unknown", (unsigned long)SAMP_ADDR_GAME_INPUT_UPDATE_CALL);
+    return 0;
+  }
+  memcpy(current, (const void *)(uintptr_t)SAMP_ADDR_GAME_INPUT_UPDATE_CALL, sizeof(current));
+  if (memcmp(current, patch, sizeof(current)) == 0) {
+    return InterlockedCompareExchange(&g_runtime.chat_game_input_patch_applied, 0, 0) != 0;
+  }
+  if (memcmp(current, original, sizeof(current)) != 0) {
+    runtime_tracef("chat_input_controls: apply_skip reason=%s target_bytes_mismatch=1 addr=0x%08lx "
+                   "current=%02x%02x%02x%02x%02x expected=e846f3feff patch=9090909090 "
+                   "evidence=ALT_02X_CODE,TODO_VERIFY",
+                   reason != NULL ? reason : "unknown", (unsigned long)SAMP_ADDR_GAME_INPUT_UPDATE_CALL,
+                   (unsigned)current[0], (unsigned)current[1], (unsigned)current[2], (unsigned)current[3],
+                   (unsigned)current[4]);
+    return 0;
+  }
+
+  memcpy(g_runtime.chat_game_input_patch_saved, current, sizeof(current));
+  if (!patch_copy(SAMP_ADDR_GAME_INPUT_UPDATE_CALL, patch, sizeof(patch))) {
+    runtime_tracef("chat_input_controls: apply_failed reason=%s addr=0x%08lx gle=%lu "
+                   "evidence=ALT_02X_CODE,TODO_VERIFY",
+                   reason != NULL ? reason : "unknown", (unsigned long)SAMP_ADDR_GAME_INPUT_UPDATE_CALL,
+                   (unsigned long)GetLastError());
+    return 0;
+  }
+  g_runtime.chat_game_input_patch_owned = 1u;
+  InterlockedExchange(&g_runtime.chat_game_input_patch_applied, 1);
+  runtime_tracef("chat_input_controls: apply reason=%s module=gta_sa.exe rva=0x00141df5 "
+                 "original=e846f3feff patch=9090909090 length=5 restore=chat_close_plus_2_frames "
+                 "evidence=ALT_02X_CODE,TODO_VERIFY",
+                 reason != NULL ? reason : "unknown");
+  return 1;
+}
+
+static void chat_input_game_controls_restore_compat(const char *reason) {
+  static const uint8_t patch[SAMP_GAME_INPUT_UPDATE_CALL_SIZE] = {
+      0x90u, 0x90u, 0x90u, 0x90u, 0x90u};
+  uint8_t current[SAMP_GAME_INPUT_UPDATE_CALL_SIZE];
+
+  InterlockedExchange(&g_runtime.chat_game_input_release_frames, 0);
+  if (InterlockedCompareExchange(&g_runtime.chat_game_input_patch_applied, 0, 0) == 0 ||
+      g_runtime.chat_game_input_patch_owned == 0u ||
+      !memory_is_readable_compat((const void *)(uintptr_t)SAMP_ADDR_GAME_INPUT_UPDATE_CALL, sizeof(current))) {
+    return;
+  }
+  memcpy(current, (const void *)(uintptr_t)SAMP_ADDR_GAME_INPUT_UPDATE_CALL, sizeof(current));
+  if (memcmp(current, patch, sizeof(current)) != 0) {
+    runtime_tracef("chat_input_controls: restore_skip reason=%s target_changed=1 addr=0x%08lx "
+                   "current=%02x%02x%02x%02x%02x evidence=TODO_VERIFY",
+                   reason != NULL ? reason : "unknown", (unsigned long)SAMP_ADDR_GAME_INPUT_UPDATE_CALL,
+                   (unsigned)current[0], (unsigned)current[1], (unsigned)current[2], (unsigned)current[3],
+                   (unsigned)current[4]);
+  } else if (patch_copy(SAMP_ADDR_GAME_INPUT_UPDATE_CALL, g_runtime.chat_game_input_patch_saved,
+                        sizeof(g_runtime.chat_game_input_patch_saved))) {
+    runtime_tracef("chat_input_controls: restore reason=%s module=gta_sa.exe rva=0x00141df5 "
+                   "patch=9090909090 restored=e846f3feff length=5 evidence=ALT_02X_CODE,TODO_VERIFY",
+                   reason != NULL ? reason : "unknown");
+  }
+  g_runtime.chat_game_input_patch_owned = 0u;
+  InterlockedExchange(&g_runtime.chat_game_input_patch_applied, 0);
+}
+
+static void chat_input_game_controls_update_compat(void) {
+  LONG frames = 0;
+
+  if (InterlockedCompareExchange(&g_runtime.chat_input_active, 0, 0) != 0 || scoreboard_compat_active()) {
+    InterlockedExchange(&g_runtime.chat_game_input_release_frames, 0);
+    return;
+  }
+  frames = InterlockedCompareExchange(&g_runtime.chat_game_input_release_frames, 0, 0);
+  if (frames <= 0) {
+    return;
+  }
+  frames = InterlockedDecrement(&g_runtime.chat_game_input_release_frames);
+  if (frames <= 0) {
+    chat_input_game_controls_restore_compat("chat_close_release");
+  }
+}
+
 static int apply_wanted_level_patch_compat(uint8_t level, const char *reason) {
   static const uint8_t original[SAMP_WANTED_LEVEL_PATCH_SIZE] = {
       0x83u, 0xFEu, 0x05u, 0x0Fu, 0x84u, 0xDAu, 0x00u, 0x00u, 0x00u};
@@ -24001,6 +24592,7 @@ static void game_session_reset_to_preconnect_compat(const char *reason, int tran
    * loss still falls through to the ordinary reconnect path.
    */
   chat_input_close_compat();
+  scoreboard_compat_restore_hud(reason);
   InterlockedExchange(&g_runtime.class_selection_mouse_mode, 0);
   InterlockedExchange(&g_runtime.class_selection_mouse_down, 0);
   textdraw_compat_clear_select_mode(reason);
@@ -24047,6 +24639,12 @@ static void game_session_reset_to_preconnect_compat(const char *reason, int tran
   InterlockedExchange(&g_runtime.scoreboard_player_count, 0);
   InterlockedExchange(&g_runtime.scoreboard_local_player_id_valid, 0);
   InterlockedExchange(&g_runtime.scoreboard_local_player_id, 0);
+  InterlockedExchange(&g_runtime.scoreboard_game_input_owner, 0);
+  InterlockedExchange(&g_runtime.scoreboard_mouse_mode, 0);
+  InterlockedExchange(&g_runtime.scoreboard_mouse_down, 0);
+  InterlockedExchange(&g_runtime.scoreboard_hover_valid, 0);
+  InterlockedExchange(&g_runtime.scoreboard_hover_player_id, 0);
+  InterlockedExchange(&g_runtime.scoreboard_click_count, 0);
   memset(g_runtime.scoreboard_players, 0, sizeof(g_runtime.scoreboard_players));
   death_window_compat_reset(reason);
 
@@ -31326,6 +31924,7 @@ static void launch_prepare_network_compat(void) {
     g_runtime.game_text_expire_tick = 0u;
     g_runtime.game_text[0] = '\0';
     memset(g_runtime.game_text_slots, 0, sizeof(g_runtime.game_text_slots));
+    scoreboard_compat_restore_hud("connect_reset");
     InterlockedExchange(&g_runtime.scoreboard_offset, 0);
     InterlockedExchange(&g_runtime.scoreboard_logged, 0);
     InterlockedExchange(&g_runtime.scoreboard_player_pool_event_seq, 0);
@@ -31333,6 +31932,12 @@ static void launch_prepare_network_compat(void) {
     InterlockedExchange(&g_runtime.scoreboard_player_count, 0);
     InterlockedExchange(&g_runtime.scoreboard_local_player_id_valid, 0);
     InterlockedExchange(&g_runtime.scoreboard_local_player_id, 0);
+    InterlockedExchange(&g_runtime.scoreboard_game_input_owner, 0);
+    InterlockedExchange(&g_runtime.scoreboard_mouse_mode, 0);
+    InterlockedExchange(&g_runtime.scoreboard_mouse_down, 0);
+    InterlockedExchange(&g_runtime.scoreboard_hover_valid, 0);
+    InterlockedExchange(&g_runtime.scoreboard_hover_player_id, 0);
+    InterlockedExchange(&g_runtime.scoreboard_click_count, 0);
     memset(g_runtime.scoreboard_players, 0, sizeof(g_runtime.scoreboard_players));
     death_window_compat_reset("connect_reset");
     map_icon_compat_reset("connect_reset");
@@ -31769,6 +32374,7 @@ static void launch_graphics_loop_hook_callback(void) {
   launch_do_init_stuff_compat();
   actor_compat_process_game_thread();
   apply_multiplayer_session_bridge_compat();
+  scoreboard_compat_update_hud();
   gta_process_checkpoints_compat();
   (void)textdraw_compat_draw_gta_font_graphics_overlay();
   chat_compat_draw_overlay();
@@ -31912,6 +32518,8 @@ static void phase_network_shutdown(void) {
 }
 
 static void phase_runtime_modules_shutdown(void) {
+  chat_input_game_controls_restore_compat("module_shutdown");
+  scoreboard_compat_restore_hud("module_shutdown");
   chat_input_uninstall_wndproc_compat();
   chat_compat_uninstall_d3d_hook();
   chat_compat_release_d3dx_font();
