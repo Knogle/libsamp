@@ -18,14 +18,29 @@
 #define SAMP_ARCHIVE_MAIN_HASH 0xD83F24DDu
 #define SAMP_ARCHIVE_SCRIPT_HASH 0x11A462D1u
 
-/* OBSERVED_037 + STATIC_037:
- * This is the PE profile used for the original/replacement comparison.
- * gta_sa.exe SHA256=a559aa772fd136379155efa71f00c47aad34bbfeae6196b0fe1047d0645cbd26.
+/* OBSERVED_037 + STATIC_037 + PROBE_TRACE:
+ * These profiles differ only in three PE-header bytes. The hardened profile
+ * sets LARGE_ADDRESS_AWARE and NX_COMPAT; its executable code and all six IAT
+ * hook slots are byte-identical to the reference image.
+ *
+ * Reference SHA256=a559aa772fd136379155efa71f00c47aad34bbfeae6196b0fe1047d0645cbd26.
+ * Hardened  SHA256=590b4be1bb005f4e07edf6b32df4a95b7ba403fb85472d68aa4275875b345b6f.
  */
-#define SAMP_GTA_PE_TIMESTAMP 0x427101CAu
 #define SAMP_GTA_PE_ENTRY_RVA 0x00424570u
 #define SAMP_GTA_PE_IMAGE_SIZE 0x01177000u
 #define SAMP_GTA_PE_CHECKSUM 0x00DC5BEAu
+
+typedef struct samp_gta_pe_profile {
+  const char *name;
+  DWORD timestamp;
+  WORD file_characteristics;
+  WORD dll_characteristics;
+} samp_gta_pe_profile;
+
+static const samp_gta_pe_profile kGtaPeProfiles[] = {
+    {"gta_sa_10_us_reference", 0x427101CAu, 0x010Fu, 0x0000u},
+    {"gta_sa_10_us_laa_nx", 0x437101CAu, 0x012Fu, 0x0100u},
+};
 
 typedef HANDLE(WINAPI *create_file_a_fn)(LPCSTR, DWORD, DWORD, LPSECURITY_ATTRIBUTES, DWORD, DWORD, HANDLE);
 typedef BOOL(WINAPI *read_file_fn)(HANDLE, LPVOID, DWORD, LPDWORD, LPOVERLAPPED);
@@ -264,6 +279,7 @@ static int validate_gta_and_iat(void) {
   uint8_t *base = (uint8_t *)GetModuleHandleA(NULL);
   IMAGE_DOS_HEADER *dos;
   IMAGE_NT_HEADERS32 *nt;
+  const samp_gta_pe_profile *profile = NULL;
   size_t i;
 
   if (base == NULL) {
@@ -277,18 +293,43 @@ static int validate_gta_and_iat(void) {
   }
   nt = (IMAGE_NT_HEADERS32 *)(base + dos->e_lfanew);
   if (nt->Signature != IMAGE_NT_SIGNATURE || nt->FileHeader.Machine != IMAGE_FILE_MACHINE_I386 ||
-      nt->FileHeader.TimeDateStamp != SAMP_GTA_PE_TIMESTAMP ||
       nt->OptionalHeader.Magic != IMAGE_NT_OPTIONAL_HDR32_MAGIC ||
       nt->OptionalHeader.AddressOfEntryPoint != SAMP_GTA_PE_ENTRY_RVA ||
       nt->OptionalHeader.SizeOfImage != SAMP_GTA_PE_IMAGE_SIZE ||
       nt->OptionalHeader.CheckSum != SAMP_GTA_PE_CHECKSUM) {
     archive_tracef("gta_profile_rejected reason=pe_fields timestamp=0x%08lx entry=0x%08lx size=0x%08lx "
-                   "checksum=0x%08lx evidence=STATIC_037",
+                   "checksum=0x%08lx characteristics=0x%04x dll_characteristics=0x%04x "
+                   "evidence=STATIC_037,PROBE_TRACE",
                    (unsigned long)nt->FileHeader.TimeDateStamp,
                    (unsigned long)nt->OptionalHeader.AddressOfEntryPoint,
-                   (unsigned long)nt->OptionalHeader.SizeOfImage, (unsigned long)nt->OptionalHeader.CheckSum);
+                   (unsigned long)nt->OptionalHeader.SizeOfImage, (unsigned long)nt->OptionalHeader.CheckSum,
+                   (unsigned int)nt->FileHeader.Characteristics,
+                   (unsigned int)nt->OptionalHeader.DllCharacteristics);
     return 0;
   }
+
+  for (i = 0; i < sizeof(kGtaPeProfiles) / sizeof(kGtaPeProfiles[0]); ++i) {
+    const samp_gta_pe_profile *candidate = &kGtaPeProfiles[i];
+    if (nt->FileHeader.TimeDateStamp == candidate->timestamp &&
+        nt->FileHeader.Characteristics == candidate->file_characteristics &&
+        nt->OptionalHeader.DllCharacteristics == candidate->dll_characteristics) {
+      profile = candidate;
+      break;
+    }
+  }
+  if (profile == NULL) {
+    archive_tracef("gta_profile_rejected reason=header_variant timestamp=0x%08lx characteristics=0x%04x "
+                   "dll_characteristics=0x%04x evidence=STATIC_037,PROBE_TRACE",
+                   (unsigned long)nt->FileHeader.TimeDateStamp,
+                   (unsigned int)nt->FileHeader.Characteristics,
+                   (unsigned int)nt->OptionalHeader.DllCharacteristics);
+    return 0;
+  }
+  archive_tracef("gta_profile_accepted name=%s timestamp=0x%08lx characteristics=0x%04x "
+                 "dll_characteristics=0x%04x evidence=STATIC_037,PROBE_TRACE",
+                 profile->name, (unsigned long)profile->timestamp,
+                 (unsigned int)profile->file_characteristics,
+                 (unsigned int)profile->dll_characteristics);
 
   for (i = 0; i < sizeof(g_iat_hooks) / sizeof(g_iat_hooks[0]); ++i) {
     FARPROC expected = GetProcAddress(GetModuleHandleA("kernel32.dll"), g_iat_hooks[i].name);

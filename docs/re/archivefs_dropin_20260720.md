@@ -37,12 +37,22 @@ rewritten, or backed up.
   the same ArchiveFS implementation also logged virtual `script.img` opens and
   reached `RPC_ClientJoin`, `InitGame`, and `RakNet state CONNECTED`. The only
   subsequent behavior change made basename hashing retain trailing spaces, as
-  the original does. The final built/installed DLL SHA-256 is
+  the original does. That follow-up DLL SHA-256 was
   `b1b9ff729aa430b92b2a9a23c9b69c8fc34ac35684a3ec3f656f38035ddf830f`;
   compared with the runtime-tested build, its remaining delta is a
   warning-clean procedure-pointer assignment with no ArchiveFS semantic
-  change. It was rebuilt and statically checked but, per the agreed stopping
-  point, not launched again.
+  change.
+- `PROBE_TRACE`: follow-up replacement run in the same prefix on 2026-07-21,
+  using the 14,383,616-byte LAA/NX GTA executable with SHA-256
+  `590b4be1bb005f4e07edf6b32df4a95b7ba403fb85472d68aa4275875b345b6f`.
+  The built and installed replacement DLL SHA-256 was
+  `a659915e7f7f98ed3414855ed61fd44bd94b72e52dc62c0085c3a8a3900da74d`.
+  The log recorded the exact `gta_sa_10_us_laa_nx` profile, all six validated
+  IAT hooks, successful archive-signature verification, extracted
+  `main.scm` (103876 bytes) and `script.img` (194560 bytes), virtual
+  `main.scm` opens, the loaded multiplayer frontend, and
+  `SA-MP 0.3.7-R5 Started`. Device selection applied 2560x1440x32. This run
+  did not exercise a later virtual `script.img` open before inspection ended.
 
 No new original-DLL runtime run was performed for this change. Original-DLL
 claims above are static R5 findings; the replacement runtime observations are
@@ -64,6 +74,20 @@ The portable archive core:
 
 The Win32 adapter verifies the exact GTA SA 1.0 US PE profile and the current
 contents of these IAT slots before writing them:
+
+- reference header: SHA-256
+  `a559aa772fd136379155efa71f00c47aad34bbfeae6196b0fe1047d0645cbd26`,
+  timestamp `0x427101CA`, file characteristics `0x010F`, DLL
+  characteristics `0x0000`;
+- `PROBE_TRACE` hardened header: SHA-256
+  `590b4be1bb005f4e07edf6b32df4a95b7ba403fb85472d68aa4275875b345b6f`,
+  timestamp `0x437101CA`, file characteristics `0x012F`
+  (`LARGE_ADDRESS_AWARE`), DLL characteristics `0x0100` (`NX_COMPAT`).
+
+The two 14,383,616-byte executables differ in exactly those three PE-header
+bytes. Their executable code, entry RVA, image size, checksum, and the six
+hooked IAT slots are identical. Unknown combinations of these header fields
+remain rejected.
 
 | API | GTA RVA |
 | --- | ---: |
