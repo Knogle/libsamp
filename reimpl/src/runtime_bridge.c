@@ -12,6 +12,7 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include "sampdll/archive/win32_archive_fs.h"
 #include "sampdll/net/dual_stack.h"
 #include "sampdll/net/raknet_client_adapter.h"
 #include "sampdll/net/tcp_bootstrap_manager.h"
@@ -2042,6 +2043,7 @@ typedef struct samp_runtime_state {
   LONG do_init_stuff_active;
   LONG do_init_stuff_reentry_skips;
   LONG early_bootstrap_ready;
+  LONG archive_fs_ready;
   LONG graphics_ticks;
   LONG monitor_started;
   LONG monitor_stopped;
@@ -2906,6 +2908,12 @@ static void runtime_tracef(const char *fmt, ...) {
   runtime_trace_file_line(message);
   if (runtime_trace_enabled()) {
     OutputDebugStringA(message);
+  }
+}
+
+static void archive_fs_trace_bridge(const char *line) {
+  if (line != NULL) {
+    runtime_tracef("archive_fs: %s", line);
   }
 }
 
@@ -31663,6 +31671,7 @@ static int phase_load_settings_and_paths(void) {
 static int phase_runtime_bootstrap(void) {
   FARPROC proc = NULL;
   HANDLE archive_handle = INVALID_HANDLE_VALUE;
+  samp_archive_fs_status archive_status;
 
   if (resolve_module_proc(&g_runtime.bootstrap_shims.kernel32_module, "kernel32.dll", "CreateFileA", &proc)) {
     g_runtime.bootstrap_shims.create_file_a = (samp_create_file_a_fn)proc;
@@ -31692,6 +31701,30 @@ static int phase_runtime_bootstrap(void) {
       g_runtime.bootstrap_shims.create_file_a, g_runtime.bootstrap_shims.read_file, g_runtime.bootstrap_shims.get_file_size,
       g_runtime.bootstrap_shims.set_file_pointer, g_runtime.bootstrap_shims.close_handle,
       g_runtime.bootstrap_shims.get_file_type, g_runtime.bootstrap_shims.show_cursor);
+
+  memset(&archive_status, 0, sizeof(archive_status));
+  if (g_runtime.archive_present) {
+    if (samp_archive_fs_win32_start(g_runtime.archive_path, archive_fs_trace_bridge, &archive_status)) {
+      InterlockedExchange(&g_runtime.archive_fs_ready, 1);
+      runtime_tracef("bootstrap_archive_fs: ready=1 verified=%d hooks=%d archive=%lu main=%lu script=%lu "
+                     "evidence=STATIC_037",
+                     archive_status.signature_verified, archive_status.hooks_installed,
+                     (unsigned long)archive_status.archive_size, (unsigned long)archive_status.main_size,
+                     (unsigned long)archive_status.script_size);
+    } else {
+      runtime_tracef("bootstrap_archive_fs: ready=0 online=%d action=%s evidence=TODO_VERIFY",
+                     g_runtime.settings.play_online ? 1 : 0,
+                     g_runtime.settings.play_online ? "abort_multiplayer_boot" : "filesystem_fallback");
+      if (g_runtime.settings.play_online) {
+        return 0;
+      }
+    }
+  } else if (g_runtime.settings.play_online) {
+    runtime_tracef("bootstrap_archive_fs: ready=0 online=1 action=abort_multiplayer_boot reason=archive_missing");
+    return 0;
+  } else {
+    runtime_tracef("bootstrap_archive_fs: ready=0 online=0 action=filesystem_fallback reason=archive_missing");
+  }
 
   samp_asset_preflight_compat();
 
@@ -32552,6 +32585,9 @@ static void phase_runtime_modules_shutdown(void) {
 }
 
 static void phase_runtime_bootstrap_shutdown(void) {
+  if (InterlockedExchange(&g_runtime.archive_fs_ready, 0)) {
+    samp_archive_fs_win32_stop();
+  }
   if (g_runtime.gtaweap3_font_added > 0 && g_runtime.gtaweap3_font_path[0] != '\0') {
     RemoveFontResourceA(g_runtime.gtaweap3_font_path);
     g_runtime.gtaweap3_font_added = 0;
