@@ -11,6 +11,16 @@ option(SAMPDLL_ENABLE_RAKNET_KNOGLE "Integrate vendored Knogle RakNet variant" O
 option(SAMPDLL_ENABLE_SAMP_CLIENT_TRANSPORT "Enable SA-MP client UDP datagram transform" ON)
 
 set(SAMPDLL_RAKNET_KNOGLE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../third_party/raknet-knogle")
+set(SAMPDLL_REFERENCE_SAA "${CMAKE_CURRENT_SOURCE_DIR}/../analysis/metadata/installer_extract/samp.saa")
+
+add_library(sampdll_archive STATIC
+  src/archive/saa.c
+)
+
+target_include_directories(sampdll_archive
+  PUBLIC
+    ${CMAKE_CURRENT_SOURCE_DIR}/include
+)
 
 set(SAMPDLL_NET_SOURCES
   src/net/dual_stack.c
@@ -110,6 +120,7 @@ endif()
 if(WIN32)
   add_library(samp SHARED
     src/dllmain.c
+    src/archive/win32_archive_fs.c
     src/runtime_bridge.c
     src/runtime_hook_bridge.c
     src/samp.rc
@@ -120,7 +131,7 @@ if(WIN32)
       ${CMAKE_CURRENT_SOURCE_DIR}/include
   )
 
-  target_link_libraries(samp PRIVATE sampdll_net gdi32)
+  target_link_libraries(samp PRIVATE sampdll_archive sampdll_net advapi32 gdi32)
 
   set_target_properties(samp PROPERTIES
     OUTPUT_NAME "samp"
@@ -165,6 +176,17 @@ endif()
 if(SAMPDLL_BUILD_TESTS)
   include(CTest)
   enable_testing()
+
+  add_executable(test_saa
+    tests/test_saa.c
+  )
+  target_link_libraries(test_saa PRIVATE sampdll_archive)
+
+  if(EXISTS "${SAMPDLL_REFERENCE_SAA}")
+    add_test(NAME saa COMMAND test_saa "${SAMPDLL_REFERENCE_SAA}")
+  else()
+    message(WARNING "Reference samp.saa absent; saa archive test is not registered")
+  endif()
 
   add_executable(test_death_message_codec
     tests/test_death_message_codec.cpp
