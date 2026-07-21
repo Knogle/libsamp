@@ -128,6 +128,27 @@
 
 - Vanilla GTA models can be created through the guarded object bridge.
 - SA-MP custom models are gated before they reach `CStreaming::RequestModel`.
+- `OBSERVED_037 + PROBE_TRACE`: stock rows from the shipped `SAMP/samp.IDE`
+  are registered on demand through the validated heap path even when the
+  experimental `SAMPDLL_CUSTOM_ASSET_REGISTER` switch is off. Rows supplied by
+  `SAMP/custom.IDE` remain opt-in. This separation restores the 19/19 bare-server
+  startup-object path without enabling arbitrary downloaded model registration.
+- `PROBE_TRACE + GTA_REVERSED_REF`: a stock `samp.IDE` TXD reference is ready
+  when it resolves in GTA's `CTxdStore`, even if no matching TXD file exists in
+  `SAMP.IMG`. The Area51 models use the vanilla `a51_ext` dictionary, observed
+  as TXD slot `2007` before object-scene readiness.
+- `PROBE_TRACE + GTA_REVERSED_REF + TODO_VERIFY`: native Windows GTA SA 1.0 has
+  eight `CStreaming::ms_files` entries and already used six when the current
+  late registration pass ran. `CUSTOM.IMG` and `SAMP.IMG` occupy the final two;
+  `SAMPCOL.IMG` is therefore kept out of the streaming list and loaded through
+  the existing direct `AllSAMPCOLs.col` path. `AddImageToList` result zero is
+  validated against the descriptor path because it also means "list full".
+- `PROBE_TRACE + GTA_REVERSED_REF + TODO_VERIFY`: the same native Windows run
+  blocked inside synchronous `CStreaming::LoadAllRequestedModels` for model
+  `11692` after a successful late SAMP DFF request, while the identical archive
+  completed under Wine. Custom DFF requests now remain on GTA's asynchronous
+  request list and object creation waits for a later tick to observe `LOADED`
+  plus a readable RW object. Vanilla GTA object models retain synchronous load.
 - `INFERRED + TODO_VERIFY`: current mutige test build can proxy indexed SA-MP custom object IDs
   through GTA model `3095` when their native `CModelInfo` entry is still absent. Logs keep both
   `model` and `render_model` so object lifetime/position can be validated without pretending that
