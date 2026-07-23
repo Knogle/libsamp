@@ -63,6 +63,8 @@ int main()
 	failed += assert_true(RakNet::ID_CONNECTION_REQUEST_ACCEPTED == 0x22, "SA-MP connection accepted id");
 	failed += assert_true(SAMPRakNet::GetMinimumSendBitsPerSecond() > 0.0f,
 						  "standalone SAMPRakNet stub allows reliable handshake packets to flush");
+	failed += assert_true(!SAMPRakNet::ShouldEnforceNetworkLimits(),
+						  "standalone client does not apply open.mp server flood limits to its server");
 
 	knownAuthResponse = samp_raknet_knogle_auth_response("58901CF451C93E3");
 	failed += assert_true(knownAuthResponse != nullptr &&
