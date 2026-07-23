@@ -201,6 +201,11 @@
 #define SAMP_ADDR_STREAMING_LOAD_SCENE 0x40EB70u
 #define SAMP_ADDR_STREAMING_LOAD_SCENE_COLLISION 0x40ED80u
 #define SAMP_ADDR_STREAMING_LOAD_CD_DIRECTORY 0x5B6170u
+#define SAMP_ADDR_STREAMING_FILE_LIST 0x8E48D8u
+#define SAMP_STREAMING_FILE_COUNT 8u
+#define SAMP_STREAMING_FILE_DESC_BYTES 0x30u
+#define SAMP_STREAMING_FILE_NAME_BYTES 40u
+#define SAMP_STREAMING_FILE_STREAM_HANDLE_OFFSET 0x2Cu
 #define SAMP_ADDR_STREAMING_INFO_FOR_MODEL 0x8E4CC0u
 #define SAMP_ADDR_STREAMING_MEMORY_LIMIT 0x5B8E6Au
 #define SAMP_ADDR_COLSTORE_ADD_COL_SLOT 0x411140u
@@ -2686,6 +2691,7 @@ static void samp_asset_request_custom_model_registration_compat(int32_t model, c
 static void samp_asset_process_pending_registrations_compat(const char *source);
 static void samp_asset_warm_custom_assets_compat(const char *source);
 static int samp_asset_custom_asset_register_enabled_compat(void);
+static int samp_asset_model_registration_allowed_compat(int32_t model);
 static int samp_asset_custom_render_path_compat(void);
 static int samp_asset_custom_model_files_ready_compat(int32_t model, char *reason, size_t reason_size);
 static const char *samp_asset_custom_model_skip_reason_compat(int32_t model);
@@ -6554,12 +6560,13 @@ static int object_compat_create_slot(const samp_raknet_object_event *event) {
       custom_proxy = 1;
     } else if (!samp_asset_custom_model_files_ready_compat(event->model, asset_reason, sizeof(asset_reason))) {
       if (strncmp(asset_reason, "missing_txd:", 12) == 0 && !object_compat_scene_ready() &&
-          samp_asset_custom_asset_register_enabled_compat()) {
+          samp_asset_model_registration_allowed_compat(event->model)) {
         render_model = event->model;
       } else {
         skip_reason = "samp_custom_model_asset_incomplete";
       }
-    } else if (!samp_asset_custom_asset_register_enabled_compat() && !object_compat_model_available(event->model)) {
+    } else if (!samp_asset_model_registration_allowed_compat(event->model) &&
+               !object_compat_model_available(event->model)) {
       skip_reason = "samp_custom_model_unregistered";
     } else {
       render_model = event->model;
@@ -6641,6 +6648,7 @@ static int object_compat_apply_pending_slot(uint16_t object_id, samp_object_slot
   int32_t render_model = 0;
   int create_ok = 0;
   int native_custom_model = 0;
+  int native_custom_stream_ready = 0;
   samp_model_streaming_snapshot_compat stream_before;
   samp_model_streaming_snapshot_compat stream_after_request;
   samp_model_streaming_snapshot_compat stream_after_load;
@@ -6786,6 +6794,7 @@ model_ready:
       return 0;
     }
     InterlockedExchange(&slot->streaming_defer_logged, 0);
+    native_custom_stream_ready = object_compat_custom_model_stream_ready(&stream_before);
   }
   /* STATIC_037 + GTA_REVERSED_REF:
    * Original-DLL object flow reaches GTA's create_object -> put_object_at ->
@@ -6801,6 +6810,13 @@ model_ready:
                  object_compat_model_info_storage_name(render_model), (long)active, (long)pending,
                  (double)slot->pos[0], (double)slot->pos[1], (double)slot->pos[2], (double)slot->rot[0],
                  (double)slot->rot[1], (double)slot->rot[2]);
+  if (native_custom_stream_ready) {
+    runtime_tracef("object: async_stream_ready seq=%lu id=%u model=%ld render_model=%ld attempt=%u phase=pre_request "
+                   "evidence=PROBE_TRACE,GTA_REVERSED_REF,TODO_VERIFY",
+                   (unsigned long)slot->seq, (unsigned)object_id, (long)slot->model, (long)render_model,
+                   (unsigned)slot->streaming_attempts);
+    goto model_stream_ready;
+  }
   runtime_tracef("object: request_model_begin seq=%lu id=%u model=%ld render_model=%ld attempt=%u flags=0x%x",
                  (unsigned long)slot->seq, (unsigned)object_id, (long)slot->model, (long)render_model,
                  (unsigned)slot->streaming_attempts, (unsigned)SAMP_OBJECT_COMPAT_MODEL_LOAD_FLAGS);
@@ -6811,6 +6827,32 @@ model_ready:
   (void)object_compat_capture_model_streaming_snapshot(render_model, &stream_after_request);
   if (native_custom_model) {
     object_compat_log_model_streaming_snapshot("post_request", object_id, slot, render_model, &stream_after_request);
+    /* PROBE_TRACE + GTA_REVERSED_REF + TODO_VERIFY:
+     * Native Windows build 1.0 US stopped inside LoadAllRequestedModels after a
+     * late SAMP.IMG request, while the same archive and request returned under
+     * Wine. Leave custom DFFs on GTA's normal asynchronous request list and
+     * create the object only after a later bridge tick observes LOADED plus a
+     * readable RW object. Stock GTA models retain the synchronous path below.
+     */
+    if (!object_compat_custom_model_stream_ready(&stream_after_request)) {
+      slot->streaming_retry_after_tick = GetTickCount() + SAMP_OBJECT_COMPAT_STREAM_RETRY_MS;
+      if (InterlockedCompareExchange(&slot->streaming_defer_logged, 1, 0) == 0) {
+        runtime_tracef("object: defer_pending id=%u model=%ld render_model=%ld reason=streaming_async_requested "
+                       "state=%u rw_object=0x%08lx retry_ms=%u attempt=%u "
+                       "evidence=PROBE_TRACE,GTA_REVERSED_REF,TODO_VERIFY",
+                       (unsigned)object_id, (long)slot->model, (long)render_model,
+                       (unsigned)stream_after_request.dff_stream.load_state,
+                       (unsigned long)stream_after_request.rw_object, (unsigned)SAMP_OBJECT_COMPAT_STREAM_RETRY_MS,
+                       (unsigned)slot->streaming_attempts);
+      }
+      return 0;
+    }
+    InterlockedExchange(&slot->streaming_defer_logged, 0);
+    runtime_tracef("object: async_stream_ready seq=%lu id=%u model=%ld render_model=%ld attempt=%u "
+                   "phase=post_request evidence=PROBE_TRACE,GTA_REVERSED_REF,TODO_VERIFY",
+                   (unsigned long)slot->seq, (unsigned)object_id, (long)slot->model, (long)render_model,
+                   (unsigned)slot->streaming_attempts);
+    goto model_stream_ready;
   }
   runtime_tracef("object: load_all_begin seq=%lu id=%u model=%ld render_model=%ld attempt=%u priority_only=0",
                  (unsigned long)slot->seq, (unsigned)object_id, (long)slot->model, (long)render_model,
@@ -6820,22 +6862,7 @@ model_ready:
                  (unsigned long)slot->seq, (unsigned)object_id, (long)slot->model, (long)render_model,
                  (unsigned)slot->streaming_attempts);
   (void)object_compat_capture_model_streaming_snapshot(render_model, &stream_after_load);
-  if (native_custom_model) {
-    object_compat_log_model_streaming_snapshot("post_load", object_id, slot, render_model, &stream_after_load);
-    if (!object_compat_custom_model_stream_ready(&stream_after_load)) {
-      slot->streaming_retry_after_tick = GetTickCount() + SAMP_OBJECT_COMPAT_STREAM_RETRY_MS;
-      if (InterlockedCompareExchange(&slot->streaming_defer_logged, 1, 0) == 0) {
-        runtime_tracef("object: defer_pending id=%u model=%ld render_model=%ld reason=streaming_not_resident "
-                       "state=%u rw_object=0x%08lx retry_ms=%u attempt=%u "
-                       "evidence=PROBE_TRACE,GTA_REVERSED_REF,TODO_VERIFY",
-                       (unsigned)object_id, (long)slot->model, (long)render_model,
-                       (unsigned)stream_after_load.dff_stream.load_state, (unsigned long)stream_after_load.rw_object,
-                       (unsigned)SAMP_OBJECT_COMPAT_STREAM_RETRY_MS, (unsigned)slot->streaming_attempts);
-      }
-      return 0;
-    }
-    InterlockedExchange(&slot->streaming_defer_logged, 0);
-  }
+model_stream_ready:
   runtime_tracef("object: create_opcode_begin seq=%lu id=%u model=%ld render_model=%ld opcode=0x0107 attempt=%u",
                  (unsigned long)slot->seq, (unsigned)object_id, (long)slot->model, (long)render_model,
                  (unsigned)slot->streaming_attempts);
@@ -19423,8 +19450,13 @@ static int samp_asset_custom_model_files_ready_compat(int32_t model, char *reaso
     gta_txd_find_slot_fn find_slot = (gta_txd_find_slot_fn)(uintptr_t)SAMP_ADDR_CTXDSTORE_FIND_SLOT;
     int32_t txd_slot = -1;
 
-    if (txd_base != NULL && txd_base[0] != '\0' && object_compat_scene_ready() &&
-        gta_code_ptr_compat((uintptr_t)find_slot)) {
+    /* PROBE_TRACE + GTA_REVERSED_REF:
+     * Stock SAMP.ide rows can reference vanilla GTA dictionaries which are not
+     * present in SAMP.IMG. FindTxdSlot is already usable while these object RPCs
+     * are queued (Area51 `a51_ext` returned slot 2007 before scene readiness),
+     * so file absence alone must not reject a valid stock model.
+     */
+    if (txd_base != NULL && txd_base[0] != '\0' && gta_code_ptr_compat((uintptr_t)find_slot)) {
       txd_slot = find_slot(txd_base);
     }
     if (txd_slot < 0) {
@@ -19540,7 +19572,12 @@ static void samp_asset_log_object_readiness_compat(uint16_t object_id, uint32_t 
 
 static int samp_asset_custom_asset_register_enabled_compat(void) {
   static LONG initialized = 0;
-  static int enabled = 1;
+  /* INFERRED + TODO_VERIFY:
+   * The heap-backed custom-model path is still experimental. Keep registration
+   * opt-in so ordinary compatibility runs cannot bulk-register 1,433 model
+   * infos and stall or crash the GTA streaming path before class selection.
+   */
+  static int enabled = 0;
   const char *value = NULL;
 
   if (InterlockedCompareExchange(&initialized, 0, 0)) {
@@ -19553,6 +19590,29 @@ static int samp_asset_custom_asset_register_enabled_compat(void) {
   }
   InterlockedExchange(&initialized, 1);
   return enabled;
+}
+
+static int samp_asset_model_registration_allowed_compat(int32_t model) {
+  const samp_asset_model_entry_compat *model_entry = NULL;
+
+  if (!object_compat_is_samp_custom_model(model)) {
+    return 0;
+  }
+  if (InterlockedCompareExchange(&g_runtime.samp_asset_index_built, 0, 0) == 0) {
+    samp_asset_index_build_compat();
+  }
+  model_entry = samp_asset_model_lookup_compat(model);
+
+  /* OBSERVED_037 + PROBE_TRACE:
+   * The shipped SAMP.ide catalog is part of the 0.3.7 client asset set. The
+   * validated heap path created all 19 bare-server startup objects from it on
+   * 2026-07-21. Permit those stock rows on demand while keeping server-provided
+   * custom.IDE rows behind SAMPDLL_CUSTOM_ASSET_REGISTER.
+   */
+  if (model_entry != NULL && model_entry->source == SAMP_ASSET_IDE_SOURCE_SAMP) {
+    return 1;
+  }
+  return samp_asset_custom_asset_register_enabled_compat();
 }
 
 static int samp_asset_custom_render_path_compat(void) {
@@ -19605,15 +19665,12 @@ static int samp_asset_custom_render_path_compat(void) {
 
 static int samp_asset_custom_asset_bulk_enabled_compat(void) {
   static LONG initialized = 0;
-  /* OBSERVED_037 + PROBE_TRACE:
-   * The 2026-07-08 original-R5 probe shows broad SA-MP/custom AtomicModelInfo
-   * registration before CUSTOM.IMG/SAMP.IMG/SAMPCOL.IMG directory and COL
-   * loads. Keep the original-like bulk hook enabled by default. The stock
-   * default covers all 1433 parsed `objs` rows now that the observed 15417-slot
-   * AtomicModelInfo store is relocated; SAMPDLL_CUSTOM_ASSET_BULK_LIMIT remains
-   * available for narrower diagnostic runs.
+  /* OBSERVED_037 + PROBE_TRACE + TODO_VERIFY:
+   * Original R5 registers the broad SA-MP/custom model catalog, but the current
+   * replacement heap path has not yet reproduced that lifecycle safely. Keep
+   * bulk registration opt-in until the streaming hand-off is verified.
    */
-  static int enabled = 1;
+  static int enabled = 0;
   const char *value = NULL;
 
   if (InterlockedCompareExchange(&initialized, 0, 0)) {
@@ -19700,14 +19757,13 @@ static void samp_asset_request_custom_model_registration_compat(int32_t model, c
   if (samp_asset_registration_model_blocked_compat(model)) {
     return;
   }
-  if (!samp_asset_custom_asset_register_enabled_compat()) {
+  if (!samp_asset_model_registration_allowed_compat(model)) {
+    const samp_asset_model_entry_compat *model_entry = samp_asset_model_lookup_compat(model);
     runtime_tracef("samp_asset_registration: request_skip model=%ld source=%s reason=disabled env=%s "
-                   "evidence=GTA_REVERSED_REF,TODO_VERIFY",
-                   (long)model, source != NULL ? source : "unknown", SAMP_OBJECT_COMPAT_CUSTOM_ASSET_REGISTER_ENV);
+                   "ide_source=%s evidence=OBSERVED_037,PROBE_TRACE,GTA_REVERSED_REF,TODO_VERIFY",
+                   (long)model, source != NULL ? source : "unknown", SAMP_OBJECT_COMPAT_CUSTOM_ASSET_REGISTER_ENV,
+                   model_entry != NULL ? samp_asset_ide_source_label_compat(model_entry->source) : "none");
     return;
-  }
-  if (InterlockedCompareExchange(&g_runtime.samp_asset_index_built, 0, 0) == 0) {
-    samp_asset_index_build_compat();
   }
   if (samp_asset_model_lookup_compat(model) == NULL) {
     runtime_tracef("samp_asset_registration: request_skip model=%ld source=%s reason=missing_ide_entry "
@@ -19761,6 +19817,9 @@ static int samp_asset_register_streaming_image_compat(const char *label, const c
       (gta_streaming_add_image_to_list_fn)(uintptr_t)SAMP_ADDR_STREAMING_ADD_IMAGE_TO_LIST;
   LONG encoded_image_id = 0;
   LONG image_id = 0;
+  uintptr_t descriptor = 0u;
+  char registered_path[SAMP_STREAMING_FILE_NAME_BYTES];
+  uint32_t stream_handle = 0u;
 
   if (label == NULL || path == NULL || image_id_slot == NULL) {
     return 0;
@@ -19785,18 +19844,36 @@ static int samp_asset_register_streaming_image_compat(const char *label, const c
    * "not attempted yet" state.
    */
   image_id = (LONG)add_image(path, 1);
-  if (image_id < 0) {
+  descriptor = (uintptr_t)SAMP_ADDR_STREAMING_FILE_LIST +
+               ((uintptr_t)(uint32_t)image_id * (uintptr_t)SAMP_STREAMING_FILE_DESC_BYTES);
+  memset(registered_path, 0, sizeof(registered_path));
+  if (image_id >= 0 && image_id < (LONG)SAMP_STREAMING_FILE_COUNT &&
+      memory_is_readable_compat((const void *)descriptor, SAMP_STREAMING_FILE_DESC_BYTES)) {
+    memcpy(registered_path, (const void *)descriptor, sizeof(registered_path));
+    registered_path[sizeof(registered_path) - 1u] = '\0';
+    memcpy(&stream_handle, (const void *)(descriptor + SAMP_STREAMING_FILE_STREAM_HANDLE_OFFSET),
+           sizeof(stream_handle));
+  }
+  /* GTA_REVERSED_REF + PROBE_TRACE:
+   * AddImageToList returns 0 both for valid slot zero and when all eight
+   * tStreamingFileDesc entries are occupied. Validate the descriptor path so a
+   * late overflow cannot be mistaken for GTA3.IMG slot zero.
+   */
+  if (image_id < 0 || image_id >= (LONG)SAMP_STREAMING_FILE_COUNT || _stricmp(registered_path, path) != 0) {
     InterlockedExchange(image_id_slot, -2);
     runtime_tracef("samp_asset_registration: archive_add_fail label=%s path='%s' image_id=%ld "
-                   "evidence=GTA_REVERSED_REF,TODO_VERIFY",
-                   label, path, (long)image_id);
+                   "descriptor_path='%s' stream_handle=0x%08lx reason=slot_unverified "
+                   "evidence=GTA_REVERSED_REF,PROBE_TRACE,TODO_VERIFY",
+                   label, path, (long)image_id, registered_path, (unsigned long)stream_handle);
     return 0;
   }
 
   InterlockedExchange(image_id_slot, image_id + 1);
   runtime_tracef("samp_asset_registration: archive_add label=%s path='%s' image_id=%ld "
-                 "encoded=%ld evidence=OBSERVED_037,GTA_REVERSED_REF,PROBE_TRACE,TODO_VERIFY",
-                 label, path, (long)image_id, (long)(image_id + 1));
+                 "encoded=%ld descriptor_path='%s' stream_handle=0x%08lx "
+                 "evidence=OBSERVED_037,GTA_REVERSED_REF,PROBE_TRACE,TODO_VERIFY",
+                 label, path, (long)image_id, (long)(image_id + 1), registered_path,
+                 (unsigned long)stream_handle);
   return 1;
 }
 
@@ -20007,26 +20084,22 @@ static int samp_asset_load_sampcol_collision_compat(const char *source) {
 static int samp_asset_register_streaming_archives_compat(const char *source, int force_directory_reload) {
   static LONG samp_img_id = -1;
   static LONG custom_img_id = -1;
-  static LONG sampcol_img_id = -1;
   static LONG directories_loaded = 0;
   static LONG directory_reload_count = 0;
   static LONG directory_reload_limit_logged = 0;
   LONG current_samp_img_id = 0;
   LONG current_custom_img_id = 0;
-  LONG current_sampcol_img_id = 0;
   int load_directories = 0;
   const char *load_reason = "none";
   uint32_t reload_limit = 0u;
 
   (void)samp_asset_register_streaming_image_compat("custom_img", "SAMP\\CUSTOM.IMG", &custom_img_id);
   (void)samp_asset_register_streaming_image_compat("samp_img", "SAMP\\SAMP.IMG", &samp_img_id);
-  (void)samp_asset_register_streaming_image_compat("sampcol_img", "SAMP\\SAMPCOL.IMG", &sampcol_img_id);
 
   current_samp_img_id = InterlockedCompareExchange(&samp_img_id, 0, 0) - 1;
   current_custom_img_id = InterlockedCompareExchange(&custom_img_id, 0, 0) - 1;
-  current_sampcol_img_id = InterlockedCompareExchange(&sampcol_img_id, 0, 0) - 1;
 
-  if (current_custom_img_id >= 0 || current_samp_img_id >= 0 || current_sampcol_img_id >= 0) {
+  if (current_custom_img_id >= 0 || current_samp_img_id >= 0) {
     if (InterlockedCompareExchange(&directories_loaded, 1, 0) == 0) {
       load_directories = 1;
       load_reason = "initial";
@@ -20050,18 +20123,24 @@ static int samp_asset_register_streaming_archives_compat(const char *source, int
 
   if (load_directories) {
     runtime_tracef("samp_asset_registration: archive_dir_batch source=%s reason=%s reloads=%ld max=%lu "
-                   "ids=(custom:%ld,samp:%ld,sampcol:%ld) evidence=GTA_REVERSED_REF,PROBE_TRACE,TODO_VERIFY",
+                   "ids=(custom:%ld,samp:%ld) sampcol=direct evidence=GTA_REVERSED_REF,PROBE_TRACE,TODO_VERIFY",
                    source != NULL ? source : "unknown", load_reason,
                    (long)InterlockedCompareExchange(&directory_reload_count, 0, 0),
                    (unsigned long)samp_asset_custom_asset_dir_reload_limit_compat(), (long)current_custom_img_id,
-                   (long)current_samp_img_id, (long)current_sampcol_img_id);
+                   (long)current_samp_img_id);
     samp_asset_load_streaming_directory_compat("custom_img", "SAMP\\CUSTOM.IMG", current_custom_img_id);
     samp_asset_load_streaming_directory_compat("samp_img", "SAMP\\SAMP.IMG", current_samp_img_id);
-    samp_asset_load_streaming_directory_compat("sampcol_img", "SAMP\\SAMPCOL.IMG", current_sampcol_img_id);
   }
 
+  /* GTA_REVERSED_REF + PROBE_TRACE:
+   * GTA SA 1.0 exposes eight streaming archive descriptors. Native Windows had
+   * six occupied slots before this late compatibility pass, so CUSTOM/SAMP use
+   * the final two. AllSAMPCOLs is already read and bound directly below; adding
+   * SAMPCOL.IMG to CStreaming would overflow and alias the failure return to
+   * image id zero.
+   */
   (void)samp_asset_load_sampcol_collision_compat(source);
-  return current_custom_img_id >= 0 || current_samp_img_id >= 0 || current_sampcol_img_id >= 0;
+  return current_custom_img_id >= 0 || current_samp_img_id >= 0;
 }
 
 static int samp_asset_write_model_info_metadata_compat(uintptr_t model_info, uint32_t key, int32_t txd_slot,
@@ -20821,9 +20900,9 @@ static int samp_asset_register_custom_model_compat(int32_t model, const char *so
   if (!object_compat_is_samp_custom_model(model)) {
     return object_compat_model_available(model);
   }
-  if (!samp_asset_custom_asset_register_enabled_compat()) {
+  if (!samp_asset_model_registration_allowed_compat(model)) {
     runtime_tracef("samp_asset_registration: skip model=%ld source=%s reason=disabled env=%s "
-                   "evidence=GTA_REVERSED_REF,TODO_VERIFY",
+                   "evidence=OBSERVED_037,PROBE_TRACE,GTA_REVERSED_REF,TODO_VERIFY",
                    (long)model, source != NULL ? source : "unknown", SAMP_OBJECT_COMPAT_CUSTOM_ASSET_REGISTER_ENV);
     return 0;
   }
@@ -20897,9 +20976,6 @@ static void samp_asset_process_pending_registrations_compat(const char *source) 
   int bulk_ok = 0;
   int prespawn_preview_phase = 0;
 
-  if (!samp_asset_custom_asset_register_enabled_compat()) {
-    return;
-  }
   /* OBSERVED_037 + PROBE_TRACE:
    * Original 0.3.7-R5 (SHA256
    * b72b5dbe725f81864ca3f78bc7063bda56cc05fc7188af822fa7a754432553a2)
@@ -20964,11 +21040,20 @@ static void samp_asset_process_pending_registrations_compat(const char *source) 
     if (!object_compat_is_samp_custom_model(model)) {
       continue;
     }
+    model_entry = samp_asset_model_lookup_compat(model);
+    if (!samp_asset_model_registration_allowed_compat(model)) {
+      ++skipped;
+      runtime_tracef("samp_asset_registration: drain_skip model=%ld source=%s reason=disabled ide_source=%s "
+                     "env=%s evidence=OBSERVED_037,PROBE_TRACE,GTA_REVERSED_REF,TODO_VERIFY",
+                     (long)model, source != NULL ? source : "unknown",
+                     model_entry != NULL ? samp_asset_ide_source_label_compat(model_entry->source) : "none",
+                     SAMP_OBJECT_COMPAT_CUSTOM_ASSET_REGISTER_ENV);
+      continue;
+    }
     if (object_compat_model_available(model)) {
       ++already_registered;
       continue;
     }
-    model_entry = samp_asset_model_lookup_compat(model);
     if (model_entry == NULL) {
       ++skipped;
       runtime_tracef("samp_asset_registration: drain_skip model=%ld source=%s reason=missing_ide_entry "
