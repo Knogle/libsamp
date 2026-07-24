@@ -1,6 +1,7 @@
 #include "sampdll/net/raknet_client_adapter.h"
 
 #include "death_message_codec.h"
+#include "raknet_client_adapter_internal.h"
 
 #include <cstdarg>
 #include <cmath>
@@ -24,6 +25,7 @@
 #include "raknet/PacketPriority.h"
 #include "raknet/RakClient.h"
 #include "raknet/RakClientInterface.h"
+#include "raknet/RakNetStatistics.h"
 #include "raknet/RakNetworkFactory.h"
 #include "raknet/StringCompressor.h"
 
@@ -436,6 +438,9 @@ struct RpcProbeState {
   samp_raknet_actor_event actor_events[SAMP_RAKNET_ACTOR_EVENT_RING];
   unsigned int actor_state_seq;
   samp_raknet_actor_state actor_states[SAMP_RAKNET_MAX_ACTORS];
+  unsigned int actor_create_revisions[SAMP_RAKNET_MAX_ACTORS];
+  unsigned int actor_create_rotation_bits[SAMP_RAKNET_MAX_ACTORS];
+  unsigned int actor_facing_revisions[SAMP_RAKNET_MAX_ACTORS];
   unsigned int name_tag_event_seq;
   samp_raknet_name_tag_event name_tag_events[SAMP_RAKNET_NAME_TAG_EVENT_RING];
   unsigned int death_window_event_seq;
@@ -468,9 +473,38 @@ unsigned int g_game_mode_restart_generation = 0U;
 void release_all_object_material_states(const char *reason);
 
 void trace_netf(const char *fmt, ...) {
-  FILE *file = std::fopen("samp_net_trace.log", "ab");
+  static FILE *file = nullptr;
+  static unsigned int buffered_lines = 0U;
+  char path[1024] = {0};
+  const char *log_dir = std::getenv("SAMPDLL_LOG_DIR");
+
   if (file == nullptr) {
-    return;
+    if (log_dir != nullptr && log_dir[0] != '\0') {
+      const std::size_t log_dir_len = std::strlen(log_dir);
+#ifdef _WIN32
+      const char *separator =
+          (log_dir[log_dir_len - 1U] == '\\' || log_dir[log_dir_len - 1U] == '/') ? "" : "\\";
+#else
+      const char *separator = log_dir[log_dir_len - 1U] == '/' ? "" : "/";
+#endif
+      const int written = std::snprintf(path, sizeof(path), "%s%ssamp_net_trace.log", log_dir, separator);
+      if (written <= 0 || static_cast<std::size_t>(written) >= sizeof(path)) {
+        return;
+      }
+    } else {
+      std::strcpy(path, "samp_net_trace.log");
+    }
+
+    file = std::fopen(path, "ab");
+    if (file == nullptr) {
+      return;
+    }
+    /* PROBE_TRACE:
+     * UFW can enqueue more than a thousand RPCs in one RakPeer::Receive call.
+     * Opening and closing the trace for every decoded field held the game
+     * thread long enough to cross the server's 10 second player timeout.
+     * Keep diagnostics enabled, but amortize filesystem metadata and flushes. */
+    std::setvbuf(file, nullptr, _IOFBF, 64U * 1024U);
   }
 
   va_list args;
@@ -478,7 +512,12 @@ void trace_netf(const char *fmt, ...) {
   std::vfprintf(file, fmt, args);
   va_end(args);
   std::fputc('\n', file);
-  std::fclose(file);
+  ++buffered_lines;
+  if (buffered_lines >= 64U || std::strstr(fmt, "disconnect") != nullptr ||
+      std::strstr(fmt, "reset_rpc_probe") != nullptr) {
+    std::fflush(file);
+    buffered_lines = 0U;
+  }
 }
 
 int clamp_class_id(int selected_class) {
@@ -1306,6 +1345,12 @@ void reset_rpc_probe_runtime(RakNet::RakClientInterface *client) {
   std::memset(g_rpc_probe.actor_events, 0, sizeof(g_rpc_probe.actor_events));
   g_rpc_probe.actor_state_seq = 0U;
   std::memset(g_rpc_probe.actor_states, 0, sizeof(g_rpc_probe.actor_states));
+  std::memset(g_rpc_probe.actor_create_revisions, 0,
+              sizeof(g_rpc_probe.actor_create_revisions));
+  std::memset(g_rpc_probe.actor_create_rotation_bits, 0,
+              sizeof(g_rpc_probe.actor_create_rotation_bits));
+  std::memset(g_rpc_probe.actor_facing_revisions, 0,
+              sizeof(g_rpc_probe.actor_facing_revisions));
   g_rpc_probe.name_tag_event_seq = 0U;
   std::memset(g_rpc_probe.name_tag_events, 0, sizeof(g_rpc_probe.name_tag_events));
   g_rpc_probe.death_window_event_seq = 0U;
@@ -4208,11 +4253,14 @@ bool decode_actor_payload(unsigned int rpc_id, const unsigned char *data, unsign
   if (rpc_id == 171U) {
     float pos[3] = {0.0f, 0.0f, 0.0f};
     const std::int32_t skin = bytes >= 6U ? read_le_i32(data + 2U) : -1;
+    unsigned int rotation_bits = 0U;
     if (bits != 216U || bytes != 27U) {
       return false;
     }
     read_vec3(data + 6U, pos);
-    const float rotation = read_le_float(data + 18U);
+    rotation_bits = read_le32(data + 18U);
+    float rotation = 0.0f;
+    std::memcpy(&rotation, &rotation_bits, sizeof(rotation));
     const float health = read_le_float(data + 22U);
     const unsigned char invulnerable = data[26U] != 0U ? 1U : 0U;
     if (skin < 0 || skin > 311 || skin == 74 || !actor_position_is_safe(pos) ||
@@ -4226,7 +4274,7 @@ bool decode_actor_payload(unsigned int rpc_id, const unsigned char *data, unsign
     samp_raknet_actor_event *event = queue_actor_event(SAMP_RAKNET_ACTOR_ACTION_CREATE, actor_id);
     event->skin = skin;
     std::memcpy(event->pos, pos, sizeof(event->pos));
-    event->rotation = rotation;
+    std::memcpy(&event->rotation, &rotation_bits, sizeof(rotation_bits));
     event->health = health;
     event->invulnerable = invulnerable;
 
@@ -4236,9 +4284,18 @@ bool decode_actor_payload(unsigned int rpc_id, const unsigned char *data, unsign
     state.invulnerable = invulnerable;
     state.skin = skin;
     std::memcpy(state.pos, pos, sizeof(state.pos));
-    state.rotation = rotation;
+    std::memcpy(&state.rotation, &rotation_bits, sizeof(rotation_bits));
     state.health = health;
-    g_rpc_probe.actor_states[actor_id] = state;
+    std::memcpy(&g_rpc_probe.actor_states[actor_id], &state, sizeof(state));
+    /*
+     * OBSERVED_037 + PROBE_TRACE + STATIC_037:
+     * RPC175 changes the authoritative current-facing value but not the
+     * original RPC171 heading needed to recreate a deferred physical actor.
+     * Keep that pair private so public event/state/snapshot ABIs stay fixed.
+     */
+    g_rpc_probe.actor_create_revisions[actor_id] = event->seq;
+    g_rpc_probe.actor_create_rotation_bits[actor_id] = rotation_bits;
+    g_rpc_probe.actor_facing_revisions[actor_id] = event->seq;
     trace_netf("rpc-state id=171 actor_create seq=%u actor=%u skin=%d pos=%.3f %.3f %.3f "
                "rotation=%.3f health=%.3f invulnerable=%u apply_pending=1 "
                "evidence=OBSERVED_037,PROBE_TRACE,STATIC_037:samp.dll+0xEAB0",
@@ -4259,7 +4316,10 @@ bool decode_actor_payload(unsigned int rpc_id, const unsigned char *data, unsign
     samp_raknet_actor_event *event = queue_actor_event(SAMP_RAKNET_ACTOR_ACTION_DESTROY, actor_id);
     samp_raknet_actor_state state = {};
     state.revision = event->seq;
-    g_rpc_probe.actor_states[actor_id] = state;
+    std::memcpy(&g_rpc_probe.actor_states[actor_id], &state, sizeof(state));
+    g_rpc_probe.actor_create_revisions[actor_id] = 0U;
+    g_rpc_probe.actor_create_rotation_bits[actor_id] = 0U;
+    g_rpc_probe.actor_facing_revisions[actor_id] = 0U;
     trace_netf("rpc-state id=172 actor_destroy seq=%u actor=%u apply_pending=1 "
                "evidence=OBSERVED_037,PROBE_TRACE,STATIC_037:samp.dll+0x11E00",
                event->seq, static_cast<unsigned int>(actor_id));
@@ -4356,32 +4416,60 @@ bool decode_actor_payload(unsigned int rpc_id, const unsigned char *data, unsign
     return true;
   }
 
-  if (rpc_id == 175U || rpc_id == 178U) {
+  if (rpc_id == 175U) {
+    /*
+     * STATIC_037:
+     * R5 attempts exactly the first 16-bit ActorID and 32-bit angle reads and
+     * has no exact-total-length branch. Extra payload bits are ignored after
+     * those successful reads; truncated payloads remain rejected here.
+     */
+    if (bits < 48U || bytes < 6U) {
+      return false;
+    }
+    const unsigned int angle_bits = read_le32(data + 2U);
+    if (!actor_state_is_active(rpc_id, actor_id)) {
+      return true;
+    }
+    samp_raknet_actor_event *event =
+        queue_actor_event(SAMP_RAKNET_ACTOR_ACTION_SET_FACING, actor_id);
+    samp_raknet_actor_state *state = &g_rpc_probe.actor_states[actor_id];
+    state->revision = event->seq;
+    /*
+     * OBSERVED_037 + PROBE_TRACE + STATIC_037:
+     * RPC175 passes the unvalidated 32 angle bits to CActor::SetFacingAngle.
+     * Use byte copies so qNaN payloads, infinities, and signed zero survive
+     * the receive/event/authoritative-state path without an FP conversion.
+     */
+    std::memcpy(&event->rotation, &angle_bits, sizeof(angle_bits));
+    std::memcpy(&state->rotation, &angle_bits, sizeof(angle_bits));
+    g_rpc_probe.actor_facing_revisions[actor_id] = event->seq;
+    trace_netf("rpc-state id=175 actor_facing seq=%u actor=%u angle_bits=0x%08x "
+               "payload_bits=%u first_48_bits=1 apply_pending=1 "
+               "evidence=OBSERVED_037,PROBE_TRACE,STATIC_037:samp.dll+0x1D9F0",
+               event->seq, static_cast<unsigned int>(actor_id), angle_bits, bits);
+    return true;
+  }
+
+  if (rpc_id == 178U) {
     if (bits != 48U || bytes != 6U) {
       return false;
     }
-    const float value = read_le_float(data + 2U);
-    if (!std::isfinite(value) || (rpc_id == 178U && std::fabs(value) > 1000000.0f)) {
+    const float health = read_le_float(data + 2U);
+    if (!std::isfinite(health) || std::fabs(health) > 1000000.0f) {
       return false;
     }
     if (!actor_state_is_active(rpc_id, actor_id)) {
       return true;
     }
-    const unsigned char action = rpc_id == 175U ? SAMP_RAKNET_ACTOR_ACTION_SET_FACING
-                                                 : SAMP_RAKNET_ACTOR_ACTION_SET_HEALTH;
-    samp_raknet_actor_event *event = queue_actor_event(action, actor_id);
+    samp_raknet_actor_event *event =
+        queue_actor_event(SAMP_RAKNET_ACTOR_ACTION_SET_HEALTH, actor_id);
     samp_raknet_actor_state *state = &g_rpc_probe.actor_states[actor_id];
     state->revision = event->seq;
-    if (rpc_id == 175U) {
-      event->rotation = value;
-      state->rotation = value;
-    } else {
-      event->health = value;
-      state->health = value;
-    }
-    trace_netf("rpc-state id=%u actor_scalar seq=%u actor=%u value=%.6f apply_pending=1 "
+    event->health = health;
+    state->health = health;
+    trace_netf("rpc-state id=178 actor_health seq=%u actor=%u value=%.6f apply_pending=1 "
                "evidence=OBSERVED_037,PROBE_TRACE,STATIC_037",
-               rpc_id, event->seq, static_cast<unsigned int>(actor_id), static_cast<double>(value));
+               event->seq, static_cast<unsigned int>(actor_id), static_cast<double>(health));
     return true;
   }
 
@@ -6722,11 +6810,26 @@ void rpc_observer(RakNet::RPCParameters *rpc_params, void *extra) {
         copy_text(g_rpc_probe.dialog_title, sizeof(g_rpc_probe.dialog_title), "SA-MP Dialog");
         copy_text(g_rpc_probe.dialog_button1, sizeof(g_rpc_probe.dialog_button1), "OK");
       }
+      /* PROBE_TRACE + OPENMP_REF:
+       * ShowPlayerDialog(playerid, -1, ...) is serialized as dialog ID 0xFFFF
+       * and closes the current dialog.  Treating the unsigned wire value as a
+       * new dialog leaves a blank modal overlay and the mouse capture active.
+       */
+      const bool hide_dialog = g_rpc_probe.last_dialog_id == 0xFFFFU;
+      if (hide_dialog) {
+        g_rpc_probe.saw_dialog = 0;
+        g_rpc_probe.dialog_title[0] = '\0';
+        g_rpc_probe.dialog_info[0] = '\0';
+        g_rpc_probe.dialog_button1[0] = '\0';
+        g_rpc_probe.dialog_button2[0] = '\0';
+      }
       trace_netf("rpc-state id=61 dialog_id=%u style=%u title='%s' button1='%s' button2='%s' manual_response=1",
                  static_cast<unsigned int>(g_rpc_probe.last_dialog_id),
                  static_cast<unsigned int>(g_rpc_probe.last_dialog_style), g_rpc_probe.dialog_title,
                  g_rpc_probe.dialog_button1, g_rpc_probe.dialog_button2);
-      if (debug_dialog_window_enabled()) {
+      if (hide_dialog) {
+        trace_netf("dialog-ui: hide sentinel id=65535 active=0 evidence=PROBE_TRACE,OPENMP_REF");
+      } else if (debug_dialog_window_enabled()) {
         show_manual_dialog_window();
       } else {
         trace_netf("dialog-ui: ingame dialog pending id=%u style=%u title='%s'",
@@ -7071,6 +7174,7 @@ int send_client_join(RakNet::RakClientInterface *rak_client, const RakNet::Packe
 
 int drain_packets_internal(void *client, int max_packets, const samp_raknet_join_profile *profile, int autojoin,
                            int *out_connected, int *out_join_sent, int *out_last_packet_id) {
+  static RakNet::RakNetTime last_transport_stats_tick = 0U;
   int drained = 0;
   int join_sent = 0;
   int last_packet_id = -1;
@@ -7082,7 +7186,50 @@ int drain_packets_internal(void *client, int max_packets, const samp_raknet_join
 
   rak_client = static_cast<RakNet::RakClientInterface *>(client);
   while (drained < max_packets) {
+    RakNet::RakNetStatisticsStruct stats_before = {};
+    RakNet::RakNetStatisticsStruct *stats_ptr = rak_client->GetStatistics();
+    if (stats_ptr != nullptr) {
+      stats_before = *stats_ptr;
+    }
+    const RakNet::RakNetTime receive_started = RakNet::GetTime();
     RakNet::Packet *packet = rak_client->Receive();
+    const RakNet::RakNetTime receive_finished = RakNet::GetTime();
+    const RakNet::RakNetTime receive_elapsed = receive_finished - receive_started;
+    stats_ptr = rak_client->GetStatistics();
+    const RakNet::RakNetStatisticsStruct *stats = stats_ptr != nullptr ? stats_ptr : &stats_before;
+    const int received_packet_id = packet != nullptr ? static_cast<int>(get_packet_id(packet)) : -1;
+    if (receive_elapsed >= 25U || last_transport_stats_tick == 0U ||
+        receive_finished - last_transport_stats_tick >= 1000U ||
+        (received_packet_id >= 0 && packet_resets_session_state(static_cast<unsigned char>(received_packet_id)))) {
+      trace_netf("transport-stats receive_ms=%u packet_id=%d connected=%d packets_sent=%u packets_recv=%u "
+                 "acks_sent=%u acks_recv=%u acks_pending=%u ack_only=%u ack_resend_only=%u duplicate_acks=%u "
+                 "resends=%u resend_queue=%u send_queue=%u/%u/%u/%u messages_sent=%u/%u/%u/%u "
+                 "invalid_recv=%u duplicate_recv=%u reassembly=%u output_queue=%u bps=%.0f "
+                 "buffered_commands=%u connect_mode=%u socket_send_ok=%u socket_would_block=%u socket_errors=%u "
+                 "socket_target=0x%08x:%u socket_length=%u socket_handle=%u "
+                 "update_stage=%u update_seq=%u update_done=%u update_started=%u update_completed_at=%u "
+                 "update_datagrams=%u update_commands=%u update_messages=%u update_tid=%u "
+                 "evidence=PROBE_TRACE",
+                 static_cast<unsigned int>(receive_elapsed), received_packet_id, rak_client->IsConnected() ? 1 : 0,
+                 stats->packetsSent, stats->packetsReceived, stats->acknowlegementsSent,
+                 stats->acknowlegementsReceived, stats->acknowlegementsPending,
+                 stats->packetsContainingOnlyAcknowlegements,
+                 stats->packetsContainingOnlyAcknowlegementsAndResends,
+                 stats->duplicateAcknowlegementsReceived, stats->messageResends, stats->messagesOnResendQueue,
+                 stats->messageSendBuffer[0], stats->messageSendBuffer[1], stats->messageSendBuffer[2],
+                 stats->messageSendBuffer[3], stats->messagesSent[0], stats->messagesSent[1],
+                 stats->messagesSent[2], stats->messagesSent[3],
+                 stats->invalidMessagesReceived, stats->duplicateMessagesReceived,
+                 stats->messagesWaitingForReassembly, stats->internalOutputQueueSize, stats->bitsPerSecond,
+                 stats->bufferedCommandsPending, stats->remoteConnectMode, stats->socketSendSuccesses,
+                 stats->socketSendWouldBlock, stats->socketSendErrors, stats->socketLastSendIPv4,
+                 stats->socketLastSendPort, stats->socketLastSendLength, stats->socketLastSendHandle,
+                 stats->updateCycleStage, stats->updateCycleSequence, stats->updateCycleCompleted,
+                 stats->updateCycleStartedAt, stats->updateCycleLastCompletedAt,
+                 stats->updateCycleLastDatagrams, stats->updateCycleLastBufferedCommands,
+                 stats->updateCycleLastMessages, stats->updateCycleThreadId);
+      last_transport_stats_tick = receive_finished;
+    }
     if (packet == nullptr) {
       service_rpc_probe_actions(rak_client);
       break;
@@ -8233,7 +8380,8 @@ int samp_raknet_client_get_rpc_probe_snapshot(void *client, samp_raknet_rpc_prob
       const unsigned int seq = first_seq + i;
       const unsigned int slot = (seq - 1U) % SAMP_RAKNET_ACTOR_EVENT_RING;
       if (g_rpc_probe.actor_events[slot].seq == seq) {
-        out_snapshot->actor_events[out_snapshot->actor_event_count++] = g_rpc_probe.actor_events[slot];
+        std::memcpy(&out_snapshot->actor_events[out_snapshot->actor_event_count++],
+                    &g_rpc_probe.actor_events[slot], sizeof(g_rpc_probe.actor_events[slot]));
       }
     }
   }
@@ -8349,7 +8497,31 @@ int samp_raknet_client_get_actor_state(void *client, uint16_t actor_id,
 
   /* The state includes inactive slots and their destroy revision. That makes a
    * bounded 0..999 scan a complete recovery mechanism after an event-ring gap. */
-  *out_state = g_rpc_probe.actor_states[actor_id];
+  std::memcpy(out_state, &g_rpc_probe.actor_states[actor_id], sizeof(*out_state));
+  return 0;
+}
+
+int samp_raknet_client_get_actor_create_rotation_bits(
+    void *client, uint16_t actor_id, uint32_t *out_create_revision,
+    uint32_t *out_rotation_bits, uint32_t *out_facing_revision) {
+  if (out_create_revision != nullptr) {
+    *out_create_revision = 0U;
+  }
+  if (out_rotation_bits != nullptr) {
+    *out_rotation_bits = 0U;
+  }
+  if (out_facing_revision != nullptr) {
+    *out_facing_revision = 0U;
+  }
+  if (client == nullptr || client != g_rpc_probe.client ||
+      actor_id >= SAMP_RAKNET_MAX_ACTORS || out_create_revision == nullptr ||
+      out_rotation_bits == nullptr || out_facing_revision == nullptr) {
+    return -1;
+  }
+
+  *out_create_revision = g_rpc_probe.actor_create_revisions[actor_id];
+  *out_rotation_bits = g_rpc_probe.actor_create_rotation_bits[actor_id];
+  *out_facing_revision = g_rpc_probe.actor_facing_revisions[actor_id];
   return 0;
 }
 

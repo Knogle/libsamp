@@ -33,6 +33,8 @@
 #define PROBE_TEXTDRAW_RENDER_HINT_MS 750u
 
 #define PROBE_GTA_ADDR_MODEL_INFO_PTRS 0x00A9B0C8u
+#define PROBE_GTA_ADDR_LOAD_OBJECT_INSTANCE_TEXT 0x00538690u
+#define PROBE_GTA_ADDR_IPL_NULL_ENTITY_DEREF 0x00405E15u
 #define PROBE_GTA_ADDR_MODEL_INFO_ATOMIC_STORE_COUNT 0x00AAE950u
 #define PROBE_GTA_ADDR_MODEL_INFO_TIME_STORE_COUNT 0x00B1C960u
 #define PROBE_GTA_ADDR_MODEL_INFO_CLUMP_STORE_COUNT 0x00B1E958u
@@ -136,13 +138,22 @@
 #define PROBE_GTA_R5_PROCESS_ONE_COMMAND_ADDR 0x00469eb0u
 #define PROBE_GTA_R5_PED_TELEPORT_ADDR 0x005e4110u
 #define PROBE_GTA_R5_PED_INTELLIGENCE_FLUSH_ADDR 0x00601640u
+#define PROBE_GTA_R5_BASE_PLACEABLE_VTABLE 0x00863c40u
 #define PROBE_GTA_PED_MATRIX_OFFSET 0x14u
 #define PROBE_GTA_PED_MODEL_INDEX_OFFSET 0x22u
+#define PROBE_GTA_ENTITY_DIRECT_POSITION_OFFSET 0x04u
+#define PROBE_GTA_ENTITY_SET_POSITION_VTBL_OFFSET 0x38u
+#define PROBE_GTA_MATRIX_POSITION_OFFSET 0x30u
+#define PROBE_GTA_MATRIX_BASIS_SIZE 0x30u
+#define PROBE_GTA_PHYSICAL_MOVE_SPEED_OFFSET 0x44u
+#define PROBE_GTA_PHYSICAL_TURN_SPEED_OFFSET 0x50u
+#define PROBE_GTA_PHYSICAL_OFFSET_0DC 0xdcu
 #define PROBE_GTA_PED_FLAGS_OFFSET 0x46cu
 #define PROBE_GTA_PED_INTELLIGENCE_OFFSET 0x47cu
 #define PROBE_GTA_PED_HEALTH_OFFSET 0x540u
 #define PROBE_GTA_PED_ARMOUR_OFFSET 0x548u
 #define PROBE_GTA_PED_AIMING_ROTATION_OFFSET 0x55cu
+#define PROBE_GTA_PED_STATE_598_OFFSET 0x598u
 #define PROBE_SAMP_ACTOR_RPC_SHOW 171u
 #define PROBE_SAMP_ACTOR_RPC_HIDE 172u
 #define PROBE_SAMP_ACTOR_RPC_APPLY_ANIMATION 173u
@@ -1047,9 +1058,14 @@ static probe_code_hook g_gta_textdraw_code_hooks[] = {
 static void probe_log(const char *fmt, ...) {
   char payload[2048];
   char line[2300];
+  char failure[256];
   DWORD now_ms;
-  FILE *fp;
+  DWORD line_len;
+  DWORD open_error;
+  DWORD written = 0;
+  HANDLE file;
   va_list args;
+  static LONG open_failure_count;
 
   if (InterlockedCompareExchange(&g_log_ready, 0, 0) == 0 || fmt == NULL) {
     return;
@@ -1061,12 +1077,22 @@ static void probe_log(const char *fmt, ...) {
 
   now_ms = GetTickCount();
   snprintf(line, sizeof(line), "[%10lu] %s\r\n", (unsigned long)now_ms, payload);
+  line_len = (DWORD)strlen(line);
 
   EnterCriticalSection(&g_log_lock);
-  fp = fopen(g_log_path, "ab");
-  if (fp != NULL) {
-    fputs(line, fp);
-    fclose(fp);
+  file = CreateFileA(g_log_path, FILE_APPEND_DATA,
+                     FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
+                     NULL, OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
+  if (file != INVALID_HANDLE_VALUE) {
+    (void)WriteFile(file, line, line_len, &written, NULL);
+    CloseHandle(file);
+  } else {
+    open_error = GetLastError();
+    if (InterlockedIncrement(&open_failure_count) <= 8) {
+      snprintf(failure, sizeof(failure), "[samp_probe] log_open_failed path='%s' error=%lu\n",
+               g_log_path, (unsigned long)open_error);
+      OutputDebugStringA(failure);
+    }
   }
   LeaveCriticalSection(&g_log_lock);
 
@@ -1470,14 +1496,26 @@ static int env_or_flag_enabled(const char *env_name, const char *flag_name) {
 }
 
 static void init_log_path(void) {
+  char configured_dir[MAX_PATH];
   char module_path[MAX_PATH];
   char module_dir[MAX_PATH];
+  DWORD configured_len;
+  DWORD configured_attr;
 
+  configured_dir[0] = '\0';
   module_path[0] = '\0';
   module_dir[0] = '\0';
   g_log_path[0] = '\0';
 
-  if (GetModuleFileNameA(g_self_module, module_path, sizeof(module_path)) > 0) {
+  configured_len = GetEnvironmentVariableA("SAMPDLL_LOG_DIR", configured_dir,
+                                            sizeof(configured_dir));
+  configured_attr = configured_len > 0 && configured_len < sizeof(configured_dir)
+                        ? GetFileAttributesA(configured_dir)
+                        : INVALID_FILE_ATTRIBUTES;
+  if (configured_attr != INVALID_FILE_ATTRIBUTES &&
+      (configured_attr & FILE_ATTRIBUTE_DIRECTORY) != 0) {
+    join_path(g_log_path, sizeof(g_log_path), configured_dir, PROBE_LOG_NAME);
+  } else if (GetModuleFileNameA(g_self_module, module_path, sizeof(module_path)) > 0) {
     snprintf(module_dir, sizeof(module_dir), "%s", module_path);
     path_dirname(module_dir);
     join_path(g_log_path, sizeof(g_log_path), module_dir, PROBE_LOG_NAME);
@@ -1655,32 +1693,39 @@ static int last_wsa_error(void) {
 }
 
 static int memory_is_readable(uintptr_t address, size_t size) {
-  MEMORY_BASIC_INFORMATION mbi;
-  DWORD protect;
+  uintptr_t cursor;
+  uintptr_t end;
 
-  if (address == 0 || size == 0) {
+  if (address == 0u || size == 0u || address > UINTPTR_MAX - size) {
     return 0;
   }
+  cursor = address;
+  end = address + size;
+  while (cursor < end) {
+    MEMORY_BASIC_INFORMATION mbi;
+    DWORD protect;
+    uintptr_t region_end;
 
-  if (VirtualQuery((LPCVOID)address, &mbi, sizeof(mbi)) != sizeof(mbi)) {
-    return 0;
+    if (VirtualQuery((LPCVOID)cursor, &mbi, sizeof(mbi)) != sizeof(mbi)) {
+      return 0;
+    }
+    protect = mbi.Protect & 0xffu;
+    if (mbi.State != MEM_COMMIT || (mbi.Protect & PAGE_GUARD) != 0 ||
+        (protect != PAGE_READONLY && protect != PAGE_READWRITE && protect != PAGE_WRITECOPY &&
+         protect != PAGE_EXECUTE_READ && protect != PAGE_EXECUTE_READWRITE &&
+         protect != PAGE_EXECUTE_WRITECOPY)) {
+      return 0;
+    }
+    if ((uintptr_t)mbi.BaseAddress > UINTPTR_MAX - mbi.RegionSize) {
+      return 0;
+    }
+    region_end = (uintptr_t)mbi.BaseAddress + mbi.RegionSize;
+    if (region_end <= cursor) {
+      return 0;
+    }
+    cursor = region_end < end ? region_end : end;
   }
-
-  if (mbi.State != MEM_COMMIT) {
-    return 0;
-  }
-
-  if ((uintptr_t)mbi.BaseAddress + mbi.RegionSize < address + size) {
-    return 0;
-  }
-
-  protect = mbi.Protect & 0xffu;
-  if ((mbi.Protect & PAGE_GUARD) != 0 || protect == PAGE_NOACCESS) {
-    return 0;
-  }
-
-  return protect == PAGE_READONLY || protect == PAGE_READWRITE || protect == PAGE_WRITECOPY ||
-         protect == PAGE_EXECUTE_READ || protect == PAGE_EXECUTE_READWRITE || protect == PAGE_EXECUTE_WRITECOPY;
+  return 1;
 }
 
 static void bytes_to_hex(const BYTE *bytes, size_t size, char *out, size_t out_size) {
@@ -1761,6 +1806,22 @@ static DWORD read_u32_or(uintptr_t address, DWORD fallback) {
 
   memcpy(&value, (const void *)address, sizeof(value));
   return value;
+}
+
+static int checked_address_add(uintptr_t base, size_t offset, uintptr_t *out_address) {
+  if (out_address == NULL || base > UINTPTR_MAX - offset) {
+    return 0;
+  }
+  *out_address = base + offset;
+  return 1;
+}
+
+static int read_u32_checked(uintptr_t address, DWORD *out_value) {
+  if (out_value == NULL || !memory_is_readable(address, sizeof(*out_value))) {
+    return 0;
+  }
+  memcpy(out_value, (const void *)address, sizeof(*out_value));
+  return 1;
 }
 
 static uintptr_t probe_current_stack_pointer(void) {
@@ -2564,6 +2625,46 @@ static void probe_log_stack_dwords(uintptr_t sp) {
     used += (size_t)written;
   }
   probe_log("stack: sp=0x%08lx dwords=%s", (unsigned long)sp, text);
+}
+
+static void probe_log_ipl_null_entity_context(const CONTEXT *context, uintptr_t ip, uintptr_t sp) {
+#if defined(_M_IX86) || defined(__i386__)
+  DWORD line_address = 0;
+  char line[512];
+
+  if (context == NULL || ip != PROBE_GTA_ADDR_IPL_NULL_ENTITY_DEREF || context->Eax != 0u || context->Esi != 0u) {
+    return;
+  }
+
+  /* GTA_REVERSED_REF + PROBE_TRACE + TODO_VERIFY:
+   * GTA-SA 1.0 US CFileLoader::LoadObjectInstance(const char*) is at 0x538690.
+   * At 0x405E0A the IPL loader calls it with a cdecl line argument. If it
+   * returns NULL, 0x405E15 dereferences the returned ESI at +0x30 before the
+   * caller removes that argument, so ESP[0] still contains the exact IPL line
+   * pointer. Keep this passive and exception-only: a loader hook would perturb
+   * the path whose failure we are trying to capture.
+   */
+  if (sp == 0 || !memory_is_readable(sp, sizeof(line_address))) {
+    probe_log("ipl_entity_null: loader=0x%08lx fault=0x%08lx sp=0x%08lx line_ptr=unreadable "
+              "evidence=GTA_REVERSED_REF,PROBE_TRACE,TODO_VERIFY",
+              (unsigned long)PROBE_GTA_ADDR_LOAD_OBJECT_INSTANCE_TEXT,
+              (unsigned long)PROBE_GTA_ADDR_IPL_NULL_ENTITY_DEREF, (unsigned long)sp);
+    return;
+  }
+
+  memcpy(&line_address, (const void *)sp, sizeof(line_address));
+  safe_cstr_or((const char *)(uintptr_t)line_address, line, sizeof(line), "<unreadable>");
+  probe_log("ipl_entity_null: loader=0x%08lx fault=0x%08lx line_ptr=0x%08lx line='%s' "
+            "evidence=GTA_REVERSED_REF,PROBE_TRACE,TODO_VERIFY",
+            (unsigned long)PROBE_GTA_ADDR_LOAD_OBJECT_INSTANCE_TEXT,
+            (unsigned long)PROBE_GTA_ADDR_IPL_NULL_ENTITY_DEREF, (unsigned long)line_address, line);
+  probe_log_address_region("ipl_line", (uintptr_t)line_address);
+  probe_log_memory_bytes("ipl_line", (uintptr_t)line_address, 0, 96);
+#else
+  (void)context;
+  (void)ip;
+  (void)sp;
+#endif
 }
 
 static void probe_log_transition_snapshot(const char *reason) {
@@ -4667,10 +4768,59 @@ typedef struct probe_actor_heavy_scope_saved {
   const char *name;
 } probe_actor_heavy_scope_saved;
 
+typedef struct probe_actor_rpc176_state {
+  const char *reason;
+  const char *position_path;
+  void *actor_pool;
+  DWORD active;
+  DWORD actor_value;
+  DWORD entity_value;
+  DWORD handle;
+  DWORD cached_ped_value;
+  DWORD entity_vtable;
+  DWORD position_vfunc;
+  WORD model;
+  DWORD matrix_value;
+  DWORD position_bits[3];
+  DWORD move_speed_bits[3];
+  DWORD turn_speed_bits[3];
+  DWORD ped_flags;
+  DWORD physical_0dc;
+  DWORD intelligence;
+  DWORD ped_state_598;
+  DWORD aiming_rotation_bits;
+  BYTE matrix_basis[PROBE_GTA_MATRIX_BASIS_SIZE];
+  int active_readable;
+  int actor_slot_readable;
+  int entity_slot_readable;
+  int handle_readable;
+  int cached_ped_slot_readable;
+  int entity_cached_ped_match;
+  int entity_vtable_readable;
+  int position_vfunc_readable;
+  int model_readable;
+  int matrix_slot_readable;
+  int position_readable;
+  int move_speed_readable;
+  int turn_speed_readable;
+  int ped_flags_readable;
+  int physical_0dc_readable;
+  int intelligence_readable;
+  int ped_state_598_readable;
+  int aiming_rotation_readable;
+  int matrix_basis_readable;
+} probe_actor_rpc176_state;
+
 static float actor_float_from_bits(DWORD bits) {
   float value = 0.0f;
   memcpy(&value, &bits, sizeof(value));
   return value;
+}
+
+static DWORD actor_bits_from_float(float value) {
+  DWORD bits = 0u;
+  memcpy(&bits, &value, sizeof(bits));
+  return bits;
 }
 
 static void actor_safe_c_string(DWORD address, char *out, size_t out_size) {
@@ -4755,6 +4905,642 @@ static void *actor_pool_pointer(void **netgame_out, void **pools_out) {
     return NULL;
   }
   return (void *)(uintptr_t)actor_pool;
+}
+
+static int actor_rpc176_request_position_bits(probe_samp_rpc_parameters_prefix *rpc, DWORD out_bits[3]) {
+  uintptr_t position_address;
+
+  if (out_bits == NULL || rpc == NULL || !memory_is_readable((uintptr_t)rpc, sizeof(*rpc)) ||
+      rpc->number_of_bits_of_data < 112 ||
+      (unsigned)rpc->number_of_bits_of_data > PROBE_SAMP_ACTOR_RPC_MAX_BITS || rpc->input == NULL ||
+      !checked_address_add((uintptr_t)rpc->input, 2u, &position_address) ||
+      !memory_is_readable(position_address, 3u * sizeof(DWORD))) {
+    return 0;
+  }
+  memcpy(out_bits, (const void *)position_address, 3u * sizeof(DWORD));
+  return 1;
+}
+
+static int actor_rpc176_read_dwords(uintptr_t base, size_t offset, DWORD *out_values, size_t count) {
+  uintptr_t address;
+  size_t size;
+
+  if (out_values == NULL || count == 0u || count > ((size_t)-1) / sizeof(DWORD)) {
+    return 0;
+  }
+  size = count * sizeof(DWORD);
+  if (!checked_address_add(base, offset, &address) || !memory_is_readable(address, size)) {
+    return 0;
+  }
+  memcpy(out_values, (const void *)address, size);
+  return 1;
+}
+
+/*
+ * STATIC_037:
+ * RPC176 at samp.dll+0x1dad0 resolves ActorPool active/remote slots and calls
+ * CActor::SetPosition at samp.dll+0x9f040. That method uses CActor+0x40 as the
+ * entity; CActor+0x48 is captured only as a consistency diagnostic. The normal
+ * model path calls CPed::Teleport at gta_sa.exe+0x1e4110 (VA 0x5e4110), which
+ * writes matrix+0x30 or entity+0x04 and clears the observed physical state
+ * fields below. Re-resolve this entire chain independently before and after
+ * the handler; never retain a dereferenceable pre-call pointer.
+ *
+ * Original identities:
+ * samp.dll SHA256=b72b5dbe725f81864ca3f78bc7063bda56cc05fc7188af822fa7a754432553a2
+ * gta_sa.exe SHA256=a559aa772fd136379155efa71f00c47aad34bbfeae6196b0fe1047d0645cbd26
+ */
+static void capture_actor_rpc176_state(unsigned actor_id, probe_actor_rpc176_state *state) {
+  uintptr_t slot_offset;
+  uintptr_t address;
+
+  if (state == NULL) {
+    return;
+  }
+  memset(state, 0, sizeof(*state));
+  state->reason = "actor_pool_unavailable";
+  state->position_path = "none";
+  state->model = 0xffffu;
+  state->entity_cached_ped_match = -1;
+  state->actor_pool = actor_pool_pointer(NULL, NULL);
+  if (state->actor_pool == NULL) {
+    return;
+  }
+  if (actor_id >= PROBE_SAMP_R5_ACTOR_POOL_CAPACITY) {
+    state->reason = "actor_out_of_range";
+    return;
+  }
+
+  slot_offset = (uintptr_t)actor_id * sizeof(DWORD);
+  if (!checked_address_add((uintptr_t)state->actor_pool,
+                           PROBE_SAMP_R5_ACTOR_POOL_ACTIVE_OFFSET + slot_offset, &address)) {
+    state->reason = "active_slot_unreadable";
+    return;
+  }
+  state->active_readable = read_u32_checked(address, &state->active);
+  if (!state->active_readable) {
+    state->reason = "active_slot_unreadable";
+    return;
+  }
+  if (state->active == 0u) {
+    state->reason = "actor_inactive";
+    return;
+  }
+
+  if (!checked_address_add((uintptr_t)state->actor_pool,
+                           PROBE_SAMP_R5_ACTOR_POOL_REMOTE_OFFSET + slot_offset, &address)) {
+    state->reason = "actor_slot_unreadable";
+    return;
+  }
+  state->actor_slot_readable = read_u32_checked(address, &state->actor_value);
+  if (!state->actor_slot_readable) {
+    state->reason = "actor_slot_unreadable";
+    return;
+  }
+  if (state->actor_value == 0u) {
+    state->reason = "actor_null";
+    return;
+  }
+
+  if (!checked_address_add((uintptr_t)state->actor_value,
+                           PROBE_SAMP_R5_REMOTE_ACTOR_ENTITY_OFFSET, &address)) {
+    state->reason = "entity_slot_unreadable";
+    return;
+  }
+  state->entity_slot_readable = read_u32_checked(address, &state->entity_value);
+  if (!state->entity_slot_readable) {
+    state->reason = "entity_slot_unreadable";
+    return;
+  }
+  if (state->entity_value == 0u) {
+    state->reason = "entity_null";
+    return;
+  }
+
+  if (checked_address_add((uintptr_t)state->actor_value,
+                          PROBE_SAMP_R5_REMOTE_ACTOR_PED_OFFSET, &address)) {
+    state->cached_ped_slot_readable = read_u32_checked(address, &state->cached_ped_value);
+  }
+  if (state->cached_ped_slot_readable) {
+    state->entity_cached_ped_match = state->entity_value == state->cached_ped_value;
+  }
+  if (checked_address_add((uintptr_t)state->actor_value,
+                          PROBE_SAMP_R5_REMOTE_ACTOR_HANDLE_OFFSET, &address)) {
+    state->handle_readable = read_u32_checked(address, &state->handle);
+  }
+
+  state->entity_vtable_readable =
+      read_u32_checked((uintptr_t)state->entity_value, &state->entity_vtable);
+  if (!state->entity_vtable_readable) {
+    state->reason = "entity_vtable_unreadable";
+    return;
+  }
+  if (state->entity_vtable == PROBE_GTA_R5_BASE_PLACEABLE_VTABLE) {
+    state->reason = "base_placeable_vtable";
+    return;
+  }
+
+  if (checked_address_add((uintptr_t)state->entity_value,
+                          PROBE_GTA_ENTITY_OFFSET_MODEL_INDEX, &address) &&
+      memory_is_readable(address, sizeof(state->model))) {
+    memcpy(&state->model, (const void *)address, sizeof(state->model));
+    state->model_readable = 1;
+  }
+  if (!state->model_readable) {
+    state->reason = "model_unreadable";
+    return;
+  }
+  if (state->model == 449u || state->model == 537u || state->model == 538u) {
+    state->position_path = "train_scm";
+    state->reason = "train_model_scm_path";
+    return;
+  }
+
+  if (checked_address_add((uintptr_t)state->entity_vtable,
+                          PROBE_GTA_ENTITY_SET_POSITION_VTBL_OFFSET, &address)) {
+    state->position_vfunc_readable =
+        read_u32_checked(address, &state->position_vfunc);
+  }
+  if (!state->position_vfunc_readable) {
+    state->reason = "position_vfunc_unreadable";
+    return;
+  }
+
+  if (checked_address_add((uintptr_t)state->entity_value, PROBE_GTA_PED_MATRIX_OFFSET,
+                          &address)) {
+    state->matrix_slot_readable = read_u32_checked(address, &state->matrix_value);
+  }
+  if (!state->matrix_slot_readable) {
+    state->reason = "matrix_slot_unreadable";
+    return;
+  }
+  if (state->matrix_value != 0u) {
+    state->position_path = "matrix";
+    state->position_readable =
+        actor_rpc176_read_dwords((uintptr_t)state->matrix_value,
+                                 PROBE_GTA_MATRIX_POSITION_OFFSET, state->position_bits, 3u);
+    if (memory_is_readable((uintptr_t)state->matrix_value, sizeof(state->matrix_basis))) {
+      memcpy(state->matrix_basis, (const void *)(uintptr_t)state->matrix_value,
+             sizeof(state->matrix_basis));
+      state->matrix_basis_readable = 1;
+    }
+  } else {
+    state->position_path = "direct";
+    state->position_readable =
+        actor_rpc176_read_dwords((uintptr_t)state->entity_value,
+                                 PROBE_GTA_ENTITY_DIRECT_POSITION_OFFSET,
+                                 state->position_bits, 3u);
+  }
+
+  state->move_speed_readable =
+      actor_rpc176_read_dwords((uintptr_t)state->entity_value,
+                               PROBE_GTA_PHYSICAL_MOVE_SPEED_OFFSET,
+                               state->move_speed_bits, 3u);
+  state->turn_speed_readable =
+      actor_rpc176_read_dwords((uintptr_t)state->entity_value,
+                               PROBE_GTA_PHYSICAL_TURN_SPEED_OFFSET,
+                               state->turn_speed_bits, 3u);
+  if (checked_address_add((uintptr_t)state->entity_value, PROBE_GTA_PED_FLAGS_OFFSET,
+                          &address)) {
+    state->ped_flags_readable = read_u32_checked(address, &state->ped_flags);
+  }
+  if (checked_address_add((uintptr_t)state->entity_value, PROBE_GTA_PHYSICAL_OFFSET_0DC,
+                          &address)) {
+    state->physical_0dc_readable = read_u32_checked(address, &state->physical_0dc);
+  }
+  if (checked_address_add((uintptr_t)state->entity_value,
+                          PROBE_GTA_PED_INTELLIGENCE_OFFSET, &address)) {
+    state->intelligence_readable = read_u32_checked(address, &state->intelligence);
+  }
+  if (checked_address_add((uintptr_t)state->entity_value, PROBE_GTA_PED_STATE_598_OFFSET,
+                          &address)) {
+    state->ped_state_598_readable = read_u32_checked(address, &state->ped_state_598);
+  }
+  if (checked_address_add((uintptr_t)state->entity_value,
+                          PROBE_GTA_PED_AIMING_ROTATION_OFFSET, &address)) {
+    state->aiming_rotation_readable =
+        read_u32_checked(address, &state->aiming_rotation_bits);
+  }
+
+  if (!state->position_readable) {
+    state->reason = state->matrix_value != 0u ? "matrix_position_unreadable"
+                                              : "direct_position_unreadable";
+    return;
+  }
+  if (!state->cached_ped_slot_readable) {
+    state->reason = "cached_ped_slot_unreadable";
+  } else if (!state->move_speed_readable) {
+    state->reason = "move_speed_unreadable";
+  } else if (!state->turn_speed_readable) {
+    state->reason = "turn_speed_unreadable";
+  } else if (!state->ped_flags_readable) {
+    state->reason = "flags_unreadable";
+  } else if (!state->physical_0dc_readable) {
+    state->reason = "physical_0dc_unreadable";
+  } else if (!state->intelligence_readable) {
+    state->reason = "intelligence_unreadable";
+  } else if (!state->ped_state_598_readable) {
+    state->reason = "state_598_unreadable";
+  } else if (!state->aiming_rotation_readable) {
+    state->reason = "aiming_rotation_unreadable";
+  } else if (state->matrix_value != 0u && !state->matrix_basis_readable) {
+    state->reason = "matrix_basis_unreadable";
+  } else {
+    state->reason = "ok";
+  }
+}
+
+static void log_actor_rpc176_state(const char *phase, LONG seq, unsigned actor_id,
+                                   const probe_actor_rpc176_state *state) {
+  char matrix_basis_hex[PROBE_GTA_MATRIX_BASIS_SIZE * 3u + 8u];
+
+  if (state == NULL) {
+    return;
+  }
+  if (state->matrix_value == 0u) {
+    snprintf(matrix_basis_hex, sizeof(matrix_basis_hex), "not_applicable");
+  } else if (!state->matrix_basis_readable) {
+    snprintf(matrix_basis_hex, sizeof(matrix_basis_hex), "unreadable");
+  } else {
+    bytes_to_hex(state->matrix_basis, sizeof(state->matrix_basis), matrix_basis_hex,
+                 sizeof(matrix_basis_hex));
+  }
+  probe_log("actor_rpc176_state: phase=%s seq=%ld actor=%u actor_pool=%p "
+            "active_readable=%d active=0x%08lx actor_slot_readable=%d actor_ptr=%p "
+            "entity_slot_readable=%d entity=%p handle_readable=%d handle=0x%08lx "
+            "cached_ped_slot_readable=%d cached_ped=%p "
+            "entity_cached_ped_match=%d entity_vtable_readable=%d entity_vtable=%p "
+            "model_readable=%d model=%u position_vfunc_readable=%d position_vfunc=%p "
+            "matrix_slot_readable=%d matrix=%p position_path=%s position_readable=%d "
+            "position=%.9g,%.9g,%.9g position_bits=%08lx,%08lx,%08lx "
+            "move_speed_readable=%d move_speed_bits=%08lx,%08lx,%08lx "
+            "turn_speed_readable=%d turn_speed_bits=%08lx,%08lx,%08lx "
+            "flags_readable=%d flags=0x%08lx physical_0dc_readable=%d physical_0dc=%p "
+            "intelligence_readable=%d intelligence=%p state_598_readable=%d state_598=0x%08lx "
+            "aiming_rotation_readable=%d aiming_rotation_bits=0x%08lx "
+            "matrix_basis_readable=%d matrix_basis=%s reason=%s "
+            "evidence=STATIC_037,PROBE_TRACE,TODO_VERIFY",
+            phase != NULL ? phase : "unknown", (long)seq, actor_id, state->actor_pool,
+            state->active_readable, (unsigned long)state->active, state->actor_slot_readable,
+            (void *)(uintptr_t)state->actor_value, state->entity_slot_readable,
+            (void *)(uintptr_t)state->entity_value, state->handle_readable,
+            (unsigned long)state->handle, state->cached_ped_slot_readable,
+            (void *)(uintptr_t)state->cached_ped_value, state->entity_cached_ped_match,
+            state->entity_vtable_readable, (void *)(uintptr_t)state->entity_vtable,
+            state->model_readable, (unsigned)state->model, state->position_vfunc_readable,
+            (void *)(uintptr_t)state->position_vfunc, state->matrix_slot_readable,
+            (void *)(uintptr_t)state->matrix_value, state->position_path,
+            state->position_readable, (double)actor_float_from_bits(state->position_bits[0]),
+            (double)actor_float_from_bits(state->position_bits[1]),
+            (double)actor_float_from_bits(state->position_bits[2]),
+            (unsigned long)state->position_bits[0], (unsigned long)state->position_bits[1],
+            (unsigned long)state->position_bits[2], state->move_speed_readable,
+            (unsigned long)state->move_speed_bits[0],
+            (unsigned long)state->move_speed_bits[1],
+            (unsigned long)state->move_speed_bits[2], state->turn_speed_readable,
+            (unsigned long)state->turn_speed_bits[0],
+            (unsigned long)state->turn_speed_bits[1],
+            (unsigned long)state->turn_speed_bits[2], state->ped_flags_readable,
+            (unsigned long)state->ped_flags, state->physical_0dc_readable,
+            (void *)(uintptr_t)state->physical_0dc, state->intelligence_readable,
+            (void *)(uintptr_t)state->intelligence, state->ped_state_598_readable,
+            (unsigned long)state->ped_state_598, state->aiming_rotation_readable,
+            (unsigned long)state->aiming_rotation_bits, state->matrix_basis_readable,
+            matrix_basis_hex, state->reason);
+}
+
+static void log_actor_rpc176_comparison(LONG seq, unsigned actor_id, int request_readable,
+                                        const DWORD request_position_bits[3],
+                                        const probe_actor_rpc176_state *before,
+                                        const probe_actor_rpc176_state *after) {
+  int target_same = -1;
+  int entity_vtable_same = -1;
+  int position_vfunc_same = -1;
+  int model_same = -1;
+  int position_path_same = -1;
+  int position_axis_match[3] = {-1, -1, -1};
+  int position_match = -1;
+  int speeds_zero = -1;
+  int flags_bit0_cleared = -1;
+  int physical_0dc_cleared = -1;
+  int intelligence_same = -1;
+  int state_598_same = -1;
+  int aiming_rotation_same = -1;
+  int matrix_basis_same = -1;
+  const char *reason = "state_unavailable";
+
+  if (before == NULL || after == NULL) {
+    return;
+  }
+  if (before->actor_slot_readable && before->entity_slot_readable &&
+      after->actor_slot_readable && after->entity_slot_readable) {
+    target_same = before->actor_value == after->actor_value &&
+                  before->entity_value == after->entity_value;
+  }
+  if (before->model_readable && after->model_readable) {
+    model_same = before->model == after->model;
+  }
+  if (before->entity_vtable_readable && after->entity_vtable_readable) {
+    entity_vtable_same = before->entity_vtable == after->entity_vtable;
+  }
+  if (before->position_vfunc_readable && after->position_vfunc_readable) {
+    position_vfunc_same = before->position_vfunc == after->position_vfunc;
+  }
+  if (before->matrix_slot_readable && after->matrix_slot_readable) {
+    position_path_same = before->matrix_value == after->matrix_value;
+  }
+  if (request_readable && after->position_readable) {
+    position_axis_match[0] = request_position_bits[0] == after->position_bits[0];
+    position_axis_match[1] = request_position_bits[1] == after->position_bits[1];
+    position_axis_match[2] = request_position_bits[2] == after->position_bits[2];
+    position_match =
+        position_axis_match[0] && position_axis_match[1] && position_axis_match[2];
+  }
+  if (after->move_speed_readable && after->turn_speed_readable) {
+    speeds_zero = after->move_speed_bits[0] == 0u && after->move_speed_bits[1] == 0u &&
+                  after->move_speed_bits[2] == 0u && after->turn_speed_bits[0] == 0u &&
+                  after->turn_speed_bits[1] == 0u && after->turn_speed_bits[2] == 0u;
+  }
+  if (after->ped_flags_readable) {
+    flags_bit0_cleared = (after->ped_flags & 1u) == 0u;
+  }
+  if (after->physical_0dc_readable) {
+    physical_0dc_cleared = after->physical_0dc == 0u;
+  }
+  if (before->intelligence_readable && after->intelligence_readable) {
+    intelligence_same = before->intelligence == after->intelligence;
+  }
+  if (before->ped_state_598_readable && after->ped_state_598_readable) {
+    state_598_same = before->ped_state_598 == after->ped_state_598;
+  }
+  if (before->aiming_rotation_readable && after->aiming_rotation_readable) {
+    aiming_rotation_same = before->aiming_rotation_bits == after->aiming_rotation_bits;
+  }
+  if (before->matrix_basis_readable && after->matrix_basis_readable &&
+      before->matrix_value == after->matrix_value) {
+    matrix_basis_same =
+        memcmp(before->matrix_basis, after->matrix_basis, sizeof(before->matrix_basis)) == 0;
+  }
+
+  if (!request_readable) {
+    reason = "request_unreadable";
+  } else if (strcmp(after->reason, "ok") != 0) {
+    reason = after->reason;
+  } else if (target_same == 0) {
+    reason = "target_changed";
+  } else {
+    reason = "ok";
+  }
+
+  probe_log("actor_rpc176_compare: seq=%ld actor=%u request_readable=%d "
+            "request_bits=%08lx,%08lx,%08lx target_same=%d model_same=%d "
+            "entity_vtable_same=%d position_vfunc_same=%d position_path_same=%d "
+            "position_axis_match=%d,%d,%d position_match=%d "
+            "speeds_zero=%d flags_bit0_cleared=%d physical_0dc_cleared=%d "
+            "intelligence_same=%d state_598_same=%d aiming_rotation_same=%d "
+            "matrix_basis_same=%d post_entity_cached_ped_match=%d "
+            "pre_reason=%s post_reason=%s reason=%s original_called=1 "
+            "evidence=STATIC_037,PROBE_TRACE,TODO_VERIFY",
+            (long)seq, actor_id, request_readable,
+            (unsigned long)request_position_bits[0],
+            (unsigned long)request_position_bits[1],
+            (unsigned long)request_position_bits[2], target_same, model_same,
+            entity_vtable_same, position_vfunc_same, position_path_same,
+            position_axis_match[0], position_axis_match[1],
+            position_axis_match[2], position_match, speeds_zero, flags_bit0_cleared,
+            physical_0dc_cleared, intelligence_same, state_598_same,
+            aiming_rotation_same, matrix_basis_same, after->entity_cached_ped_match,
+            before->reason, after->reason, reason);
+}
+
+static int actor_rpc178_request_health_bits(probe_samp_rpc_parameters_prefix *rpc, DWORD *out_bits) {
+  uintptr_t health_address;
+
+  if (out_bits == NULL || rpc == NULL || !memory_is_readable((uintptr_t)rpc, sizeof(*rpc)) ||
+      rpc->number_of_bits_of_data < 48 ||
+      (unsigned)rpc->number_of_bits_of_data > PROBE_SAMP_ACTOR_RPC_MAX_BITS || rpc->input == NULL ||
+      !checked_address_add((uintptr_t)rpc->input, 2u, &health_address)) {
+    return 0;
+  }
+  return read_u32_checked(health_address, out_bits);
+}
+
+static int actor_rpc175_request_angle_bits(probe_samp_rpc_parameters_prefix *rpc, DWORD *out_bits) {
+  uintptr_t angle_address;
+
+  if (out_bits == NULL || rpc == NULL || !memory_is_readable((uintptr_t)rpc, sizeof(*rpc)) ||
+      rpc->number_of_bits_of_data < 48 ||
+      (unsigned)rpc->number_of_bits_of_data > PROBE_SAMP_ACTOR_RPC_MAX_BITS || rpc->input == NULL ||
+      !checked_address_add((uintptr_t)rpc->input, 2u, &angle_address)) {
+    return 0;
+  }
+  return read_u32_checked(angle_address, out_bits);
+}
+
+/*
+ * STATIC_037:
+ * CActor::SetFacingAngle at samp.dll+0x9c570 calls the conversion helper at
+ * samp.dll+0xb5970 before storing its result at CPed+0x55c. The two constants
+ * below are the exact R5 float bit patterns for pi and 1/180. Keep the
+ * original comparison and operation order so the derived bit comparison is
+ * also useful for boundary and non-finite probes.
+ */
+static float actor_rpc175_expected_heading(DWORD request_angle_bits) {
+  float angle = actor_float_from_bits(request_angle_bits);
+  float pi = actor_float_from_bits(0x40490fdbu);
+  float inverse_180 = actor_float_from_bits(0x3bb60b61u);
+
+  if (angle > 360.0f || angle < 0.0f) {
+    return 0.0f;
+  }
+  if (angle > 180.0f) {
+    float scaled = (angle - 180.0f) * pi * inverse_180;
+    return -(pi - scaled);
+  }
+  return angle * pi * inverse_180;
+}
+
+/*
+ * STATIC_037:
+ * RPC175 at samp.dll+0x1d9f0 reaches CActor::SetFacingAngle at +0x9c570
+ * through the same bounded ActorPool active/remote-slot checks used below.
+ * Resolve the chain after the one original-handler call and observe the
+ * converted heading written at CPed+0x55c.
+ */
+static void log_actor_rpc175_readback(LONG seq, unsigned actor_id, int request_readable,
+                                      DWORD request_angle_bits) {
+  void *actor_pool = actor_pool_pointer(NULL, NULL);
+  DWORD active = 0u;
+  DWORD actor_value = 0u;
+  DWORD ped_value = 0u;
+  DWORD stored_heading_bits = 0u;
+  DWORD expected_heading_bits = 0u;
+  float request_angle = actor_float_from_bits(request_angle_bits);
+  float expected_heading = 0.0f;
+  float stored_heading = 0.0f;
+  float heading_delta = 0.0f;
+  int active_readable = 0;
+  int actor_slot_readable = 0;
+  int ped_slot_readable = 0;
+  int heading_readable = 0;
+  int converted_bits_match = -1;
+  const char *reason = "actor_pool_unavailable";
+  uintptr_t slot_offset;
+  uintptr_t address;
+
+  if (actor_pool != NULL) {
+    if (actor_id >= PROBE_SAMP_R5_ACTOR_POOL_CAPACITY) {
+      reason = "actor_out_of_range";
+    } else {
+      slot_offset = (uintptr_t)actor_id * sizeof(DWORD);
+      if (!checked_address_add((uintptr_t)actor_pool,
+                               PROBE_SAMP_R5_ACTOR_POOL_ACTIVE_OFFSET + slot_offset, &address)) {
+        reason = "active_slot_unreadable";
+      } else {
+        active_readable = read_u32_checked(address, &active);
+        if (!active_readable) {
+          reason = "active_slot_unreadable";
+        } else if (active == 0u) {
+          reason = "actor_inactive";
+        } else if (!checked_address_add((uintptr_t)actor_pool,
+                                        PROBE_SAMP_R5_ACTOR_POOL_REMOTE_OFFSET + slot_offset,
+                                        &address)) {
+          reason = "actor_slot_unreadable";
+        } else {
+          actor_slot_readable = read_u32_checked(address, &actor_value);
+          if (!actor_slot_readable) {
+            reason = "actor_slot_unreadable";
+          } else if (actor_value == 0u) {
+            reason = "actor_null";
+          } else if (!checked_address_add((uintptr_t)actor_value,
+                                          PROBE_SAMP_R5_REMOTE_ACTOR_PED_OFFSET, &address)) {
+            reason = "actor_ped_slot_unreadable";
+          } else {
+            ped_slot_readable = read_u32_checked(address, &ped_value);
+            if (!ped_slot_readable) {
+              reason = "actor_ped_slot_unreadable";
+            } else if (ped_value == 0u) {
+              reason = "ped_null";
+            } else if (!checked_address_add((uintptr_t)ped_value,
+                                            PROBE_GTA_PED_AIMING_ROTATION_OFFSET, &address)) {
+              reason = "heading_unreadable";
+            } else {
+              heading_readable = read_u32_checked(address, &stored_heading_bits);
+              reason = heading_readable ? "ok" : "heading_unreadable";
+            }
+          }
+        }
+      }
+    }
+  }
+  if (request_readable) {
+    expected_heading = actor_rpc175_expected_heading(request_angle_bits);
+    expected_heading_bits = actor_bits_from_float(expected_heading);
+  }
+  if (heading_readable) {
+    stored_heading = actor_float_from_bits(stored_heading_bits);
+  }
+  if (request_readable && heading_readable) {
+    heading_delta = stored_heading - expected_heading;
+    converted_bits_match = expected_heading_bits == stored_heading_bits;
+  }
+
+  probe_log("actor_rpc175_readback: seq=%ld actor=%u request_readable=%d "
+            "request_angle=%.9g request_angle_bits=0x%08lx actor_pool=%p "
+            "active_readable=%d active=0x%08lx actor_slot_readable=%d actor_ptr=%p "
+            "ped_slot_readable=%d ped=%p readback=%d stored_heading=%.9g "
+            "stored_heading_bits=0x%08lx expected_heading=%.9g "
+            "expected_heading_bits=0x%08lx heading_delta=%.9g converted_bits_match=%d "
+            "reason=%s original_called=1 evidence=STATIC_037,PROBE_TRACE,TODO_VERIFY",
+            (long)seq, actor_id, request_readable, (double)request_angle,
+            (unsigned long)request_angle_bits, actor_pool, active_readable, (unsigned long)active,
+            actor_slot_readable, (void *)(uintptr_t)actor_value, ped_slot_readable,
+            (void *)(uintptr_t)ped_value, heading_readable, (double)stored_heading,
+            (unsigned long)stored_heading_bits, (double)expected_heading,
+            (unsigned long)expected_heading_bits, (double)heading_delta, converted_bits_match, reason);
+}
+
+/*
+ * STATIC_037 + PROBE_TRACE:
+ * RPC178 reaches CActor::SetHealth through ActorPool active/remote slots and
+ * writes the raw health DWORD to CPed+0x540. Re-resolve the complete chain
+ * after the original handler returns so <=0 helper effects are observable
+ * without retaining a potentially stale pre-call pointer.
+ */
+static void log_actor_rpc178_readback(LONG seq, unsigned actor_id, int request_readable,
+                                      DWORD request_health_bits) {
+  void *actor_pool = actor_pool_pointer(NULL, NULL);
+  DWORD active = 0u;
+  DWORD actor_value = 0u;
+  DWORD ped_value = 0u;
+  DWORD stored_health_bits = 0u;
+  int active_readable = 0;
+  int actor_slot_readable = 0;
+  int ped_slot_readable = 0;
+  int health_readable = 0;
+  int health_match = -1;
+  const char *reason = "actor_pool_unavailable";
+  uintptr_t slot_offset;
+  uintptr_t address;
+
+  if (actor_pool != NULL) {
+    if (actor_id >= PROBE_SAMP_R5_ACTOR_POOL_CAPACITY) {
+      reason = "actor_out_of_range";
+    } else {
+      slot_offset = (uintptr_t)actor_id * sizeof(DWORD);
+      if (!checked_address_add((uintptr_t)actor_pool,
+                               PROBE_SAMP_R5_ACTOR_POOL_ACTIVE_OFFSET + slot_offset, &address)) {
+        reason = "slot_unreadable";
+      } else {
+        active_readable = read_u32_checked(address, &active);
+        if (!active_readable) {
+          reason = "slot_unreadable";
+        } else if (active == 0u) {
+          reason = "actor_inactive";
+        } else if (!checked_address_add((uintptr_t)actor_pool,
+                                        PROBE_SAMP_R5_ACTOR_POOL_REMOTE_OFFSET + slot_offset,
+                                        &address)) {
+          reason = "slot_unreadable";
+        } else {
+          actor_slot_readable = read_u32_checked(address, &actor_value);
+          if (!actor_slot_readable) {
+            reason = "slot_unreadable";
+          } else if (actor_value == 0u) {
+            reason = "actor_null";
+          } else if (!checked_address_add((uintptr_t)actor_value,
+                                          PROBE_SAMP_R5_REMOTE_ACTOR_PED_OFFSET, &address)) {
+            reason = "actor_ped_unreadable";
+          } else {
+            ped_slot_readable = read_u32_checked(address, &ped_value);
+            if (!ped_slot_readable) {
+              reason = "actor_ped_unreadable";
+            } else if (ped_value == 0u) {
+              reason = "ped_null";
+            } else if (!checked_address_add((uintptr_t)ped_value, PROBE_GTA_PED_HEALTH_OFFSET,
+                                            &address)) {
+              reason = "health_unreadable";
+            } else {
+              health_readable = read_u32_checked(address, &stored_health_bits);
+              reason = health_readable ? "ok" : "health_unreadable";
+            }
+          }
+        }
+      }
+    }
+  }
+  if (request_readable && health_readable) {
+    health_match = request_health_bits == stored_health_bits;
+  }
+
+  probe_log("actor_rpc178_readback: seq=%ld actor=%u request_readable=%d "
+            "request_health_bits=0x%08lx actor_pool=%p active_readable=%d active=0x%08lx "
+            "actor_slot_readable=%d actor_ptr=%p ped_slot_readable=%d ped=%p readback=%d "
+            "stored_health_bits=0x%08lx health_match=%d reason=%s original_called=1 "
+            "evidence=STATIC_037,PROBE_TRACE,TODO_VERIFY",
+            (long)seq, actor_id, request_readable, (unsigned long)request_health_bits, actor_pool,
+            active_readable, (unsigned long)active, actor_slot_readable,
+            (void *)(uintptr_t)actor_value, ped_slot_readable, (void *)(uintptr_t)ped_value,
+            health_readable, (unsigned long)stored_health_bits, health_match, reason);
 }
 
 static unsigned actor_id_for_remote(void *remote_actor) {
@@ -5141,11 +5927,28 @@ static void PROBE_THISCALL hook_samp_remote_actor_set_invulnerable(void *remote_
 }
 
 static void PROBE_THISCALL hook_samp_remote_actor_set_position(void *remote_actor, DWORD x, DWORD y, DWORD z) {
-  unsigned actor_id = actor_id_for_remote(remote_actor);
+  unsigned actor_id;
   char arguments[160];
   LONG seq;
   int called = g_orig_samp_remote_actor_set_position != NULL;
   probe_actor_heavy_scope_saved saved;
+
+  /*
+   * PROBE_TRACE:
+   * CActor::SetPosition is also used by unrelated actor lifecycle work and was
+   * extremely noisy in broad heavy runs. Keep the byte-validated trampoline
+   * installed, but only snapshot the deep path while the RPC176 handler owns
+   * this thread. Calls outside that scope are forwarded without probing.
+   */
+  if (g_actor_rpc_trace_depth <= 0 ||
+      g_actor_active_rpc_id != PROBE_SAMP_ACTOR_RPC_SET_POSITION) {
+    if (called) {
+      ((probe_samp_remote_actor_position_fn)g_orig_samp_remote_actor_set_position)(
+          remote_actor, x, y, z);
+    }
+    return;
+  }
+  actor_id = actor_id_for_remote(remote_actor);
   snprintf(arguments, sizeof(arguments), "position=%.6f,%.6f,%.6f bits=%08lx,%08lx,%08lx",
            actor_float_from_bits(x), actor_float_from_bits(y), actor_float_from_bits(z),
            (unsigned long)x, (unsigned long)y, (unsigned long)z);
@@ -5160,7 +5963,8 @@ static void PROBE_THISCALL hook_samp_remote_actor_set_position(void *remote_acto
 }
 
 static void PROBE_THISCALL hook_gta_ped_teleport(void *ped, DWORD x, DWORD y, DWORD z, DWORD reset_rotation) {
-  int trace = g_actor_heavy_scope_depth > 0;
+  int trace = g_actor_heavy_scope_depth > 0 && g_actor_rpc_trace_depth > 0 &&
+              g_actor_active_rpc_id == PROBE_SAMP_ACTOR_RPC_SET_POSITION;
   unsigned actor_id = actor_heavy_current_id();
   LONG seq = g_actor_heavy_scope_seq;
 
@@ -5185,7 +5989,8 @@ static void PROBE_THISCALL hook_gta_ped_teleport(void *ped, DWORD x, DWORD y, DW
 }
 
 static void PROBE_THISCALL hook_gta_ped_intelligence_flush(void *intelligence, DWORD set_default_task) {
-  int trace = g_actor_heavy_scope_depth > 0;
+  int trace = g_actor_heavy_scope_depth > 0 && g_actor_rpc_trace_depth > 0 &&
+              g_actor_active_rpc_id == PROBE_SAMP_ACTOR_RPC_SET_POSITION;
   unsigned actor_id = actor_heavy_current_id();
   LONG seq = g_actor_heavy_scope_seq;
 
@@ -5218,7 +6023,9 @@ static int PROBE_THISCALL hook_gta_process_one_command(void *script) {
   /* The GTA dispatcher is process-wide and extremely hot. Outside a typed
    * Actor scope, preserve the original call with no VirtualQuery, opcode
    * decode, caller classification, or logging overhead. */
-  if (g_actor_heavy_global_scope_depth <= 0 || g_actor_heavy_scope_depth <= 0) {
+  if (g_actor_heavy_global_scope_depth <= 0 || g_actor_heavy_scope_depth <= 0 ||
+      g_actor_rpc_trace_depth <= 0 ||
+      g_actor_active_rpc_id != PROBE_SAMP_ACTOR_RPC_SET_POSITION) {
     if (g_orig_gta_process_one_command != NULL) {
       return ((probe_gta_process_one_command_fn)g_orig_gta_process_one_command)(script);
     }
@@ -5337,26 +6144,38 @@ static LONG log_samp_actor_rpc_begin(const char *name, unsigned rpc_id, probe_sa
         break;
       }
       case PROBE_SAMP_ACTOR_RPC_SET_FACING_ANGLE:
-        if (bytes >= 6) {
-          snprintf(detail, sizeof(detail), "actor=%u angle=%.6f", actor_id,
-                   read_f32_or((uintptr_t)data + 2u, 0.0f));
+        if (bits >= 48 && bytes >= 6) {
+          snprintf(detail, sizeof(detail), "actor=%u angle=%.6f angle_bits=0x%08lx", actor_id,
+                   read_f32_or((uintptr_t)data + 2u, 0.0f),
+                   (unsigned long)read_u32_or((uintptr_t)data + 2u, 0u));
         } else {
           snprintf(detail, sizeof(detail), "actor=%u truncated_angle=1", actor_id);
         }
         break;
       case PROBE_SAMP_ACTOR_RPC_SET_POSITION:
-        if (bytes >= 14) {
-          snprintf(detail, sizeof(detail), "actor=%u pos=%.6f,%.6f,%.6f", actor_id,
+        if (bits >= 112 && bytes >= 14) {
+          snprintf(detail, sizeof(detail),
+                   "actor=%u actor_id_bits=0x%04x pos=%.6f,%.6f,%.6f "
+                   "position_bits=0x%08lx,0x%08lx,0x%08lx "
+                   "first_112_bits=1 trailing_bits=%u",
+                   actor_id, actor_id,
                    read_f32_or((uintptr_t)data + 2u, 0.0f), read_f32_or((uintptr_t)data + 6u, 0.0f),
-                   read_f32_or((uintptr_t)data + 10u, 0.0f));
+                   read_f32_or((uintptr_t)data + 10u, 0.0f),
+                   (unsigned long)read_u32_or((uintptr_t)data + 2u, 0u),
+                   (unsigned long)read_u32_or((uintptr_t)data + 6u, 0u),
+                   (unsigned long)read_u32_or((uintptr_t)data + 10u, 0u),
+                   (unsigned)((unsigned)bits - 112u));
         } else {
-          snprintf(detail, sizeof(detail), "actor=%u truncated_position=1", actor_id);
+          snprintf(detail, sizeof(detail),
+                   "actor=%u actor_id_bits=0x%04x truncated_position=1 first_112_bits=0",
+                   actor_id, actor_id);
         }
         break;
       case PROBE_SAMP_ACTOR_RPC_SET_HEALTH:
-        if (bytes >= 6) {
-          snprintf(detail, sizeof(detail), "actor=%u health=%.6f", actor_id,
-                   read_f32_or((uintptr_t)data + 2u, 0.0f));
+        if (bits >= 48 && bytes >= 6) {
+          snprintf(detail, sizeof(detail), "actor=%u health=%.6f health_bits=0x%08lx", actor_id,
+                   read_f32_or((uintptr_t)data + 2u, 0.0f),
+                   (unsigned long)read_u32_or((uintptr_t)data + 2u, 0u));
         } else {
           snprintf(detail, sizeof(detail), "actor=%u truncated_health=1", actor_id);
         }
@@ -5381,6 +6200,23 @@ static void call_samp_actor_rpc_original(const char *name, unsigned rpc_id, prob
                                          void *caller, void *original) {
   LONG seq = log_samp_actor_rpc_begin(name, rpc_id, rpc, caller);
   unsigned actor_id = actor_id_from_rpc(rpc);
+  DWORD request_angle_bits = 0u;
+  int request_angle_readable =
+      rpc_id == PROBE_SAMP_ACTOR_RPC_SET_FACING_ANGLE
+          ? actor_rpc175_request_angle_bits(rpc, &request_angle_bits)
+          : 0;
+  DWORD request_health_bits = 0u;
+  int request_health_readable =
+      rpc_id == PROBE_SAMP_ACTOR_RPC_SET_HEALTH
+          ? actor_rpc178_request_health_bits(rpc, &request_health_bits)
+          : 0;
+  DWORD request_position_bits[3] = {0u, 0u, 0u};
+  int request_position_readable =
+      rpc_id == PROBE_SAMP_ACTOR_RPC_SET_POSITION
+          ? actor_rpc176_request_position_bits(rpc, request_position_bits)
+          : 0;
+  probe_actor_rpc176_state position_before;
+  probe_actor_rpc176_state position_after;
   int previous_depth = g_actor_rpc_trace_depth;
   LONG previous_seq = g_actor_active_rpc_seq;
   unsigned previous_rpc_id = g_actor_active_rpc_id;
@@ -5390,13 +6226,29 @@ static void call_samp_actor_rpc_original(const char *name, unsigned rpc_id, prob
   g_actor_active_rpc_seq = seq;
   g_actor_active_rpc_id = rpc_id;
   g_actor_active_id = actor_id;
-  if (actor_heavy_enabled()) {
+  if (rpc_id == PROBE_SAMP_ACTOR_RPC_SET_POSITION) {
+    capture_actor_rpc176_state(actor_id, &position_before);
+    log_actor_rpc176_state("pre", seq, actor_id, &position_before);
+  }
+  if (actor_heavy_enabled() && rpc_id == PROBE_SAMP_ACTOR_RPC_SET_POSITION) {
     log_actor_heavy_snapshot("rpc.begin", name, seq, actor_id, NULL, NULL);
   }
 
   if (original != NULL) {
     ((probe_samp_rpc_handler_fn)original)(rpc);
-    if (actor_heavy_enabled()) {
+    if (rpc_id == PROBE_SAMP_ACTOR_RPC_SET_FACING_ANGLE) {
+      log_actor_rpc175_readback(seq, actor_id, request_angle_readable, request_angle_bits);
+    }
+    if (rpc_id == PROBE_SAMP_ACTOR_RPC_SET_HEALTH) {
+      log_actor_rpc178_readback(seq, actor_id, request_health_readable, request_health_bits);
+    }
+    if (rpc_id == PROBE_SAMP_ACTOR_RPC_SET_POSITION) {
+      capture_actor_rpc176_state(actor_id, &position_after);
+      log_actor_rpc176_state("post", seq, actor_id, &position_after);
+      log_actor_rpc176_comparison(seq, actor_id, request_position_readable,
+                                  request_position_bits, &position_before, &position_after);
+    }
+    if (actor_heavy_enabled() && rpc_id == PROBE_SAMP_ACTOR_RPC_SET_POSITION) {
       log_actor_heavy_snapshot("rpc.end", name, seq, actor_id, NULL, NULL);
     }
     probe_log("actor_rpc: phase=end seq=%ld name=%s id=%u original_called=1 "
@@ -7473,6 +8325,7 @@ static LONG CALLBACK probe_exception_handler(PEXCEPTION_POINTERS info) {
   probe_log_address_region("sp", sp);
   probe_log_memory_bytes("ip", ip, 16, 64);
   probe_log_stack_dwords(sp);
+  probe_log_ipl_null_entity_context(info->ContextRecord, ip, sp);
   probe_log_transition_snapshot("exception");
   return EXCEPTION_CONTINUE_SEARCH;
 }

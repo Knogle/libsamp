@@ -29,13 +29,28 @@ static int hook_trace_enabled(void) {
 }
 
 static void hook_trace_file_line(const char *line) {
+  char path[MAX_PATH];
   FILE *file = NULL;
+  const char *log_dir = NULL;
 
   if (line == NULL || line[0] == '\0') {
     return;
   }
 
-  file = fopen("samp_hook_trace.log", "ab");
+  log_dir = getenv("SAMPDLL_LOG_DIR");
+  if (log_dir != NULL && log_dir[0] != '\0') {
+    size_t log_dir_len = strlen(log_dir);
+    const char *separator =
+        (log_dir[log_dir_len - 1u] == '\\' || log_dir[log_dir_len - 1u] == '/') ? "" : "\\";
+    int written = snprintf(path, sizeof(path), "%s%ssamp_hook_trace.log", log_dir, separator);
+    if (written <= 0 || (size_t)written >= sizeof(path)) {
+      return;
+    }
+  } else {
+    strcpy(path, "samp_hook_trace.log");
+  }
+
+  file = fopen(path, "ab");
   if (file == NULL) {
     return;
   }

@@ -76,6 +76,10 @@ int main()
 	unsigned char* received = nullptr;
 	bool shouldBan = false;
 
+	// ReliabilityLayer is normally configured through RakPeer. Keep this
+	// standalone harness deterministic and suppress progress pseudo-packets.
+	receiver.SetSplitMessageProgressInterval(0);
+
 	payload[0] = static_cast<uint8_t>(RakNet::ID_RPC);
 	payload[1] = 61U; // ScrShowDialog
 	for (std::size_t i = 2; i < payload.size(); ++i)

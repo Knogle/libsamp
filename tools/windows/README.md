@@ -1,5 +1,8 @@
 # Windows Original-Run Collection Kit
 
+For the dedicated native-Windows deployment, crash-dump, screenshot, and
+interactive-agent workflow, see [`remote_lab/README.md`](remote_lab/README.md).
+
 Goal: extract high-value evidence from a native Windows run of the original `samp.dll` so we can reproduce ABI and runtime behavior against the same baseline later.
 
 This kit is intentionally compatibility-first. It prioritizes:

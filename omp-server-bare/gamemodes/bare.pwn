@@ -53,6 +53,22 @@ static const Float:RPC_MAP_ICON_CLUSTER_DISTANCE = 32.0;
 #define RPC_ACTOR_COUNT (4)
 #define RPC_ACTOR_PHASE_COUNT (8)
 #define RPC_ACTOR_TICK_MS (4000)
+#define RPC178_EDGE_COUNT (5)
+#define RPC178_EDGE_TICK_MS (500)
+#define RPC178_EDGE_STREAM_TIMEOUT_TICKS (20)
+#define RPC178_EDGE_HOLD_TICKS (4)
+#define RPC178_EDGE_STATE_WAIT_STREAM (0)
+#define RPC178_EDGE_STATE_APPLY (1)
+#define RPC178_EDGE_STATE_HOLD (2)
+#define RPC178_EDGE_ALL_STREAMED_MASK ((1 << RPC178_EDGE_COUNT) - 1)
+#define RPC175_EDGE_COUNT (9)
+#define RPC175_EDGE_TICK_MS (500)
+#define RPC175_EDGE_STREAM_TIMEOUT_TICKS (20)
+#define RPC175_EDGE_HOLD_TICKS (4)
+#define RPC175_EDGE_STATE_WAIT_STREAM (0)
+#define RPC175_EDGE_STATE_APPLY (1)
+#define RPC175_EDGE_STATE_HOLD (2)
+#define RPC175_EDGE_ALL_STREAMED_MASK ((1 << RPC175_EDGE_COUNT) - 1)
 #define RPC_PLAYER_ATTACHED_OBJECT_SLOT (0)
 #define RPC_PLAYER_ATTACHED_OBJECT_MODEL (18645)
 #define RPC_PLAYER_ATTACHED_OBJECT_BONE (2)
@@ -110,6 +126,91 @@ static const Float:gRpcActorHealthValues[RPC_ACTOR_COUNT] = {
 	55.0
 };
 
+// TODO_VERIFY: these five fixed IEEE-754 payloads exercise the original
+// RPC178 handler's ordered <= 0 branch and raw float transport without
+// accepting any player-selected value.
+static const gRpc178EdgeHealthBits[RPC178_EDGE_COUNT] = {
+	0x7F800000, // +infinity
+	0x7FC01234, // quiet NaN with a stable payload
+	0x00000000, // +0.0
+	0x80000000, // -0.0
+	0xC1C80000  // -25.0
+};
+
+static const gRpc178EdgeCaseNames[RPC178_EDGE_COUNT][8] = {
+	"+inf",
+	"qnan",
+	"+zero",
+	"-zero",
+	"-25"
+};
+
+static const gRpc178EdgeSkins[RPC178_EDGE_COUNT] = {
+	287,
+	101,
+	46,
+	170,
+	21
+};
+
+static const Float:gRpc178EdgeOffsets[RPC178_EDGE_COUNT][2] = {
+	{0.0, 5.0},
+	{4.75, 1.5},
+	{3.0, -4.0},
+	{-3.0, -4.0},
+	{-4.75, 1.5}
+};
+
+// TODO_VERIFY: these fixed IEEE-754 payloads cover boundary and non-finite
+// RPC175 facing-angle inputs without accepting any player-selected value.
+static const gRpc175EdgeAngleBits[RPC175_EDGE_COUNT] = {
+	0x00000000, // +0.0
+	0x80000000, // -0.0
+	0x43340000, // 180.0
+	0x43B40000, // 360.0
+	0xC2340000, // -45.0
+	0x44070000, // 540.0
+	0x7F800000, // +infinity
+	0xFF800000, // -infinity
+	0x7FC01234  // quiet NaN with a stable payload
+};
+
+static const gRpc175EdgeCaseNames[RPC175_EDGE_COUNT][8] = {
+	"+zero",
+	"-zero",
+	"180",
+	"360",
+	"-45",
+	"540",
+	"+inf",
+	"-inf",
+	"qnan"
+};
+
+static const gRpc175EdgeSkins[RPC175_EDGE_COUNT] = {
+	287,
+	101,
+	46,
+	170,
+	21,
+	7,
+	19,
+	29,
+	60
+};
+
+static const Float:gRpc175EdgeOffsets[RPC175_EDGE_COUNT][2] = {
+	{0.0, 8.0},
+	{5.1, 6.1},
+	{8.0, 0.0},
+	{5.1, -6.1},
+	{0.0, -8.0},
+	{-5.1, -6.1},
+	{-8.0, 0.0},
+	{-5.1, 6.1},
+	{0.0, 4.0}
+};
+
 // Safe radar sprites: marker types 1, 2, 4 and 56 are intentionally omitted
 // because the official documentation warns that they can crash the map legend.
 static const gRpcMapIconMarkerTypes[RPC_MAP_ICON_SLOTS_PER_STYLE] = {
@@ -150,6 +251,8 @@ forward SampObjectScanTick();
 forward RpcMapIconBatchTick();
 forward RpcGangZoneBatchTick();
 forward RpcActorBatchTick();
+forward Rpc178EdgeTick();
+forward Rpc175EdgeTick();
 
 static gVehicleIds[TEST_VEHICLE_COUNT];
 static gSpawnCustomObjects[SPAWN_CUSTOM_OBJECT_COUNT];
@@ -203,6 +306,28 @@ static gRpcActorBatchLastAppliedPhase = -1;
 static Float:gRpcActorBatchOrigin[3];
 static gRpcActorBatchWorld = 0;
 static gRpcActorBatchHiddenWorld = 1;
+static gRpc178EdgeIds[RPC178_EDGE_COUNT] = {INVALID_ACTOR_ID, ...};
+static bool:gRpc178EdgeActive = false;
+static gRpc178EdgeSource = INVALID_PLAYER_ID;
+static gRpc178EdgeTimer = 0;
+static gRpc178EdgeState = RPC178_EDGE_STATE_WAIT_STREAM;
+static gRpc178EdgeApplyIndex = 0;
+static gRpc178EdgeStreamWaitTicks = 0;
+static gRpc178EdgeHoldTicks = 0;
+static gRpc178EdgeStreamMask = 0;
+static Float:gRpc178EdgeOrigin[3];
+static gRpc178EdgeWorld = 0;
+static gRpc175EdgeIds[RPC175_EDGE_COUNT] = {INVALID_ACTOR_ID, ...};
+static bool:gRpc175EdgeActive = false;
+static gRpc175EdgeSource = INVALID_PLAYER_ID;
+static gRpc175EdgeTimer = 0;
+static gRpc175EdgeState = RPC175_EDGE_STATE_WAIT_STREAM;
+static gRpc175EdgeApplyIndex = 0;
+static gRpc175EdgeStreamWaitTicks = 0;
+static gRpc175EdgeHoldTicks = 0;
+static gRpc175EdgeStreamMask = 0;
+static Float:gRpc175EdgeOrigin[3];
+static gRpc175EdgeWorld = 0;
 static Menu:gRpcLegacyMenu = INVALID_MENU;
 static Menu:gOriginalMenuTest = INVALID_MENU;
 static const gOriginalMenuTestItems[6][16] = {"Test1", "Test2", "Test3", "Test4", "Test5", "Test6"};
@@ -361,6 +486,8 @@ stock SendPlayerAudioChatRpcHelp(playerid)
 	SendClientMessage(playerid, 0xFFFFFFFF, "[bare-rpctest] /rpcmapicons starts the 100-slot moving beacon; /rpcmapiconsoff removes it.");
 	SendClientMessage(playerid, 0xFFFFFFFF, "[bare-rpctest] /rpczones cycles RPC108/121/85/120 on four radar quadrants; /rpczonesoff cleans up.");
 	SendClientMessage(playerid, 0xFFFFFFFF, "[bare-rpctest] /rpcactors cycles legacy actor create/state/animation/stream operations; /rpcactorsoff cleans up.");
+	SendClientMessage(playerid, 0xFFFFFFFF, "[bare-rpctest] /rpc178edge sends five fixed health edge cases after stream-in; /rpc178edgeoff cleans up.");
+	SendClientMessage(playerid, 0xFFFFFFFF, "[bare-rpctest] /rpc175edge sends nine fixed facing-angle edge cases after stream-in; /rpc175edgeoff cleans up.");
 	SendClientMessage(playerid, 0xFFFFFFFF, "[bare-rpctest] /menutest mirrors stock 0.3.7; /rpcmenu tests RPC76/77/78 plus outgoing RPC132/140.");
 	SendClientMessage(playerid, 0xFFFFFFFF, "[bare-clicktest] Hold TAB, enable the cursor with RMB, then double-click a player row (RPC23/source 0).");
 	SendClientMessage(playerid, 0xFFCC66FF, "[bare-rpctest] RPC137/138 join/quit are automatic; RPC59 needs a second client/NPC as the visible target.");
@@ -1203,6 +1330,555 @@ stock StartRpcActorBatch(playerid)
 	return 1;
 }
 
+/// Finds an actor's fixed RPC178 edge-fixture slot, or -1 for unrelated actors.
+stock Rpc178EdgeActorSlot(actorid)
+{
+	for (new index = 0; index < RPC178_EDGE_COUNT; index++)
+	{
+		if (gRpc178EdgeIds[index] == actorid)
+		{
+			return index;
+		}
+	}
+	return -1;
+}
+
+/// Reports whether all five fixed RPC178 edge actors still exist server-side.
+/// Reference: https://open.mp/docs/scripting/functions/IsValidActor
+stock bool:Rpc178EdgeReady()
+{
+	for (new index = 0; index < RPC178_EDGE_COUNT; index++)
+	{
+		if (gRpc178EdgeIds[index] == INVALID_ACTOR_ID || !IsValidActor(gRpc178EdgeIds[index]))
+		{
+			return false;
+		}
+	}
+	return true;
+}
+
+/// Destroys every actor owned by the fixed RPC178 edge fixture.
+/// Reference: https://open.mp/docs/scripting/functions/DestroyActor
+stock DestroyRpc178EdgeEntities()
+{
+	new destroyed = 0;
+	for (new index = 0; index < RPC178_EDGE_COUNT; index++)
+	{
+		new actorid = gRpc178EdgeIds[index];
+		if (actorid != INVALID_ACTOR_ID && IsValidActor(actorid))
+		{
+			DestroyActor(actorid);
+			destroyed++;
+		}
+		gRpc178EdgeIds[index] = INVALID_ACTOR_ID;
+	}
+	return destroyed;
+}
+
+/// Stops the one-shot RPC178 edge fixture and resets all of its state.
+/// References: https://open.mp/docs/scripting/functions/KillTimer
+///             https://open.mp/docs/scripting/functions/DestroyActor
+stock StopRpc178Edge(playerid, bool:quiet)
+{
+	new bool:wasActive = gRpc178EdgeActive;
+	new previousSource = gRpc178EdgeSource;
+	new previousState = gRpc178EdgeState;
+	new previousApplyIndex = gRpc178EdgeApplyIndex;
+
+	if (gRpc178EdgeTimer != 0)
+	{
+		KillTimer(gRpc178EdgeTimer);
+		gRpc178EdgeTimer = 0;
+	}
+
+	// Disable callback bookkeeping before DestroyActor can emit stream-out callbacks.
+	gRpc178EdgeActive = false;
+	new destroyed = DestroyRpc178EdgeEntities();
+	gRpc178EdgeSource = INVALID_PLAYER_ID;
+	gRpc178EdgeState = RPC178_EDGE_STATE_WAIT_STREAM;
+	gRpc178EdgeApplyIndex = 0;
+	gRpc178EdgeStreamWaitTicks = 0;
+	gRpc178EdgeHoldTicks = 0;
+	gRpc178EdgeStreamMask = 0;
+	gRpc178EdgeOrigin[0] = 0.0;
+	gRpc178EdgeOrigin[1] = 0.0;
+	gRpc178EdgeOrigin[2] = 0.0;
+	gRpc178EdgeWorld = 0;
+
+	if (!quiet && playerid != INVALID_PLAYER_ID && IsPlayerConnected(playerid))
+	{
+		SendClientMessage(playerid, 0x66FF66FF, wasActive ?
+			"[bare-rpctest] RPC178 edge fixture stopped and all five actors destroyed." :
+			"[bare-rpctest] RPC178 edge fixture was inactive; all five slots were cleaned anyway.");
+	}
+	printf("[bare-rpctest] RPC178 edge_stop requester=%d source=%d was_active=%d state=%d applied=%d destroyed=%d",
+		playerid, previousSource, wasActive, previousState, previousApplyIndex, destroyed);
+	return 1;
+}
+
+/// Advances the fixed RPC178 fixture: wait for all stream-ins, apply one value
+/// per tick, hold the result briefly, then clean up automatically.
+/// References: https://open.mp/docs/scripting/functions/SetActorHealth
+///             https://open.mp/docs/scripting/functions/GetActorHealth
+public Rpc178EdgeTick()
+{
+	if (!gRpc178EdgeActive || gRpc178EdgeSource == INVALID_PLAYER_ID ||
+		!IsPlayerConnected(gRpc178EdgeSource) || !Rpc178EdgeReady())
+	{
+		printf("[bare-rpctest] RPC178 edge_abort reason=fixture_or_source_unavailable source=%d state=%d applied=%d",
+			gRpc178EdgeSource, gRpc178EdgeState, gRpc178EdgeApplyIndex);
+		StopRpc178Edge(INVALID_PLAYER_ID, true);
+		return 1;
+	}
+
+	switch (gRpc178EdgeState)
+	{
+		case RPC178_EDGE_STATE_WAIT_STREAM:
+		{
+			if (gRpc178EdgeStreamMask == RPC178_EDGE_ALL_STREAMED_MASK)
+			{
+				gRpc178EdgeState = RPC178_EDGE_STATE_APPLY;
+				gRpc178EdgeApplyIndex = 0;
+				printf("[bare-rpctest] RPC178 edge_stream_gate_ready source=%d mask=0x%02x wait_ticks=%d",
+					gRpc178EdgeSource, gRpc178EdgeStreamMask, gRpc178EdgeStreamWaitTicks);
+				SendClientMessage(gRpc178EdgeSource, 0x66FF66FF,
+					"[bare-rpctest] All five RPC178 actors streamed in; fixed edge values begin next tick.");
+				return 1;
+			}
+
+			gRpc178EdgeStreamWaitTicks++;
+			if (gRpc178EdgeStreamWaitTicks >= RPC178_EDGE_STREAM_TIMEOUT_TICKS)
+			{
+				printf("[bare-rpctest] RPC178 edge_abort reason=stream_timeout source=%d mask=0x%02x wait_ticks=%d",
+					gRpc178EdgeSource, gRpc178EdgeStreamMask, gRpc178EdgeStreamWaitTicks);
+				SendClientMessage(gRpc178EdgeSource, 0xFF6666FF,
+					"[bare-rpctest] RPC178 edge fixture timed out waiting for all five actors to stream in.");
+				StopRpc178Edge(INVALID_PLAYER_ID, true);
+			}
+			return 1;
+		}
+
+		case RPC178_EDGE_STATE_APPLY:
+		{
+			if (gRpc178EdgeStreamMask != RPC178_EDGE_ALL_STREAMED_MASK)
+			{
+				printf("[bare-rpctest] RPC178 edge_abort reason=stream_lost source=%d mask=0x%02x applied=%d",
+					gRpc178EdgeSource, gRpc178EdgeStreamMask, gRpc178EdgeApplyIndex);
+				SendClientMessage(gRpc178EdgeSource, 0xFF6666FF,
+					"[bare-rpctest] RPC178 edge fixture aborted because an actor streamed out during application.");
+				StopRpc178Edge(INVALID_PLAYER_ID, true);
+				return 1;
+			}
+
+			new index = gRpc178EdgeApplyIndex;
+			if (index < 0 || index >= RPC178_EDGE_COUNT)
+			{
+				printf("[bare-rpctest] RPC178 edge_abort reason=invalid_apply_index index=%d", index);
+				StopRpc178Edge(INVALID_PLAYER_ID, true);
+				return 1;
+			}
+
+			new requestedBits = gRpc178EdgeHealthBits[index];
+			new Float:requestedHealth = Float:requestedBits;
+			new setResult = SetActorHealth(gRpc178EdgeIds[index], requestedHealth);
+			new Float:serverHealth = 0.0;
+			new getResult = GetActorHealth(gRpc178EdgeIds[index], serverHealth);
+			printf("[bare-rpctest] RPC178 edge_apply tick_index=%d case=%s actor=%d requested_bits=0x%08x set_result=%d server_readback_result=%d server_readback_bits=0x%08x",
+				index, gRpc178EdgeCaseNames[index], gRpc178EdgeIds[index], requestedBits,
+				setResult, getResult, _:serverHealth);
+
+			gRpc178EdgeApplyIndex++;
+			if (gRpc178EdgeApplyIndex == RPC178_EDGE_COUNT)
+			{
+				gRpc178EdgeState = RPC178_EDGE_STATE_HOLD;
+				gRpc178EdgeHoldTicks = 0;
+				printf("[bare-rpctest] RPC178 edge_hold_start source=%d applied=%d hold_ticks=%d interval_ms=%d",
+					gRpc178EdgeSource, gRpc178EdgeApplyIndex, RPC178_EDGE_HOLD_TICKS, RPC178_EDGE_TICK_MS);
+				SendClientMessage(gRpc178EdgeSource, 0xFFFFFFFF,
+					"[bare-rpctest] All five fixed RPC178 values sent; holding briefly before automatic cleanup.");
+			}
+			return 1;
+		}
+
+		case RPC178_EDGE_STATE_HOLD:
+		{
+			gRpc178EdgeHoldTicks++;
+			if (gRpc178EdgeHoldTicks >= RPC178_EDGE_HOLD_TICKS)
+			{
+				new source = gRpc178EdgeSource;
+				printf("[bare-rpctest] RPC178 edge_complete source=%d applied=%d hold_ticks=%d",
+					source, gRpc178EdgeApplyIndex, gRpc178EdgeHoldTicks);
+				SendClientMessage(source, 0x66FF66FF,
+					"[bare-rpctest] RPC178 edge fixture complete; destroying all five actors.");
+				StopRpc178Edge(INVALID_PLAYER_ID, true);
+			}
+			return 1;
+		}
+	}
+
+	printf("[bare-rpctest] RPC178 edge_abort reason=invalid_state state=%d", gRpc178EdgeState);
+	StopRpc178Edge(INVALID_PLAYER_ID, true);
+	return 1;
+}
+
+/// Starts a single deterministic run of five fixed IEEE-754 RPC178 payloads.
+/// Health writes do not begin until OnActorStreamIn has observed every actor
+/// for the requesting player.
+/// References: https://open.mp/docs/scripting/functions/CreateActor
+///             https://open.mp/docs/scripting/functions/SetActorVirtualWorld
+///             https://open.mp/docs/scripting/functions/SetTimer
+stock StartRpc178Edge(playerid)
+{
+	if (gRpc178EdgeActive || gRpc178EdgeTimer != 0 || Rpc178EdgeReady())
+	{
+		StopRpc178Edge(playerid, true);
+	}
+	if (gRpcActorBatchActive)
+	{
+		StopRpcActorBatch(playerid, true);
+		printf("[bare-rpctest] RPC178 edge_exclusive stopped_actor_batch=1 requester=%d", playerid);
+	}
+
+	if (!GetPlayerPos(playerid, gRpc178EdgeOrigin[0], gRpc178EdgeOrigin[1], gRpc178EdgeOrigin[2]))
+	{
+		SendClientMessage(playerid, 0xFF6666FF,
+			"[bare-rpctest] Could not capture your position for the RPC178 edge fixture.");
+		return 1;
+	}
+
+	gRpc178EdgeWorld = GetPlayerVirtualWorld(playerid);
+	gRpc178EdgeActive = true;
+	gRpc178EdgeSource = playerid;
+	gRpc178EdgeState = RPC178_EDGE_STATE_WAIT_STREAM;
+	gRpc178EdgeApplyIndex = 0;
+	gRpc178EdgeStreamWaitTicks = 0;
+	gRpc178EdgeHoldTicks = 0;
+	gRpc178EdgeStreamMask = 0;
+
+	for (new index = 0; index < RPC178_EDGE_COUNT; index++)
+	{
+		gRpc178EdgeIds[index] = CreateActor(
+			gRpc178EdgeSkins[index],
+			gRpc178EdgeOrigin[0] + gRpc178EdgeOffsets[index][0],
+			gRpc178EdgeOrigin[1] + gRpc178EdgeOffsets[index][1],
+			gRpc178EdgeOrigin[2],
+			180.0
+		);
+		if (gRpc178EdgeIds[index] == INVALID_ACTOR_ID ||
+			!SetActorVirtualWorld(gRpc178EdgeIds[index], gRpc178EdgeWorld))
+		{
+			printf("[bare-rpctest] ERROR: RPC178 edge_actor_create failed slot=%d actor=%d",
+				index, gRpc178EdgeIds[index]);
+			SendClientMessage(playerid, 0xFF6666FF,
+				"[bare-rpctest] Could not create all five RPC178 edge actors; partial state was cleaned.");
+			StopRpc178Edge(INVALID_PLAYER_ID, true);
+			return 1;
+		}
+		printf("[bare-rpctest] RPC178 edge_actor_create slot=%d case=%s actor=%d requested_bits=0x%08x world=%d pos=%.3f,%.3f,%.3f",
+			index, gRpc178EdgeCaseNames[index], gRpc178EdgeIds[index], gRpc178EdgeHealthBits[index],
+			gRpc178EdgeWorld,
+			gRpc178EdgeOrigin[0] + gRpc178EdgeOffsets[index][0],
+			gRpc178EdgeOrigin[1] + gRpc178EdgeOffsets[index][1],
+			gRpc178EdgeOrigin[2]);
+	}
+
+	gRpc178EdgeTimer = SetTimer("Rpc178EdgeTick", RPC178_EDGE_TICK_MS, true);
+	if (gRpc178EdgeTimer == 0)
+	{
+		SendClientMessage(playerid, 0xFF6666FF,
+			"[bare-rpctest] Could not create the RPC178 edge timer; all actors were cleaned.");
+		StopRpc178Edge(INVALID_PLAYER_ID, true);
+		return 1;
+	}
+
+	SendClientMessage(playerid, 0x66FF66FF,
+		"[bare-rpctest] Five RPC178 edge actors created; waiting for every actor to stream in.");
+	SendClientMessage(playerid, 0xFFFFFFFF,
+		"[bare-rpctest] Fixed order: +inf, qNaN, +0, -0, -25; one SetActorHealth per 500 ms tick.");
+	SendClientMessage(playerid, 0xFFFFFFFF,
+		"[bare-rpctest] Use /rpc178edgeoff for immediate cleanup.");
+	printf("[bare-rpctest] RPC178 edge_start source=%d timer=%d interval_ms=%d world=%d actors=%d,%d,%d,%d,%d",
+		playerid, gRpc178EdgeTimer, RPC178_EDGE_TICK_MS, gRpc178EdgeWorld,
+		gRpc178EdgeIds[0], gRpc178EdgeIds[1], gRpc178EdgeIds[2],
+		gRpc178EdgeIds[3], gRpc178EdgeIds[4]);
+	return 1;
+}
+
+/// Finds an actor's fixed RPC175 edge-fixture slot, or -1 for unrelated actors.
+stock Rpc175EdgeActorSlot(actorid)
+{
+	for (new index = 0; index < RPC175_EDGE_COUNT; index++)
+	{
+		if (gRpc175EdgeIds[index] == actorid)
+		{
+			return index;
+		}
+	}
+	return -1;
+}
+
+/// Reports whether all nine fixed RPC175 edge actors still exist server-side.
+/// Reference: https://open.mp/docs/scripting/functions/IsValidActor
+stock bool:Rpc175EdgeReady()
+{
+	for (new index = 0; index < RPC175_EDGE_COUNT; index++)
+	{
+		if (gRpc175EdgeIds[index] == INVALID_ACTOR_ID || !IsValidActor(gRpc175EdgeIds[index]))
+		{
+			return false;
+		}
+	}
+	return true;
+}
+
+/// Destroys every actor owned by the fixed RPC175 edge fixture.
+/// Reference: https://open.mp/docs/scripting/functions/DestroyActor
+stock DestroyRpc175EdgeEntities()
+{
+	new destroyed = 0;
+	for (new index = 0; index < RPC175_EDGE_COUNT; index++)
+	{
+		new actorid = gRpc175EdgeIds[index];
+		if (actorid != INVALID_ACTOR_ID && IsValidActor(actorid))
+		{
+			DestroyActor(actorid);
+			destroyed++;
+		}
+		gRpc175EdgeIds[index] = INVALID_ACTOR_ID;
+	}
+	return destroyed;
+}
+
+/// Stops the one-shot RPC175 edge fixture and resets all of its state.
+/// References: https://open.mp/docs/scripting/functions/KillTimer
+///             https://open.mp/docs/scripting/functions/DestroyActor
+stock StopRpc175Edge(playerid, bool:quiet)
+{
+	new bool:wasActive = gRpc175EdgeActive;
+	new previousSource = gRpc175EdgeSource;
+	new previousState = gRpc175EdgeState;
+	new previousApplyIndex = gRpc175EdgeApplyIndex;
+
+	if (gRpc175EdgeTimer != 0)
+	{
+		KillTimer(gRpc175EdgeTimer);
+		gRpc175EdgeTimer = 0;
+	}
+
+	// Disable callback bookkeeping before DestroyActor can emit stream-out callbacks.
+	gRpc175EdgeActive = false;
+	new destroyed = DestroyRpc175EdgeEntities();
+	gRpc175EdgeSource = INVALID_PLAYER_ID;
+	gRpc175EdgeState = RPC175_EDGE_STATE_WAIT_STREAM;
+	gRpc175EdgeApplyIndex = 0;
+	gRpc175EdgeStreamWaitTicks = 0;
+	gRpc175EdgeHoldTicks = 0;
+	gRpc175EdgeStreamMask = 0;
+	gRpc175EdgeOrigin[0] = 0.0;
+	gRpc175EdgeOrigin[1] = 0.0;
+	gRpc175EdgeOrigin[2] = 0.0;
+	gRpc175EdgeWorld = 0;
+
+	if (!quiet && playerid != INVALID_PLAYER_ID && IsPlayerConnected(playerid))
+	{
+		SendClientMessage(playerid, 0x66FF66FF, wasActive ?
+			"[bare-rpctest] RPC175 edge fixture stopped and all nine actors destroyed." :
+			"[bare-rpctest] RPC175 edge fixture was inactive; all nine slots were cleaned anyway.");
+	}
+	printf("[bare-rpctest] RPC175 edge_stop requester=%d source=%d was_active=%d state=%d applied=%d destroyed=%d",
+		playerid, previousSource, wasActive, previousState, previousApplyIndex, destroyed);
+	return 1;
+}
+
+/// Advances the fixed RPC175 fixture: wait for all stream-ins, apply one value
+/// per tick, hold the result briefly, then clean up automatically.
+/// References: https://open.mp/docs/scripting/functions/SetActorFacingAngle
+///             https://open.mp/docs/scripting/functions/GetActorFacingAngle
+public Rpc175EdgeTick()
+{
+	if (!gRpc175EdgeActive || gRpc175EdgeSource == INVALID_PLAYER_ID ||
+		!IsPlayerConnected(gRpc175EdgeSource) || !Rpc175EdgeReady())
+	{
+		printf("[bare-rpctest] RPC175 edge_abort reason=fixture_or_source_unavailable source=%d state=%d applied=%d",
+			gRpc175EdgeSource, gRpc175EdgeState, gRpc175EdgeApplyIndex);
+		StopRpc175Edge(INVALID_PLAYER_ID, true);
+		return 1;
+	}
+
+	switch (gRpc175EdgeState)
+	{
+		case RPC175_EDGE_STATE_WAIT_STREAM:
+		{
+			if (gRpc175EdgeStreamMask == RPC175_EDGE_ALL_STREAMED_MASK)
+			{
+				gRpc175EdgeState = RPC175_EDGE_STATE_APPLY;
+				gRpc175EdgeApplyIndex = 0;
+				printf("[bare-rpctest] RPC175 edge_stream_gate_ready source=%d mask=0x%03x wait_ticks=%d",
+					gRpc175EdgeSource, gRpc175EdgeStreamMask, gRpc175EdgeStreamWaitTicks);
+				SendClientMessage(gRpc175EdgeSource, 0x66FF66FF,
+					"[bare-rpctest] All nine RPC175 actors streamed in; fixed edge values begin next tick.");
+				return 1;
+			}
+
+			gRpc175EdgeStreamWaitTicks++;
+			if (gRpc175EdgeStreamWaitTicks >= RPC175_EDGE_STREAM_TIMEOUT_TICKS)
+			{
+				printf("[bare-rpctest] RPC175 edge_abort reason=stream_timeout source=%d mask=0x%03x wait_ticks=%d",
+					gRpc175EdgeSource, gRpc175EdgeStreamMask, gRpc175EdgeStreamWaitTicks);
+				SendClientMessage(gRpc175EdgeSource, 0xFF6666FF,
+					"[bare-rpctest] RPC175 edge fixture timed out waiting for all nine actors to stream in.");
+				StopRpc175Edge(INVALID_PLAYER_ID, true);
+			}
+			return 1;
+		}
+
+		case RPC175_EDGE_STATE_APPLY:
+		{
+			if (gRpc175EdgeStreamMask != RPC175_EDGE_ALL_STREAMED_MASK)
+			{
+				printf("[bare-rpctest] RPC175 edge_abort reason=stream_lost source=%d mask=0x%03x applied=%d",
+					gRpc175EdgeSource, gRpc175EdgeStreamMask, gRpc175EdgeApplyIndex);
+				SendClientMessage(gRpc175EdgeSource, 0xFF6666FF,
+					"[bare-rpctest] RPC175 edge fixture aborted because an actor streamed out during application.");
+				StopRpc175Edge(INVALID_PLAYER_ID, true);
+				return 1;
+			}
+
+			new index = gRpc175EdgeApplyIndex;
+			if (index < 0 || index >= RPC175_EDGE_COUNT)
+			{
+				printf("[bare-rpctest] RPC175 edge_abort reason=invalid_apply_index index=%d", index);
+				StopRpc175Edge(INVALID_PLAYER_ID, true);
+				return 1;
+			}
+
+			new requestedBits = gRpc175EdgeAngleBits[index];
+			new Float:requestedAngle = Float:requestedBits;
+			new setResult = SetActorFacingAngle(gRpc175EdgeIds[index], requestedAngle);
+			new Float:serverAngle = 0.0;
+			new getResult = GetActorFacingAngle(gRpc175EdgeIds[index], serverAngle);
+			printf("[bare-rpctest] RPC175 edge_apply tick_index=%d case=%s actor=%d requested_bits=0x%08x set_result=%d server_readback_result=%d server_readback_bits=0x%08x",
+				index, gRpc175EdgeCaseNames[index], gRpc175EdgeIds[index], requestedBits,
+				setResult, getResult, _:serverAngle);
+
+			gRpc175EdgeApplyIndex++;
+			if (gRpc175EdgeApplyIndex == RPC175_EDGE_COUNT)
+			{
+				gRpc175EdgeState = RPC175_EDGE_STATE_HOLD;
+				gRpc175EdgeHoldTicks = 0;
+				printf("[bare-rpctest] RPC175 edge_hold_start source=%d applied=%d hold_ticks=%d interval_ms=%d",
+					gRpc175EdgeSource, gRpc175EdgeApplyIndex, RPC175_EDGE_HOLD_TICKS, RPC175_EDGE_TICK_MS);
+				SendClientMessage(gRpc175EdgeSource, 0xFFFFFFFF,
+					"[bare-rpctest] All nine fixed RPC175 values sent; holding briefly before automatic cleanup.");
+			}
+			return 1;
+		}
+
+		case RPC175_EDGE_STATE_HOLD:
+		{
+			gRpc175EdgeHoldTicks++;
+			if (gRpc175EdgeHoldTicks >= RPC175_EDGE_HOLD_TICKS)
+			{
+				new source = gRpc175EdgeSource;
+				printf("[bare-rpctest] RPC175 edge_complete source=%d applied=%d hold_ticks=%d",
+					source, gRpc175EdgeApplyIndex, gRpc175EdgeHoldTicks);
+				SendClientMessage(source, 0x66FF66FF,
+					"[bare-rpctest] RPC175 edge fixture complete; destroying all nine actors.");
+				StopRpc175Edge(INVALID_PLAYER_ID, true);
+			}
+			return 1;
+		}
+	}
+
+	printf("[bare-rpctest] RPC175 edge_abort reason=invalid_state state=%d", gRpc175EdgeState);
+	StopRpc175Edge(INVALID_PLAYER_ID, true);
+	return 1;
+}
+
+/// Starts a single deterministic run of nine fixed IEEE-754 RPC175 payloads.
+/// Facing-angle writes do not begin until OnActorStreamIn has observed every
+/// actor for the requesting player.
+/// References: https://open.mp/docs/scripting/functions/CreateActor
+///             https://open.mp/docs/scripting/functions/SetActorVirtualWorld
+///             https://open.mp/docs/scripting/functions/SetTimer
+stock StartRpc175Edge(playerid)
+{
+	if (gRpc175EdgeActive || gRpc175EdgeTimer != 0 || Rpc175EdgeReady())
+	{
+		StopRpc175Edge(playerid, true);
+	}
+	if (gRpcActorBatchActive)
+	{
+		StopRpcActorBatch(playerid, true);
+		printf("[bare-rpctest] RPC175 edge_exclusive stopped_actor_batch=1 requester=%d", playerid);
+	}
+
+	if (!GetPlayerPos(playerid, gRpc175EdgeOrigin[0], gRpc175EdgeOrigin[1], gRpc175EdgeOrigin[2]))
+	{
+		SendClientMessage(playerid, 0xFF6666FF,
+			"[bare-rpctest] Could not capture your position for the RPC175 edge fixture.");
+		return 1;
+	}
+
+	gRpc175EdgeWorld = GetPlayerVirtualWorld(playerid);
+	gRpc175EdgeActive = true;
+	gRpc175EdgeSource = playerid;
+	gRpc175EdgeState = RPC175_EDGE_STATE_WAIT_STREAM;
+	gRpc175EdgeApplyIndex = 0;
+	gRpc175EdgeStreamWaitTicks = 0;
+	gRpc175EdgeHoldTicks = 0;
+	gRpc175EdgeStreamMask = 0;
+
+	for (new index = 0; index < RPC175_EDGE_COUNT; index++)
+	{
+		gRpc175EdgeIds[index] = CreateActor(
+			gRpc175EdgeSkins[index],
+			gRpc175EdgeOrigin[0] + gRpc175EdgeOffsets[index][0],
+			gRpc175EdgeOrigin[1] + gRpc175EdgeOffsets[index][1],
+			gRpc175EdgeOrigin[2],
+			90.0
+		);
+		if (gRpc175EdgeIds[index] == INVALID_ACTOR_ID ||
+			!SetActorVirtualWorld(gRpc175EdgeIds[index], gRpc175EdgeWorld))
+		{
+			printf("[bare-rpctest] ERROR: RPC175 edge_actor_create failed slot=%d actor=%d",
+				index, gRpc175EdgeIds[index]);
+			SendClientMessage(playerid, 0xFF6666FF,
+				"[bare-rpctest] Could not create all nine RPC175 edge actors; partial state was cleaned.");
+			StopRpc175Edge(INVALID_PLAYER_ID, true);
+			return 1;
+		}
+		printf("[bare-rpctest] RPC175 edge_actor_create slot=%d case=%s actor=%d requested_bits=0x%08x world=%d pos=%.3f,%.3f,%.3f",
+			index, gRpc175EdgeCaseNames[index], gRpc175EdgeIds[index], gRpc175EdgeAngleBits[index],
+			gRpc175EdgeWorld,
+			gRpc175EdgeOrigin[0] + gRpc175EdgeOffsets[index][0],
+			gRpc175EdgeOrigin[1] + gRpc175EdgeOffsets[index][1],
+			gRpc175EdgeOrigin[2]);
+	}
+
+	gRpc175EdgeTimer = SetTimer("Rpc175EdgeTick", RPC175_EDGE_TICK_MS, true);
+	if (gRpc175EdgeTimer == 0)
+	{
+		SendClientMessage(playerid, 0xFF6666FF,
+			"[bare-rpctest] Could not create the RPC175 edge timer; all actors were cleaned.");
+		StopRpc175Edge(INVALID_PLAYER_ID, true);
+		return 1;
+	}
+
+	SendClientMessage(playerid, 0x66FF66FF,
+		"[bare-rpctest] Nine RPC175 edge actors created; waiting for every actor to stream in.");
+	SendClientMessage(playerid, 0xFFFFFFFF,
+		"[bare-rpctest] Fixed order: +0, -0, 180, 360, -45, 540, +inf, -inf, qNaN; one write per 500 ms.");
+	SendClientMessage(playerid, 0xFFFFFFFF,
+		"[bare-rpctest] Use /rpc175edgeoff for immediate cleanup.");
+	printf("[bare-rpctest] RPC175 edge_start source=%d timer=%d interval_ms=%d world=%d actors=%d,%d,%d,%d,%d,%d,%d,%d,%d",
+		playerid, gRpc175EdgeTimer, RPC175_EDGE_TICK_MS, gRpc175EdgeWorld,
+		gRpc175EdgeIds[0], gRpc175EdgeIds[1], gRpc175EdgeIds[2],
+		gRpc175EdgeIds[3], gRpc175EdgeIds[4], gRpc175EdgeIds[5],
+		gRpc175EdgeIds[6], gRpc175EdgeIds[7], gRpc175EdgeIds[8]);
+	return 1;
+}
+
 /// Starts the fixed direct-MP3 RPC41 probe, globally or five metres east of the player.
 /// Reference: https://open.mp/docs/scripting/functions/PlayAudioStreamForPlayer
 stock StartRpcAudioTest(playerid, bool:positional)
@@ -1796,12 +2472,52 @@ public OnPlayerCommandText(playerid, cmdtext[])
 
 	if (!strcmp(cmdtext, "/rpcactors", true))
 	{
+		if (gRpc178EdgeActive)
+		{
+			StopRpc178Edge(playerid, true);
+			printf("[bare-rpctest] actor_batch_exclusive stopped_rpc178_edge=1 requester=%d", playerid);
+		}
+		if (gRpc175EdgeActive)
+		{
+			StopRpc175Edge(playerid, true);
+			printf("[bare-rpctest] actor_batch_exclusive stopped_rpc175_edge=1 requester=%d", playerid);
+		}
 		return StartRpcActorBatch(playerid);
 	}
 
 	if (!strcmp(cmdtext, "/rpcactorsoff", true))
 	{
 		return StopRpcActorBatch(playerid, false);
+	}
+
+	if (!strcmp(cmdtext, "/rpc178edge", true))
+	{
+		if (gRpc175EdgeActive)
+		{
+			StopRpc175Edge(playerid, true);
+			printf("[bare-rpctest] RPC178 edge_exclusive stopped_rpc175_edge=1 requester=%d", playerid);
+		}
+		return StartRpc178Edge(playerid);
+	}
+
+	if (!strcmp(cmdtext, "/rpc178edgeoff", true))
+	{
+		return StopRpc178Edge(playerid, false);
+	}
+
+	if (!strcmp(cmdtext, "/rpc175edge", true))
+	{
+		if (gRpc178EdgeActive)
+		{
+			StopRpc178Edge(playerid, true);
+			printf("[bare-rpctest] RPC175 edge_exclusive stopped_rpc178_edge=1 requester=%d", playerid);
+		}
+		return StartRpc175Edge(playerid);
+	}
+
+	if (!strcmp(cmdtext, "/rpc175edgeoff", true))
+	{
+		return StopRpc175Edge(playerid, false);
 	}
 
 	if (!strcmp(cmdtext, "/menutest", true))
@@ -2853,6 +3569,14 @@ public OnPlayerDisconnect(playerid, reason)
 	{
 		StopRpcActorBatch(playerid, true);
 	}
+	if (gRpc178EdgeActive && gRpc178EdgeSource == playerid)
+	{
+		StopRpc178Edge(playerid, true);
+	}
+	if (gRpc175EdgeActive && gRpc175EdgeSource == playerid)
+	{
+		StopRpc175Edge(playerid, true);
+	}
 
 	if (gSampObjectScanActive && gSampObjectScanPlayer == playerid)
 	{
@@ -2873,6 +3597,8 @@ public OnGameModeExit()
 	StopRpcMapIconBatch(INVALID_PLAYER_ID, true);
 	DestroyRpcGangZoneBatchTest();
 	StopRpcActorBatch(INVALID_PLAYER_ID, true);
+	StopRpc178Edge(INVALID_PLAYER_ID, true);
+	StopRpc175Edge(INVALID_PLAYER_ID, true);
 	StopSampObjectScan(INVALID_PLAYER_ID, true);
 	DestroyRpcAttachedObject("gamemode_exit");
 	for (new playerid = 0; playerid < MAX_PLAYERS; playerid++)
@@ -2922,6 +3648,17 @@ public OnPlayerClickPlayer(playerid, clickedplayerid, CLICK_SOURCE:source)
 	SendClientMessage(playerid, 0x66FF66FF, message);
 	printf("[bare-clicktest] OnPlayerClickPlayer player=%d name=%s clicked=%d clicked_name=%s source=%d scoreboard=%d",
 		playerid, playerName, clickedplayerid, clickedName, _:source, source == CLICK_SOURCE_SCOREBOARD);
+	return 1;
+}
+
+/// Records the real outgoing chat RPC used by the unattended T interaction probe.
+/// Returning 1 preserves open.mp's default player-coloured name plus white text.
+/// Reference: https://open.mp/docs/scripting/callbacks/OnPlayerText
+public OnPlayerText(playerid, text[])
+{
+	new name[MAX_PLAYER_NAME + 1];
+	GetPlayerName(playerid, name, sizeof(name));
+	printf("[bare-uitest] OnPlayerText player=%d name=%s text='%s' default_broadcast=1", playerid, name, text);
 	return 1;
 }
 
@@ -3053,6 +3790,20 @@ public OnActorStreamIn(actorid, forplayerid)
 		printf("[bare-rpctest] actor_stream_in actor=%d player=%d last_applied_phase=%d next_phase=%d",
 			actorid, forplayerid, gRpcActorBatchLastAppliedPhase, gRpcActorBatchPhase);
 	}
+	new edgeSlot = Rpc178EdgeActorSlot(actorid);
+	if (gRpc178EdgeActive && edgeSlot != -1 && forplayerid == gRpc178EdgeSource)
+	{
+		gRpc178EdgeStreamMask |= (1 << edgeSlot);
+		printf("[bare-rpctest] RPC178 edge_stream_in slot=%d actor=%d player=%d mask=0x%02x",
+			edgeSlot, actorid, forplayerid, gRpc178EdgeStreamMask);
+	}
+	new facingEdgeSlot = Rpc175EdgeActorSlot(actorid);
+	if (gRpc175EdgeActive && facingEdgeSlot != -1 && forplayerid == gRpc175EdgeSource)
+	{
+		gRpc175EdgeStreamMask |= (1 << facingEdgeSlot);
+		printf("[bare-rpctest] RPC175 edge_stream_in slot=%d actor=%d player=%d mask=0x%03x",
+			facingEdgeSlot, actorid, forplayerid, gRpc175EdgeStreamMask);
+	}
 	return 1;
 }
 
@@ -3064,6 +3815,22 @@ public OnActorStreamOut(actorid, forplayerid)
 	{
 		printf("[bare-rpctest] actor_stream_out actor=%d player=%d last_applied_phase=%d next_phase=%d",
 			actorid, forplayerid, gRpcActorBatchLastAppliedPhase, gRpcActorBatchPhase);
+	}
+	new edgeSlot = Rpc178EdgeActorSlot(actorid);
+	if (gRpc178EdgeActive && edgeSlot != -1 && forplayerid == gRpc178EdgeSource)
+	{
+		gRpc178EdgeStreamMask &= ~(1 << edgeSlot);
+		printf("[bare-rpctest] RPC178 edge_stream_out slot=%d actor=%d player=%d mask=0x%02x state=%d applied=%d",
+			edgeSlot, actorid, forplayerid, gRpc178EdgeStreamMask,
+			gRpc178EdgeState, gRpc178EdgeApplyIndex);
+	}
+	new facingEdgeSlot = Rpc175EdgeActorSlot(actorid);
+	if (gRpc175EdgeActive && facingEdgeSlot != -1 && forplayerid == gRpc175EdgeSource)
+	{
+		gRpc175EdgeStreamMask &= ~(1 << facingEdgeSlot);
+		printf("[bare-rpctest] RPC175 edge_stream_out slot=%d actor=%d player=%d mask=0x%03x state=%d applied=%d",
+			facingEdgeSlot, actorid, forplayerid, gRpc175EdgeStreamMask,
+			gRpc175EdgeState, gRpc175EdgeApplyIndex);
 	}
 	return 1;
 }

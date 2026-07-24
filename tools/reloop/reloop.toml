@@ -1,0 +1,40 @@
+[workspace]
+server_root = "omp-server-bare"
+server_executable = "omp-server-bare/omp-server"
+server_config = "omp-server-bare/config.json"
+pawn_source = "omp-server-bare/filterscripts/test_cmds.pwn"
+pawn_output = "omp-server-bare/filterscripts/test_cmds.amx"
+pawn_compiler = "omp-server-bare/qawno/pawncc"
+build_script = "reimpl/scripts/build_in_devbuild_toolbox.sh"
+built_dll = "build-win32/samp.dll"
+artifacts_root = "artifacts/runs"
+
+[runner]
+proton_root = "/home/chairman/.local/share/Steam/compatibilitytools.d/GE-Proton10-34"
+
+[device_selection]
+source = "/home/chairman/Downloads/1483123471_SkipDeviceSelection/SkipDeviceSelection.asi"
+filename = "SkipDeviceSelection.asi"
+sha256 = "f43fea656272c9f226c6c7446ea2817af6d089695db823e1fa949b95d901a766"
+
+[run]
+host = "127.0.0.1"
+port = 7778
+nickname = "ReLoop"
+group = "all"
+delay_ms = 1200
+server_ready_timeout_s = 30
+run_timeout_s = 180
+shutdown_timeout_s = 10
+crash_attempts = 3
+autospawn = true
+
+[client.original]
+prefix = "/home/chairman/Games/san-andreas-multiplayer-legacy-legacy"
+lutris_game_id = 55
+lutris_config = "/home/chairman/.config/lutris/games/san-andreas-multiplayer-1780301287.yml"
+
+[client.replacement]
+prefix = "/home/chairman/Games/san-andreas-multiplayer-legacy-libsamp"
+lutris_game_id = 57
+lutris_config = "/home/chairman/.config/lutris/games/san-andreas-multiplayer-1781986090.yml"

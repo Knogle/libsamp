@@ -23,6 +23,9 @@ It is intended for local reverse-engineering and compatibility work:
 13. optionally trace original-R5 outgoing ServerCommand/DialogResponse/
     MenuSelect/MenuQuit RPCs at RakClientInterface vtable slot 26, including
     payload, transport parameters, original callsite, and send result.
+14. on the validated GTA-SA 1.0 US IPL null-entity fault at `0x00405E15`,
+    passively log the bounded `CFileLoader::LoadObjectInstance` input line from
+    the still-live cdecl argument at `ESP[0]`.
 
 The first pass rewrites selected import slots inside `samp.dll`, so observed calls are attributable to `samp.dll` rather than process-global Wine/WinDbg noise.
 
@@ -264,6 +267,38 @@ module base instead of comparing preferred-base absolute bytes. Each
 successful call emits matching
 `actor_rpc: phase=begin` and `phase=end` lines.
 
+RPC175 begin records include the raw IEEE-754 `angle_bits`. After the original
+handler returns, the normal Actor profile follows the bounded
+ActorPool -> CActor -> CPed chain and emits `actor_rpc175_readback` with the raw
+`CPed+0x55c` heading bits. It also derives the expected R5 degrees-to-radians
+result from the statically recovered helper at `samp.dll+0x000b5970`, reports
+the numeric delta and exact converted-bit match, and records an explicit
+active/null/readability/no-op reason. This read-only observation does not
+require the heavy Actor hook set.
+
+RPC176 begin records include all three raw IEEE-754 `position_bits`, whether
+the first 112 payload bits are complete, and the number of ignored trailing
+bits. The normal Actor profile independently resolves the ActorPool chain
+before and after the one original handler call and emits
+`actor_rpc176_state`/`actor_rpc176_compare`. These records distinguish the
+`CActor+0x40` entity used by `CActor::SetPosition` from the cached
+`CActor+0x48` CPed, preserve the `CActor+0x44` GTA handle used by the
+449/537/538 train-SCM branch, report the base-`CPlaceable` vtable guard,
+model, position-vfunc, train-SCM/matrix/direct-position paths and exact
+position-bit matches, and capture move/turn speed, `CPed+0x46c`,
+`CPhysical+0xdc`, intelligence, `CPed+0x598`, aiming rotation, and the matrix
+basis. Every guard or partial read has an explicit reason. `STATIC_037` ties
+this observation to RPC176 at `samp.dll+0x0001dad0`,
+`CActor::SetPosition` at `samp.dll+0x0009f040`, and the normal-model
+`CPed::Teleport` path at `gta_sa.exe+0x001e4110`. The focused state readback is
+read-only and does not require heavy Actor hooks.
+
+RPC178 begin records include the raw IEEE-754 `health_bits`. After the original
+handler returns, the normal Actor profile also follows the statically recovered
+ActorPool -> CActor -> CPed chain and emits `actor_rpc178_readback` with the raw
+`CPed+0x540` bits, a match result, and an explicit no-op/failure reason. This is
+bounded read-only observation and does not require the heavy Actor hook set.
+
 For the full original-client Actor pipeline, use
 `samp_probe_actor_heavy.flag` instead. Heavy mode implies the seven RPC hooks
 and additionally installs one atomic eight-hook R5 set:
@@ -283,14 +318,22 @@ SHA256=`a559aa772fd136379155efa71f00c47aad34bbfeae6196b0fe1047d0645cbd26`
 before tracing `CPed::Teleport @ 0x5e4110`,
 `CPedIntelligence::FlushImmediately @ 0x601640`, and
 `CRunningScript::ProcessOneCommand @ 0x469eb0`. The hot script dispatcher is
-logged only while a typed Actor method is active and only when its caller is
-the proven SA-MP bridge return site `samp.dll+0xb22ee`. Actor-related dynamic
-SCM records appear as `actor_heavy_scm` with the raw opcode, decoded name,
-instruction pointer, compare flag, and enclosing RPC/method sequence.
+logged only while the RPC176 handler owns the current thread, a typed
+`CActor::SetPosition` method is active, and its caller is the proven SA-MP
+bridge return site `samp.dll+0xb22ee`. The SetPosition, Teleport, Flush, and
+SCM deep records are likewise limited to the active RPC176 scope; unrelated
+lifecycle SetPosition calls pass through the validated trampolines without
+snapshot or logging work. Actor-related dynamic SCM records appear as
+`actor_heavy_scm` with the raw opcode, decoded name, instruction pointer,
+compare flag, and enclosing RPC/method sequence.
 
 Heavy mode is intentionally process-bound and noisy. Use it for one short
 `/rpcactors` cycle, exit the process cleanly, and discard any run that lacks
 all three `set_preflight_ok` markers or contains `incomplete_*`/`exception:`.
+Do not combine either Actor profile with another ASI that patches the same
+RPC handler entries. Heavy mode additionally owns the byte-validated
+`CActor::SetPosition`, `CPed::Teleport`, Flush, and script-dispatch entries;
+use a passive probe profile when an overlay owns any of those targets.
 
 For the focused RPC-gap run, enable `samp_probe_rpc_gap_hooks.flag` by itself.
 This atomically preflights and installs eleven original-R5 hooks:

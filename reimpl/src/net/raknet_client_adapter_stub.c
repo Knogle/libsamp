@@ -1,5 +1,7 @@
 #include "sampdll/net/raknet_client_adapter.h"
 
+#include "raknet_client_adapter_internal.h"
+
 #include <string.h>
 
 int samp_raknet_client_available(void) { return 0; }
@@ -147,6 +149,23 @@ int samp_raknet_client_get_actor_state(void *client, uint16_t actor_id,
   (void)actor_id;
   if (out_state != 0) {
     memset(out_state, 0, sizeof(*out_state));
+  }
+  return -1;
+}
+
+int samp_raknet_client_get_actor_create_rotation_bits(
+    void *client, uint16_t actor_id, uint32_t *out_create_revision,
+    uint32_t *out_rotation_bits, uint32_t *out_facing_revision) {
+  (void)client;
+  (void)actor_id;
+  if (out_create_revision != 0) {
+    *out_create_revision = 0u;
+  }
+  if (out_rotation_bits != 0) {
+    *out_rotation_bits = 0u;
+  }
+  if (out_facing_revision != 0) {
+    *out_facing_revision = 0u;
   }
   return -1;
 }
